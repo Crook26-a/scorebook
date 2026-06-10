@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My Scorebook</title>
+<meta name="theme-color" content="#1E3A5F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Scorebook">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root {
+    --paper: #EAF0E6; --card: #F8FBF5; --ink: #1E3A5F; --ink-soft: #5A7089;
+    --line: #C2D2BC; --red: #C0392B; --red-soft: #F6E3E0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
+    font-family: Georgia, 'Times New Roman', serif;
+    background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 27px, rgba(194,210,188,.33) 27px, rgba(194,210,188,.33) 28px);
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 14px 90px; }
+  .disp { font-family: 'Arial Narrow', 'Helvetica Neue Condensed', Impact, sans-serif; text-transform: uppercase; letter-spacing: .1em; }
+  .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+  header { border-bottom: 3px double var(--ink); padding-bottom: 12px; margin-bottom: 16px; }
+  header h1 { margin: 0; font-size: 32px; line-height: 1; letter-spacing: .06em; }
+  #tally { font-size: 13px; color: var(--ink-soft); margin-top: 6px; font-style: italic; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .chip { font-size: 12px; padding: 6px 12px; border-radius: 999px; border: 1.5px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; }
+  .chip.active { background: var(--ink); color: var(--card); }
+  input, select, textarea {
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: #fff;
+    color: var(--ink); font-family: Georgia, serif; font-size: 16px; width: 100%;
+  }
+  select.inline { width: auto; font-size: 13px; padding: 6px 8px; }
+  #search { flex: 1; min-width: 150px; font-size: 14px; }
+  label { display: block; font-family: 'Arial Narrow', Impact, sans-serif; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: var(--ink-soft); margin-bottom: 4px; }
+  .addbtn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px; margin-bottom: 20px; border: 2px dashed var(--ink); border-radius: 6px; background: transparent; color: var(--ink); font-size: 14px; cursor: pointer; }
+  .panel { background: var(--card); border: 1.5px solid var(--ink); border-radius: 6px; padding: 14px; margin-bottom: 22px; box-shadow: 3px 3px 0 var(--ink); }
+  .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .xbtn { background: none; border: none; color: var(--ink-soft); font-size: 20px; cursor: pointer; line-height: 1; padding: 2px 6px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .grid-teams { display: grid; grid-template-columns: 1fr 58px 1fr 58px; gap: 6px; margin-bottom: 12px; align-items: end; }
+  .venue-row { margin-bottom: 12px; }
+  .venue-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .vbtn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 4px; font-size: 13px; cursor: pointer; border: 1.5px solid var(--line); background: #fff; color: var(--ink); font-family: Georgia, serif; }
+  .vbtn.active { border-color: var(--red); background: var(--red-soft); color: var(--red); }
+  .boxlaunch { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 4px; cursor: pointer; border: 1.5px solid var(--red); background: #fff; color: var(--red); font-size: 13px; font-weight: 700; }
+  .boxlaunch.has { background: var(--red-soft); }
+  .saverow { display: flex; gap: 8px; margin-top: 12px; }
+  .savebtn { flex: 1; padding: 10px; background: var(--ink); color: var(--card); border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+  .cancelbtn { padding: 10px 16px; background: transparent; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 4px; font-size: 13px; cursor: pointer; font-family: Georgia, serif; }
+  .card { position: relative; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--ink); border-radius: 4px; padding: 13px 14px; margin-bottom: 13px; }
+  .stamp { position: absolute; top: 10px; right: 12px; transform: rotate(-6deg); border: 2px solid var(--red); color: var(--red); border-radius: 3px; font-size: 10px; letter-spacing: .12em; padding: 2px 7px; opacity: .85; }
+  .meta { font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
+  .matchup { font-size: 19px; font-weight: 700; letter-spacing: .04em; }
+  .matchup .at { color: var(--ink-soft); font-weight: 400; font-size: 14px; margin: 0 6px; }
+  .matchup .score { font-size: 17px; }
+  .teamhead { font-size: 11px; font-weight: 700; border-bottom: 2px solid var(--ink); padding-bottom: 2px; margin: 8px 0 4px; }
+  .boxwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .sheet.wide { width: max-content; min-width: min(100%, 340px); max-width: none; }
+  table.edit thead th { position: sticky; top: 0; background: var(--card); z-index: 2; }
+  /* live: pitch-type chips + diamond */
+  .pchips { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .pchip { padding: 5px 10px; font-size: 11px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink-soft); cursor: pointer; font-family: ui-monospace, Menlo, monospace; }
+  .pchip.on { border-color: var(--red); color: var(--red); background: var(--red-soft); font-weight: 700; }
+  .diamond-wrap { margin: 2px 0 6px; } .diamond-wrap svg { width: 100%; height: auto; display: block; border-radius: 6px; }
+  table.box { border-collapse: collapse; font-size: 12px; width: 100%; }
+  table.box th { text-align: right; color: var(--ink-soft); font-weight: 600; padding: 2px 6px; font-size: 11px; }
+  table.box th.pl { text-align: left; font-weight: 400; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; padding-left: 0; }
+  table.box td { text-align: right; padding: 2px 6px; white-space: nowrap; }
+  table.box td.pl { text-align: left; font-weight: 600; padding-left: 0; }
+  .mline { font-size: 11px; color: var(--red); padding: 0 0 4px 8px; text-align: left !important; }
+  .notes { margin-top: 8px; font-size: 13px; font-style: italic; color: var(--ink-soft); }
+  .cardbtns { display: flex; gap: 14px; margin-top: 9px; }
+  .cardbtns button { background: none; border: none; font-size: 12px; cursor: pointer; padding: 0; font-family: Georgia, serif; }
+  .ebtn { color: var(--ink-soft); } .dbtn { color: var(--red); }
+  .empty { text-align: center; color: var(--ink-soft); padding: 40px 10px; font-style: italic; }
+  /* box score overlay */
+  #overlay { position: fixed; inset: 0; z-index: 50; background: rgba(30,58,95,.45); overflow: auto; padding: 12px 6px; }
+  #overlay.hidden, .hidden { display: none; }
+  .sheet { background: var(--card); border: 2px solid var(--ink); border-radius: 6px; box-shadow: 4px 4px 0 var(--ink); max-width: 880px; margin: 0 auto; padding: 14px; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 3px double var(--ink); padding-bottom: 10px; margin-bottom: 6px; }
+  .hint { font-size: 11px; color: var(--ink-soft); font-style: italic; margin-bottom: 12px; }
+  .grouplabel { font-size: 13px; font-weight: 700; color: var(--red); margin: 14px 0 6px; }
+  table.edit { border-collapse: collapse; width: 100%; }
+  table.edit th { font-size: 10px; color: var(--ink); text-align: center; padding: 4px 2px; border-bottom: 2px solid var(--ink); }
+  table.edit th.pl { color: var(--ink-soft); text-align: left; min-width: 104px; font-family: 'Arial Narrow', Impact, sans-serif; text-transform: uppercase; letter-spacing: .08em; }
+  table.edit td { padding: 5px 2px 2px; }
+  table.edit input.stat { width: 44px; padding: 7px 1px; text-align: center; font-size: 14px; }
+  table.edit input.pname { min-width: 104px; padding: 6px 8px; font-size: 13px; }
+  .teamtog { font-size: 11px; padding: 6px 8px; cursor: pointer; border: 1px solid var(--line); border-radius: 3px; background: #fff; color: var(--ink); max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mrow td { padding: 0 0 6px 4px; border-bottom: 1px dashed var(--line); font-size: 11px; }
+  .addrow { background: none; border: none; color: var(--red); font-size: 13px; cursor: pointer; padding: 6px 0 0; font-family: Georgia, serif; }
+  .delrow { background: none; border: none; color: var(--ink-soft); cursor: pointer; font-size: 15px; }
+  .donebtn { width: 100%; padding: 11px; background: var(--ink); color: var(--card); border: none; border-radius: 4px; font-size: 14px; cursor: pointer; margin-top: 8px; }
+  .err { background: var(--red-soft); border: 1px solid var(--red); border-radius: 4px; padding: 8px 12px; font-size: 13px; margin-bottom: 12px; color: var(--red); }
+  /* live scorer */
+  .lcount { font-size: 52px; font-weight: 700; text-align: center; letter-spacing: .05em; margin: 6px 0 2px; }
+  .lcount-label { text-align: center; font-size: 11px; color: var(--ink-soft); letter-spacing: .15em; text-transform: uppercase; margin-bottom: 14px; }
+  .lbatter { text-align: center; margin-bottom: 4px; }
+  .lbatter button { background: none; border: none; cursor: pointer; color: var(--ink); font-size: 21px; font-weight: 700; font-family: 'Arial Narrow', Impact, sans-serif; text-transform: uppercase; letter-spacing: .05em; border-bottom: 2px dashed var(--line); padding: 2px 4px; }
+  .lnext { text-align: center; font-size: 12px; color: var(--ink-soft); font-style: italic; margin-bottom: 10px; }
+  .lgrid { display: grid; gap: 8px; margin-bottom: 8px; }
+  .lg2 { grid-template-columns: 1fr 1fr; } .lg3 { grid-template-columns: 1fr 1fr 1fr; } .lg4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .lbtn { padding: 16px 4px; font-size: 16px; font-weight: 700; border: 1.5px solid var(--ink); border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; font-family: 'Arial Narrow', Impact, sans-serif; text-transform: uppercase; letter-spacing: .06em; }
+  .lbtn.big { padding: 22px 4px; font-size: 19px; }
+  .lbtn.redb { border-color: var(--red); color: var(--red); }
+  .lbtn.soft { border-color: var(--line); color: var(--ink-soft); font-size: 13px; padding: 11px 4px; }
+  .lbtn:disabled { opacity: .35; cursor: default; }
+  .lbtn.full { grid-column: 1 / -1; }
+  .llist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .llist button { padding: 12px; font-size: 15px; border: 1.5px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; text-align: left; font-family: Georgia, serif; }
+  .llist button.cur { border-color: var(--red); background: var(--red-soft); }
+  .lsetup-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .lsetup-row .n { width: 22px; font-size: 13px; color: var(--ink-soft); text-align: right; }
+  .lstat-strip { font-size: 11px; text-align: center; color: var(--red); margin-bottom: 12px; min-height: 14px; }
+  .backup { text-align: center; margin-top: 30px; font-size: 12px; color: var(--ink-soft); }
+  .backup button { background: none; border: none; color: var(--ink); font-size: 12px; cursor: pointer; text-decoration: underline; font-family: Georgia, serif; padding: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 class="disp">My Scorebook</h1>
+    <div id="tally"></div>
+  </header>
+  <div id="err" class="err hidden">Couldn't save — your browser may be blocking storage (private browsing?). Changes will be lost when you close this page.</div>
+  <div class="controls">
+    <button class="chip disp active" data-sport="all">All</button>
+    <button class="chip disp" data-sport="basketball">🏀 Basketball</button>
+    <button class="chip disp" data-sport="football">🏈 Football</button>
+    <button class="chip disp" data-sport="baseball">⚾ Baseball</button>
+    <select id="venueFilter" class="inline">
+      <option value="all">TV + in person + radio</option>
+      <option value="tv">On TV only</option>
+      <option value="in-person">In person only</option>
+      <option value="radio">Radio only</option>
+    </select>
+    <input id="search" placeholder="Search players, teams, notes…">
+  </div>
+  <button id="addBtn" class="addbtn disp">＋ Log a game</button>
+  <div id="formArea"></div>
+  <div id="listArea"></div>
+  <div class="backup">
+    Your scorebook lives on this device.
+    <button id="exportBtn">⬇ Back up to a file</button> ·
+    <button id="importBtn">⬆ Restore from backup</button>
+    <input type="file" id="importFile" accept=".json,application/json" hidden>
+  </div>
+</div>
+<div id="overlay" class="hidden"></div>
+
+<script>
+"use strict";
+// ── Schemas & math ────────────────────────────────────────────────────
+const num = v => { const x = parseFloat(String(v ?? "").replace(/[^\d.\-]/g, "")); return isNaN(x) ? 0 : x; };
+const filled = v => String(v ?? "").trim() !== "";
+const f1 = x => x.toFixed(1), f2 = x => x.toFixed(2);
+const b3 = x => { const s = x.toFixed(3); return s.startsWith("0") ? s.slice(1) : s; };
+const pctStr = x => (x * 100).toFixed(1) + "%";
+const ipVal = v => { const s = String(v ?? "").trim(); if (!s) return 0; const p = s.split("."); return (parseInt(p[0]) || 0) + Math.min(parseInt(p[1]) || 0, 2) / 3; };
+const clampR = x => Math.max(0, Math.min(2.375, x));
+
+const SPORTS = { basketball: "🏀", football: "🏈", baseball: "⚾" };
+const BOX = {
+  basketball: [{ id: "box", label: "Box score", add: "Add player",
+    cols: ["MIN","FGM","FGA","3PM","3PA","FTM","FTA","OREB","DREB","AST","STL","BLK","TO","PF","PTS"],
+    calc: s => {
+      const out = [];
+      const fgm=num(s.FGM), fga=num(s.FGA), tpm=num(s["3PM"]), tpa=num(s["3PA"]), ftm=num(s.FTM), fta=num(s.FTA), pts=num(s.PTS), oreb=num(s.OREB), dreb=num(s.DREB);
+      if (filled(s.OREB) || filled(s.DREB)) out.push(["REB", String(oreb + dreb)]);
+      if (fga > 0) out.push(["FG%", pctStr(fgm / fga)]);
+      if (tpa > 0) out.push(["3P%", pctStr(tpm / tpa)]);
+      if (fta > 0) out.push(["FT%", pctStr(ftm / fta)]);
+      if (fga > 0) out.push(["eFG%", pctStr((fgm + .5 * tpm) / fga)]);
+      const tsDen = 2 * (fga + .44 * fta);
+      if (tsDen > 0 && filled(s.PTS)) out.push(["TS%", pctStr(pts / tsDen)]);
+      if (filled(s.PTS) && fga > 0) {
+        const g = pts + .4*fgm - .7*fga - .4*(fta-ftm) + .7*oreb + .3*dreb + num(s.STL) + .7*num(s.AST) + .7*num(s.BLK) - .4*num(s.PF) - num(s.TO);
+        out.push(["GmSc", f1(g)]);
+      }
+      return out;
+    }}],
+  football: [
+    { id: "passing", label: "Passing", add: "Add passer", cols: ["CMP","ATT","YDS","TD","INT","SACK"],
+      calc: s => {
+        const out = [], cmp=num(s.CMP), att=num(s.ATT), yds=num(s.YDS), td=num(s.TD), int=num(s.INT);
+        if (att > 0) {
+          out.push(["CMP%", pctStr(cmp/att)], ["Y/A", f1(yds/att)]);
+          const a=clampR((cmp/att-.3)*5), b=clampR((yds/att-3)*.25), c=clampR(td/att*20), d=clampR(2.375-int/att*25);
+          out.push(["RTG", f1((a+b+c+d)/6*100)]);
+        }
+        return out;
+      }},
+    { id: "rushing", label: "Rushing", add: "Add rusher", cols: ["CAR","YDS","TD","LONG","FUM"],
+      calc: s => { const out=[], car=num(s.CAR); if (car>0) out.push(["YPC", f1(num(s.YDS)/car)]); return out; }},
+    { id: "receiving", label: "Receiving", add: "Add receiver", cols: ["TGT","REC","YDS","TD","LONG"],
+      calc: s => {
+        const out=[], rec=num(s.REC), tgt=num(s.TGT);
+        if (rec>0) out.push(["Y/R", f1(num(s.YDS)/rec)]);
+        if (tgt>0) out.push(["CATCH%", pctStr(rec/tgt)]);
+        return out;
+      }},
+  ],
+  baseball: [
+    { id: "batting", label: "Batting", add: "Add batter", cols: ["AB","R","H","2B","3B","HR","RBI","BB","HBP","SO","SB","RAB","RH"],
+      calc: s => {
+        const out=[], ab=num(s.AB), h=num(s.H), d=num(s["2B"]), t=num(s["3B"]), hr=num(s.HR), bb=num(s.BB), hbp=num(s.HBP);
+        const tb = (h-d-t-hr) + 2*d + 3*t + 4*hr;
+        if (h > 0) out.push(["TB", String(tb)]);
+        let avg=null, obp=null, slg=null;
+        if (ab > 0) { avg = h/ab; slg = tb/ab; }
+        const oden = ab + bb + hbp;
+        if (oden > 0) obp = (h+bb+hbp)/oden;
+        if (avg !== null) out.push(["AVG", b3(avg)]);
+        if (obp !== null) out.push(["OBP", b3(obp)]);
+        if (slg !== null) out.push(["SLG", b3(slg)]);
+        if (obp !== null && slg !== null) out.push(["OPS", b3(obp+slg)]);
+        const rab = num(s.RAB);
+        if (rab > 0) out.push(["RISP", b3(num(s.RH)/rab) + " (" + num(s.RH) + "-" + rab + ")"]);
+        return out;
+      }},
+    { id: "pitching", label: "Pitching", add: "Add pitcher", cols: ["IP","H","R","ER","BB","K","HR","PC","SwS","LkS","FB","CB","SL","CH","OT"],
+      calc: s => {
+        const out=[], inn=ipVal(s.IP), bb=num(s.BB), k=num(s.K);
+        if (inn > 0) out.push(["ERA", f2(9*num(s.ER)/inn)], ["WHIP", f2((bb+num(s.H))/inn)], ["K/9", f1(9*k/inn)]);
+        if (bb > 0) out.push(["K/BB", f1(k/bb)]);
+        const sw=num(s.SwS), lk=num(s.LkS), pc=num(s.PC);
+        if (pc > 0 && (sw+lk) > 0) out.push(["SwStr%", pctStr(sw/pc)]);
+        return out;
+      }},
+    { id: "fielding", label: "Fielding", add: "Add fielder", cols: ["PO","A","E"],
+      calc: s => {
+        const po=num(s.PO), a=num(s.A), e=num(s.E), den=po+a+e;
+        return den > 0 ? [["FLD%", b3((po+a)/den)]] : [];
+      }},
+  ],
+};
+
+// ── State ─────────────────────────────────────────────────────────────
+const KEY = "sports-stat-log-v1";
+let entries = [];
+try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
+// Ask the browser to mark this data as persistent so the OS won't evict it to free space
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+let form = null, editingId = null, rowSeq = 0;
+let sportFilter = "all";
+
+const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const today = () => new Date().toISOString().slice(0, 10);
+const emptyForm = () => ({ sport: "basketball", date: today(), away: "", home: "", awayScore: "", homeScore: "", venue: "tv", place: "", box: [], pbp: [], notes: "" });
+const newRow = g => ({ id: "r" + Date.now().toString(36) + (rowSeq++), player: "", team: "away", group: g, stats: {} });
+const mline = m => m.map(([k, v]) => k + " " + v).join("  ·  ");
+
+function persist() {
+  try { localStorage.setItem(KEY, JSON.stringify(entries)); document.getElementById("err").classList.add("hidden"); }
+  catch (e) { document.getElementById("err").classList.remove("hidden"); }
+}
+
+// ── Tally & list ──────────────────────────────────────────────────────
+function renderTally() {
+  const ip = entries.filter(e => e.venue === "in-person").length;
+  document.getElementById("tally").textContent = entries.length === 0
+    ? "Every game you've watched, on the record."
+    : entries.length + " game" + (entries.length === 1 ? "" : "s") + " logged · " + ip + " seen in person";
+}
+
+function boxDisplayHTML(e) {
+  const groups = BOX[e.sport] || [], rows = e.box || [];
+  if (!rows.length) return "";
+  let html = "";
+  for (const t of ["away", "home"]) {
+    const tr = rows.filter(r => r.team === t);
+    if (!tr.length) continue;
+    html += '<div class="teamhead disp">' + esc(t === "away" ? e.away || "Away" : e.home || "Home") + "</div>";
+    for (const g of groups) {
+      const gr = tr.filter(r => r.group === g.id);
+      if (!gr.length) continue;
+      const used = g.cols.filter(c => gr.some(r => filled(r.stats[c])));
+      const cols = used.length ? used : g.cols;
+      html += '<div class="boxwrap"><table class="box mono"><tr><th class="pl">' + (groups.length > 1 ? esc(g.label) : "") + "</th>"
+        + cols.map(c => "<th>" + esc(c) + "</th>").join("") + "</tr>";
+      for (const r of gr) {
+        html += '<tr><td class="pl">' + esc(r.player || "—") + "</td>" + cols.map(c => "<td>" + esc(r.stats[c] || "·") + "</td>").join("") + "</tr>";
+        const m = g.calc(r.stats);
+        if (m.length) html += '<tr><td class="mline" colspan="' + (cols.length + 1) + '">' + esc(mline(m)) + "</td></tr>";
+      }
+      html += "</table></div>";
+    }
+  }
+  return '<div style="margin-top:8px">' + html + "</div>";
+}
+
+function pbpGroupHtml(pbp) {
+  let h = "", lastKey = "";
+  for (const p of pbp) {
+    const key = p.h + "-" + p.i;
+    if (key !== lastKey) { h += '<div class="disp" style="font-size:11px;font-weight:700;color:var(--red);margin:8px 0 3px">' + (p.h === "top" ? "▲ Top " : "▼ Bottom ") + p.i + "</div>"; lastKey = key; }
+    h += '<div style="font-size:13px;padding:2px 0;border-bottom:1px dashed var(--line)">' + esc(p.t) + "</div>";
+  }
+  return h;
+}
+function renderList() {
+  const venueFilter = document.getElementById("venueFilter").value;
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  const list = entries.filter(e => {
+    if (sportFilter !== "all" && e.sport !== sportFilter) return false;
+    if (venueFilter !== "all" && e.venue !== venueFilter) return false;
+    if (q) {
+      const legacy = (e.statLines || []).map(s => s.player + " " + s.line);
+      const names = (e.box || []).map(r => r.player);
+      const venueWords = { "tv": "tv on tv television watched", "in-person": "in person in-person live attended stadium arena", "radio": "radio on the radio listened" }[e.venue] || "";
+      if (![e.away, e.home, e.place, e.notes, venueWords, ...legacy, ...names].join(" ").toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+  const area = document.getElementById("listArea");
+  if (!list.length) {
+    area.innerHTML = '<div class="empty">' + (entries.length === 0 ? "No games yet. Log the first one above." : "No games match those filters.") + "</div>";
+    return;
+  }
+  area.innerHTML = list.map(e => {
+    const hasScore = filled(e.awayScore) || filled(e.homeScore);
+    const legacy = (e.statLines || []).length
+      ? '<div style="margin-top:8px;border-top:1px dashed var(--line);padding-top:8px">' + e.statLines.map(s =>
+          '<div class="mono" style="font-size:13px;display:flex;gap:12px;padding:2px 0"><span style="min-width:120px;font-weight:600">' + esc(s.player) + "</span><span>" + esc(s.line) + "</span></div>").join("") + "</div>"
+      : "";
+    return '<div class="card" data-id="' + e.id + '">'
+      + (e.venue === "in-person" ? '<div class="stamp disp">In person</div>' : "")
+      + '<div class="meta mono">' + (SPORTS[e.sport] || "") + " " + esc(e.date) + (e.place ? " · " + esc(e.place) : (e.venue === "tv" ? " · on TV" : e.venue === "radio" ? " · on the radio" : "")) + "</div>"
+      + '<div class="matchup disp">' + esc(e.away || "?") + " " + (hasScore ? '<span class="score mono">' + esc(e.awayScore || "–") + "</span>" : "")
+      + '<span class="at">@</span>' + esc(e.home || "?") + " " + (hasScore ? '<span class="score mono">' + esc(e.homeScore || "–") + "</span>" : "") + "</div>"
+      + boxDisplayHTML(e)
+      + ((e.pbp && e.pbp.length) ? '<details style="margin-top:8px"><summary class="disp" style="cursor:pointer;font-size:12px;color:var(--ink)">📜 Game log · ' + e.pbp.length + ' plays</summary><div style="margin-top:4px">' + pbpGroupHtml(e.pbp) + "</div></details>" : "")
+      + legacy
+      + (e.notes ? '<div class="notes">“' + esc(e.notes) + "”</div>" : "")
+      + '<div class="cardbtns"><button class="ebtn" data-act="edit">✎ Edit</button><button class="dbtn" data-act="del">🗑 Delete</button></div></div>';
+  }).join("");
+}
+
+// ── Game form ─────────────────────────────────────────────────────────
+function openForm(entry) {
+  form = entry ? JSON.parse(JSON.stringify({ ...emptyForm(), ...entry })) : emptyForm();
+  form.box = form.box || [];
+  form.pbp = form.pbp || [];
+  editingId = entry ? entry.id : null;
+  const a = document.getElementById("formArea");
+  a.innerHTML = '<div class="panel">'
+    + '<div class="panel-head"><span class="disp" style="font-size:15px;font-weight:700">' + (editingId ? "Edit game" : "New game") + '</span><button class="xbtn" id="fClose">✕</button></div>'
+    + '<div class="grid2"><div><label>Sport</label><select id="fSport">'
+    + Object.keys(SPORTS).map(s => '<option value="' + s + '"' + (form.sport === s ? " selected" : "") + ">" + SPORTS[s] + " " + s.charAt(0).toUpperCase() + s.slice(1) + "</option>").join("")
+    + '</select></div><div><label>Date</label><input type="date" id="fDate" value="' + esc(form.date) + '"></div></div>'
+    + '<div class="grid-teams"><div><label>Away</label><input id="fAway" placeholder="Jazz" value="' + esc(form.away) + '"></div>'
+    + '<div><label>Pts</label><input id="fAwayScore" class="mono" style="text-align:center" value="' + esc(form.awayScore) + '"></div>'
+    + '<div><label>Home</label><input id="fHome" placeholder="Lakers" value="' + esc(form.home) + '"></div>'
+    + '<div><label>Pts</label><input id="fHomeScore" class="mono" style="text-align:center" value="' + esc(form.homeScore) + '"></div></div>'
+    + '<div class="venue-row"><label>Watched / listened</label><div class="venue-btns">'
+    + '<button class="vbtn" data-v="tv">📺 On TV</button><button class="vbtn" data-v="in-person">📍 In person</button><button class="vbtn" data-v="radio">📻 Radio</button></div>'
+    + '<label id="placeLabel"></label><input id="fPlace" value="' + esc(form.place) + '"></div>'
+    + '<button class="boxlaunch disp" id="fBox"></button>'
+    + '<button class="boxlaunch disp" id="fLive"></button>'
+    + '<label>Notes</label><textarea id="fNotes" rows="2" placeholder="Buzzer beater in OT, sat behind the dugout…">' + esc(form.notes) + "</textarea>"
+    + '<div class="saverow"><button class="savebtn disp" id="fSave">' + (editingId ? "Save changes" : "Add to scorebook") + '</button><button class="cancelbtn" id="fCancel">Cancel</button></div></div>';
+  document.getElementById("addBtn").classList.add("hidden");
+
+  const bind = (id, key) => document.getElementById(id).addEventListener("input", ev => form[key] = ev.target.value);
+  bind("fDate", "date"); bind("fAway", "away"); bind("fAwayScore", "awayScore");
+  bind("fHome", "home"); bind("fHomeScore", "homeScore"); bind("fPlace", "place"); bind("fNotes", "notes");
+  document.getElementById("fSport").addEventListener("change", ev => {
+    if (form.sport !== ev.target.value) { form.box = []; form.live = null; }
+    form.sport = ev.target.value;
+    updateBoxBtn();
+  });
+  a.querySelectorAll(".vbtn").forEach(b => b.addEventListener("click", () => { form.venue = b.dataset.v; updateVenue(); }));
+  document.getElementById("fBox").addEventListener("click", openBox);
+  document.getElementById("fLive").addEventListener("click", openLive);
+  document.getElementById("fClose").addEventListener("click", closeForm);
+  document.getElementById("fCancel").addEventListener("click", closeForm);
+  document.getElementById("fSave").addEventListener("click", saveEntry);
+  updateVenue(); updateBoxBtn();
+}
+
+function updateVenue() {
+  document.querySelectorAll("#formArea .vbtn").forEach(b => b.classList.toggle("active", b.dataset.v === form.venue));
+  const labels = { "in-person": "Stadium / arena", "tv": "Where you watched (optional)", "radio": "Where you listened (optional)" };
+  const holders = { "in-person": "Delta Center", "tv": "Home, sports bar…", "radio": "Car, kitchen radio, station…" };
+  document.getElementById("placeLabel").textContent = labels[form.venue];
+  document.getElementById("fPlace").placeholder = holders[form.venue];
+}
+function updateBoxBtn() {
+  const n = form.box.filter(r => r.player.trim()).length;
+  const b = document.getElementById("fBox");
+  b.textContent = n > 0 ? "📋 Box score · " + n + " player" + (n === 1 ? "" : "s") + " — tap to edit" : "📋 Log stats — open box score";
+  b.classList.toggle("has", n > 0);
+  const lv = document.getElementById("fLive");
+  lv.classList.toggle("hidden", form.sport !== "baseball");
+  lv.textContent = form.live ? "⚾ Resume live scoring" : "⚾ Live scoring — pitch by pitch";
+  lv.classList.toggle("has", !!form.live);
+}
+function closeForm() {
+  document.getElementById("formArea").innerHTML = "";
+  document.getElementById("addBtn").classList.remove("hidden");
+  form = null; editingId = null;
+}
+function saveEntry() {
+  if (!form.away.trim() && !form.home.trim()) { document.getElementById("fAway").focus(); return; }
+  const cleaned = { ...form, box: form.box.filter(r => r.player.trim() || Object.values(r.stats).some(v => String(v).trim())) };
+  if (editingId) {
+    entries = entries.map(e => e.id === editingId ? { ...cleaned, id: editingId } : e);
+  } else {
+    entries.unshift({ ...cleaned, id: Date.now().toString(36) });
+  }
+  entries.sort((a, b) => a.date < b.date ? 1 : -1);
+  persist(); closeForm(); renderTally(); renderList();
+}
+
+// ── Box score editor ──────────────────────────────────────────────────
+function openBox() {
+  const ov = document.getElementById("overlay");
+  ov.classList.remove("hidden");
+  renderBoxEditor();
+  document.body.style.overflow = "hidden";
+}
+function closeBox() {
+  document.getElementById("overlay").classList.add("hidden");
+  document.body.style.overflow = "";
+  updateBoxBtn();
+}
+function teamName(t) { return t === "away" ? form.away || "Away" : form.home || "Home"; }
+
+function renderBoxEditor() {
+  const groups = BOX[form.sport];
+  let html = '<div class="sheet wide"><div class="sheet-head"><div>'
+    + '<div class="disp" style="font-size:20px;font-weight:700">Official Box Score</div>'
+    + '<div class="mono" style="font-size:12px;color:var(--ink-soft)">' + esc(form.away || "Away") + " @ " + esc(form.home || "Home") + " · " + esc(form.date) + "</div>"
+    + '</div><button class="xbtn" id="bClose">✕</button></div>'
+    + '<div class="hint">Enter the basics — advanced metrics appear in red under each player as you type.'
+    + (form.sport === "baseball" ? " Pitcher innings: enter 6.2 for 6⅔ IP." : "") + "</div>";
+  for (const g of groups) {
+    const rows = form.box.filter(r => r.group === g.id);
+    html += '<div class="grouplabel disp">' + esc(g.label) + '</div><table class="edit"><thead>'
+      + '<tr><th class="pl">Player</th><th class="pl">Team</th>' + g.cols.map(c => '<th class="mono">' + esc(c) + "</th>").join("") + '<th></th></tr></thead><tbody>';
+    if (!rows.length) html += '<tr><td colspan="' + (g.cols.length + 3) + '" style="font-size:12px;font-style:italic;color:var(--ink-soft);padding:10px 4px">No ' + g.label.toLowerCase() + " entries yet.</td></tr>";
+    for (const r of rows) {
+      const m = g.calc(r.stats);
+      html += '<tr><td><input class="pname" data-row="' + r.id + '" data-f="player" value="' + esc(r.player) + '" placeholder="Name"></td>'
+        + '<td><button class="teamtog mono" data-row="' + r.id + '" data-f="team" title="Tap to switch team">' + esc(teamName(r.team)) + "</button></td>"
+        + g.cols.map(c => '<td><input class="stat mono" inputmode="decimal" data-row="' + r.id + '" data-col="' + esc(c) + '" value="' + esc(r.stats[c] || "") + '"></td>').join("")
+        + '<td><button class="delrow" data-row="' + r.id + '" data-f="del">🗑</button></td></tr>'
+        + '<tr class="mrow"><td colspan="' + (g.cols.length + 3) + '"><span class="mono" id="m-' + r.id + '" style="color:' + (m.length ? "var(--red)" : "var(--line)") + '">'
+        + esc(m.length ? "→ " + mline(m) : "→ metrics will calculate here") + "</span></td></tr>";
+    }
+    html += '</tbody></table><button class="addrow" style="display:block" data-group="' + g.id + '">+ ' + esc(g.add) + "</button>";
+  }
+  html += '<button class="donebtn disp" id="bDone">Done — back to game</button></div>';
+  const ov = document.getElementById("overlay");
+  ov.innerHTML = html;
+
+  ov.querySelector("#bClose").addEventListener("click", closeBox);
+  ov.querySelector("#bDone").addEventListener("click", closeBox);
+  ov.addEventListener("click", ev => { if (ev.target === ov) closeBox(); });
+  ov.querySelectorAll(".addrow").forEach(b => b.addEventListener("click", () => { form.box.push(newRow(b.dataset.group)); renderBoxEditor(); }));
+  ov.querySelectorAll(".delrow").forEach(b => b.addEventListener("click", () => { form.box = form.box.filter(r => r.id !== b.dataset.row); renderBoxEditor(); }));
+  ov.querySelectorAll(".teamtog").forEach(b => b.addEventListener("click", () => {
+    const r = form.box.find(r => r.id === b.dataset.row);
+    r.team = r.team === "away" ? "home" : "away";
+    b.textContent = teamName(r.team);
+  }));
+  ov.querySelectorAll("input.pname").forEach(i => i.addEventListener("input", () => {
+    const r = form.box.find(r => r.id === i.dataset.row);
+    r.player = i.value;
+  }));
+  ov.querySelectorAll("input.stat").forEach(i => i.addEventListener("input", () => {
+    const r = form.box.find(r => r.id === i.dataset.row);
+    r.stats[i.dataset.col] = i.value;
+    const g = BOX[form.sport].find(g => g.id === r.group);
+    const m = g.calc(r.stats);
+    const span = document.getElementById("m-" + r.id);
+    span.textContent = m.length ? "→ " + mline(m) : "→ metrics will calculate here";
+    span.style.color = m.length ? "var(--red)" : "var(--line)";
+  }));
+}
+
+// ── Live baseball scoring (diamond + baserunners + tracking options) ──
+let liveSetup = null;
+let liveView = { s: "main" };
+
+const teamLabel = t => t === "away" ? (form.away || "Away") : (form.home || "Home");
+const battingTeam = () => form.live.half === "top" ? "away" : "home";
+const fieldingTeam = () => form.live.half === "top" ? "home" : "away";
+const halfLabel = () => (form.live.half === "top" ? "▲ Top " : "▼ Bot ") + form.live.inning;
+const teamRuns = t => form.box.filter(r => r.group === "batting" && r.team === t).reduce((a, r) => a + num(r.stats.R), 0);
+const BASE_LBL = { first: "1st", second: "2nd", third: "3rd" };
+const lastName = n => String(n || "").trim().split(/\s+/).slice(-1)[0];
+
+const ipOutsOf = v => { const s = String(v ?? "").trim(); if (!s) return 0; const p = s.split("."); return (parseInt(p[0]) || 0) * 3 + Math.min(parseInt(p[1]) || 0, 2); };
+const outsToIp = o => o <= 0 ? "" : Math.floor(o / 3) + "." + (o % 3);
+
+function openLive() {
+  if (form.live && !form.live.teams) form.live = null;            // discard very old sessions
+  if (form.live && !form.live.bases) {                            // migrate sessions from before baserunners
+    form.live.bases = { first: null, second: null, third: null };
+    form.live.opts = form.live.opts || { strikeType: false, pitchType: false, fielding: false };
+    form.live.pitchSel = form.live.pitchSel || "FB";
+  }
+  if (!form.live) {
+    liveSetup = { names: { away: Array(9).fill(""), home: Array(9).fill("") }, pitchers: { away: "", home: "" }, half: "top", inning: 1, start: { away: 0, home: 0 }, opts: { strikeType: false, pitchType: false, fielding: false } };
+    for (const t of ["away", "home"]) {
+      const pre = form.box.filter(r => r.group === "batting" && r.team === t).map(r => r.player);
+      pre.slice(0, 9).forEach((p, i) => liveSetup.names[t][i] = p);
+      const pp = form.box.find(r => r.group === "pitching" && r.team === t);
+      if (pp) liveSetup.pitchers[t] = pp.player;
+    }
+  }
+  liveView = { s: "main" };
+  document.getElementById("overlay").classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  renderLive();
+}
+function closeLive() {
+  document.getElementById("overlay").classList.add("hidden");
+  document.body.style.overflow = "";
+  updateBoxBtn();
+}
+
+function ensureRowG(player, team, group) {
+  const key = player.trim().toLowerCase();
+  let r = form.box.find(x => x.group === group && x.team === team && x.player.trim().toLowerCase() === key);
+  if (!r) { r = newRow(group); r.player = player.trim(); r.team = team; form.box.push(r); }
+  return r;
+}
+function applyColsG(player, team, group, cols) {
+  const r = ensureRowG(player, team, group);
+  for (const [c, d] of cols) r.stats[c] = String(num(r.stats[c]) + d);
+}
+function revertColsG(player, team, group, cols) {
+  const r = ensureRowG(player, team, group);
+  for (const [c, d] of cols) { const v = num(r.stats[c]) - d; r.stats[c] = v <= 0 ? "" : String(v); }
+}
+function applyPit(player, team, cols, outs) {
+  const r = ensureRowG(player, team, "pitching");
+  for (const [c, d] of cols) r.stats[c] = String(num(r.stats[c]) + d);
+  if (outs) r.stats.IP = outsToIp(ipOutsOf(r.stats.IP) + outs);
+}
+function revertPit(player, team, cols, outs) {
+  const r = ensureRowG(player, team, "pitching");
+  for (const [c, d] of cols) { const v = num(r.stats[c]) - d; r.stats[c] = v <= 0 ? "" : String(v); }
+  if (outs) r.stats.IP = outsToIp(ipOutsOf(r.stats.IP) - outs);
+}
+
+function snap() {
+  const L = form.live;
+  return { ia: L.teams.away.idx, ih: L.teams.home.idx, b: L.balls, s: L.strikes, o: L.outs, h: L.half, i: L.inning,
+           pa: L.teams.away.pitcher, ph: L.teams.home.pitcher,
+           b1: L.bases.first, b2: L.bases.second, b3v: L.bases.third };
+}
+function restore(s) {
+  const L = form.live;
+  L.teams.away.idx = s.ia; L.teams.home.idx = s.ih; L.balls = s.b; L.strikes = s.s;
+  L.outs = s.o; L.half = s.h; L.inning = s.i; L.teams.away.pitcher = s.pa; L.teams.home.pitcher = s.ph;
+  L.bases = { first: s.b1, second: s.b2, third: s.b3v };
+}
+function curBatter() {
+  const bt = battingTeam(), T = form.live.teams[bt];
+  return { player: T.order[T.idx], team: bt };
+}
+function syncNotesField() { const nf = document.getElementById("fNotes"); if (nf) nf.value = form.notes; }
+const rispNow = () => !!(form.live.bases.second || form.live.bases.third);
+
+// per-pitch tally: pitch count, pitch type, swinging/looking
+function pitchCols(strikeKind) {
+  const L = form.live, cols = [["PC", 1]];
+  if (L.opts.pitchType) cols.push([L.pitchSel || "FB", 1]);
+  if (L.opts.strikeType && strikeKind === "sw") cols.push(["SwS", 1]);
+  if (L.opts.strikeType && strikeKind === "lk") cols.push(["LkS", 1]);
+  return cols;
+}
+
+function doAction(o) {
+  const L = form.live;
+  const entry = { snap: snap(), bats: [], pit: null, fld: null, note: null };
+  for (const b of (o.bats || [])) { applyColsG(b.player, b.team, "batting", b.cols); entry.bats.push(b); }
+  if ((o.pitCols && o.pitCols.length) || o.pitOuts) {
+    const ft = fieldingTeam(), p = L.teams[ft].pitcher;
+    if (p && p.trim()) { applyPit(p, ft, o.pitCols || [], o.pitOuts || 0); entry.pit = { player: p, team: ft, cols: o.pitCols || [], outs: o.pitOuts || 0 }; }
+  }
+  if (o.fld) { applyColsG(o.fld.player, o.fld.team, "fielding", o.fld.cols); entry.fld = o.fld; }
+  if (o.note) { form.notes = (form.notes ? form.notes + " " : "") + o.note; entry.note = o.note; syncNotesField(); }
+  if (o.pbp) {
+    const lines = Array.isArray(o.pbp) ? o.pbp : [o.pbp];
+    entry.pbpN = 0;
+    for (const t of lines) { form.pbp.push({ h: entry.snap.h, i: entry.snap.i, t }); entry.pbpN++; }
+  }
+  let flash = o.flash || "";
+  if (o.setBases) L.bases = o.setBases;
+  if (o.advance) { const bt = battingTeam(); L.teams[bt].idx = (L.teams[bt].idx + 1) % L.teams[bt].order.length; L.balls = 0; L.strikes = 0; }
+  if (o.outs) {
+    L.outs += o.outs;
+    if (L.outs >= 3) {
+      L.outs = 0; L.balls = 0; L.strikes = 0;
+      L.bases = { first: null, second: null, third: null };
+      if (L.half === "top") L.half = "bottom"; else { L.half = "top"; L.inning++; }
+      flash += " · side retired → " + halfLabel();
+      form.pbp.push({ h: entry.snap.h, i: entry.snap.i, t: "Side retired — end of " + (entry.snap.h === "top" ? "the top" : "the bottom") + " of " + entry.snap.i + ". " + teamLabel("away") + " " + teamRuns("away") + ", " + teamLabel("home") + " " + teamRuns("home") + "." });
+      entry.pbpN = (entry.pbpN || 0) + 1;
+    }
+  }
+  L.log.push(entry);
+  liveView = Object.assign({ s: "main", flash }, o.nextView || {});
+  if (o.nextView) liveView.flash = flash;
+  renderLive();
+}
+
+// forced advancement for walks / HBP: returns {bases, scored}
+function forcedBases(batter) {
+  const b = form.live.bases;
+  const had1 = b.first, had2 = b.second, had3 = b.third;
+  const nb = { first: batter, second: b.second, third: b.third };
+  const scored = [];
+  if (had1) {
+    if (had2) {
+      if (had3) scored.push(had3);
+      nb.third = had2;
+    } else nb.third = had3;
+    nb.second = had1;
+  }
+  return { bases: nb, scored };
+}
+
+function liveCount(kind) {
+  const L = form.live, b = curBatter();
+  const strikeKind = kind === "strike-sw" ? "sw" : kind === "strike-lk" ? "lk" : null;
+  const isStrike = kind === "strike" || strikeKind;
+  if (kind === "ball") {
+    if (L.balls === 3) { // walk: forced advancement
+      const f = forcedBases(b.player);
+      const bats = [{ ...b, cols: [["BB", 1]].concat(f.scored.length ? [["RBI", f.scored.length]] : []) }];
+      for (const r of f.scored) bats.push({ player: r, team: b.team, cols: [["R", 1]] });
+      const pit = pitchCols(null).concat([["BB", 1]]);
+      if (f.scored.length) pit.push(["R", f.scored.length], ["ER", f.scored.length]);
+      doAction({ bats, pitCols: pit, advance: true, setBases: f.bases, flash: "Walk — " + b.player + (f.scored.length ? " · " + f.scored.join(", ") + " scores" : ""),
+        pbp: b.player + " walks" + (f.scored.length ? ". " + f.scored.join(" and ") + (f.scored.length === 1 ? " scores." : " score.") : ".") });
+      return;
+    }
+    L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null });
+    applyPitchOnly(); L.balls++;
+  } else if (isStrike) {
+    if (L.strikes === 2) { // strikeout
+      const cols = [["SO", 1], ["AB", 1]];
+      if (rispNow()) cols.push(["RAB", 1]);
+      doAction({ bats: [{ ...b, cols }], pitCols: pitchCols(strikeKind).concat([["K", 1]]), pitOuts: 1, outs: 1, advance: true, flash: "Strikeout" + (strikeKind === "lk" ? " looking" : strikeKind === "sw" ? " swinging" : "") + " — " + b.player,
+        pbp: b.player + " strikes out" + (strikeKind === "lk" ? " looking" : strikeKind === "sw" ? " swinging" : "") + "." });
+      return;
+    }
+    L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null });
+    applyPitchOnly(strikeKind); L.strikes++;
+  } else { // foul
+    if (L.strikes < 2) { L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null }); applyPitchOnly(); L.strikes++; }
+    else { L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null }); applyPitchOnly(); }
+  }
+  liveView = { s: "main" };
+  renderLive();
+}
+// pitch tally attached to the count-entry just pushed (so undo reverts it)
+function applyPitchOnly(strikeKind) {
+  const L = form.live, ft = fieldingTeam(), p = L.teams[ft].pitcher;
+  if (!p || !p.trim()) return;
+  const cols = pitchCols(strikeKind || null);
+  applyPit(p, ft, cols, 0);
+  L.log[L.log.length - 1].pit = { player: p, team: ft, cols, outs: 0 };
+}
+
+const HIT_DEST = { "1b": "first", "2b": "second", "3b": "third", "roe": "first" };
+function runnersOnBase() {
+  const b = form.live.bases, out = [];
+  if (b.third) out.push({ name: b.third, from: "third" });
+  if (b.second) out.push({ name: b.second, from: "second" });
+  if (b.first) out.push({ name: b.first, from: "first" });
+  return out;
+}
+
+function liveOutcome(kind) {
+  const L = form.live, b = curBatter();
+  const risp = rispNow();
+  const runners = runnersOnBase();
+  if (kind === "hbp") {
+    const f = forcedBases(b.player);
+    const bats = [{ ...b, cols: [["HBP", 1]].concat(f.scored.length ? [["RBI", f.scored.length]] : []) }];
+    for (const r of f.scored) bats.push({ player: r, team: b.team, cols: [["R", 1]] });
+    const pit = pitchCols(null);
+    if (f.scored.length) pit.push(["R", f.scored.length], ["ER", f.scored.length]);
+    doAction({ bats, pitCols: pit, advance: true, setBases: f.bases, flash: "HBP — " + b.player + (f.scored.length ? " · run scores" : ""),
+      pbp: b.player + " is hit by the pitch" + (f.scored.length ? ". " + f.scored.join(" and ") + (f.scored.length === 1 ? " scores." : " score.") : ".") });
+    return;
+  }
+  if (kind === "hr") {
+    const nRuns = runners.length + 1;
+    const batCols = [["H", 1], ["HR", 1], ["AB", 1], ["R", 1], ["RBI", nRuns]];
+    if (risp) batCols.push(["RAB", 1], ["RH", 1]);
+    const bats = [{ ...b, cols: batCols }];
+    for (const r of runners) bats.push({ player: r.name, team: b.team, cols: [["R", 1]] });
+    const others = runners.map(r => r.name);
+    const hrPbp = nRuns === 1 ? b.player + " hits a solo home run."
+      : nRuns === 4 ? b.player + " hits a GRAND SLAM! " + others.join(", ") + " all score."
+      : b.player + " hits a " + nRuns + "-run home run. " + others.join(" and ") + (others.length === 1 ? " scores." : " score.");
+    doAction({ bats, pitCols: pitchCols(null).concat([["H", 1], ["HR", 1], ["R", nRuns], ["ER", nRuns]]), advance: true,
+      setBases: { first: null, second: null, third: null },
+      flash: (runners.length ? (nRuns) + "-run homer" : "Home run!") + " — " + b.player, pbp: hrPbp });
+    return;
+  }
+  // hits / ROE / out-in-play: may need runner advancement prompts
+  const defs = {
+    "1b": { batCols: [["H", 1], ["AB", 1]], pitExtra: [["H", 1]], reaches: true, rbi: true, er: true, label: "Single" },
+    "2b": { batCols: [["H", 1], ["2B", 1], ["AB", 1]], pitExtra: [["H", 1]], reaches: true, rbi: true, er: true, label: "Double" },
+    "3b": { batCols: [["H", 1], ["3B", 1], ["AB", 1]], pitExtra: [["H", 1]], reaches: true, rbi: true, er: true, label: "Triple" },
+    "roe": { batCols: [["AB", 1]], pitExtra: [], reaches: true, rbi: false, er: false, label: "Reached on error" },
+    "out": { batCols: [["AB", 1]], pitExtra: [], reaches: false, rbi: true, er: true, label: "Out" },
+  };
+  const d = defs[kind];
+  if (risp) { d.batCols = d.batCols.concat([["RAB", 1]]); if (kind === "1b" || kind === "2b" || kind === "3b") d.batCols.push(["RH", 1]); }
+  const pend = {
+    kind, label: d.label, batter: b, batCols: d.batCols, pitExtra: d.pitExtra,
+    reaches: d.reaches, dest: d.reaches ? HIT_DEST[kind] : null,
+    rbiOnRuns: d.rbi, erOnRuns: d.er, batterOut: !d.reaches,
+    runners, idx: 0, results: {},
+    claimed: d.reaches ? [HIT_DEST[kind]] : [],
+    ftPre: fieldingTeam(),
+  };
+  if (runners.length === 0) commitPend(pend);
+  else { liveView = { s: "adv", pend }; renderLive(); }
+}
+
+function advOptions(pend) {
+  const r = pend.runners[pend.idx];
+  const opts = [["score", "Scored"]];
+  const forward = { first: ["second", "third"], second: ["third"], third: [] }[r.from];
+  for (const fb of forward) if (!pend.claimed.includes(fb)) opts.push([fb, "To " + BASE_LBL[fb]]);
+  if (!pend.claimed.includes(r.from)) opts.push(["stay", "Stayed on " + BASE_LBL[r.from]]);
+  opts.push(["out", "Out on the play"]);
+  return opts;
+}
+function advChoose(choice) {
+  const pend = liveView.pend;
+  const r = pend.runners[pend.idx];
+  pend.results[r.name] = choice;
+  if (choice === "stay") pend.claimed.push(r.from);
+  else if (choice === "second" || choice === "third") pend.claimed.push(choice);
+  pend.idx++;
+  if (pend.idx >= pend.runners.length) commitPend(pend);
+  else { liveView = { s: "adv", pend }; renderLive(); }
+}
+function commitPend(pend) {
+  const b = pend.batter;
+  const nb = { first: null, second: null, third: null };
+  if (pend.reaches) nb[pend.dest] = b.player;
+  const runs = []; let runnerOuts = 0;
+  for (const r of pend.runners) {
+    const res = pend.results[r.name];
+    if (res === "score") runs.push(r.name);
+    else if (res === "out") runnerOuts++;
+    else if (res === "stay") nb[r.from] = r.name;
+    else nb[res] = r.name;
+  }
+  const batCols = pend.batCols.concat(pend.rbiOnRuns && runs.length ? [["RBI", runs.length]] : []);
+  const bats = [{ ...b, cols: batCols }];
+  for (const rn of runs) bats.push({ player: rn, team: b.team, cols: [["R", 1]] });
+  const pit = pitchCols(null).concat(pend.pitExtra);
+  if (runs.length) { pit.push(["R", runs.length]); if (pend.erOnRuns) pit.push(["ER", runs.length]); }
+  const totalOuts = (pend.batterOut ? 1 : 0) + runnerOuts;
+  let flash = pend.label + " — " + b.player;
+  if (runs.length) flash += " · " + runs.map(lastName).join(", ") + (runs.length === 1 ? " scores" : " score");
+  if (runnerOuts) flash += " · " + runnerOuts + " runner" + (runnerOuts === 1 ? "" : "s") + " out";
+  // fielding prompts after the play, when enabled
+  let nextView = null;
+  if (form.live.opts.fielding) {
+    if (pend.kind === "out") nextView = { s: "fld", stat: "PO", team: pend.ftPre, then: "A" };
+    else if (pend.kind === "roe") nextView = { s: "fld", stat: "E", team: pend.ftPre, then: null };
+  }
+  const verbs = { "1b": " singles.", "2b": " doubles.", "3b": " triples.", "roe": " reaches on an error.", "out": " is out on a ball in play." };
+  let pbpTxt = b.player + verbs[pend.kind];
+  for (const r of pend.runners) {
+    const res = pend.results[r.name];
+    if (res === "score") pbpTxt += " " + r.name + " scores.";
+    else if (res === "out") pbpTxt += " " + r.name + " is out on the play.";
+    else if (res === "second" || res === "third") pbpTxt += " " + r.name + " takes " + BASE_LBL[res] + ".";
+  }
+  doAction({ bats, pitCols: pit, pitOuts: totalOuts, outs: totalOuts, advance: true, setBases: nb, flash, nextView, pbp: pbpTxt });
+}
+
+// fielding credit (its own undo step)
+function fldApply(player, team, stat, then) {
+  doAction({ fld: { player, team, cols: [[stat, 1]] }, flash: { PO: "Putout", A: "Assist", E: "Error" }[stat] + " — " + player,
+    pbp: stat === "E" ? "Error charged to " + player + "." : null,
+    nextView: then ? { s: "fld", stat: then, team, then: null } : null });
+}
+function fldPlayers(team) {
+  const L = form.live;
+  const list = L.teams[team].order.slice();
+  const p = L.teams[team].pitcher;
+  if (p && p.trim() && !list.some(x => x.trim().toLowerCase() === p.trim().toLowerCase())) list.push(p.trim());
+  return list;
+}
+
+// runner actions from tapping a base or the base-paths menu
+function runnerAct(base, act) {
+  const L = form.live, name = L.bases[base], bt = battingTeam();
+  if (!name) return;
+  const nb = { ...L.bases };
+  if (act === "cs" || act === "po" || act === "outb") {
+    nb[base] = null;
+    const note = act === "cs" ? "[CS: " + name + "]" : act === "po" ? "[Picked off: " + name + "]" : null;
+    doAction({ note, outs: 1, pitOuts: 1, setBases: nb, flash: (act === "cs" ? "Caught stealing" : act === "po" ? "Picked off" : "Out on the bases") + " — " + name,
+      pbp: name + (act === "cs" ? " is caught stealing." : act === "po" ? " is picked off." : " is out on the bases.") });
+    return;
+  }
+  // sb / adv: move up one base (from third = scores)
+  const nxt = { first: "second", second: "third", third: "home" }[base];
+  if (nxt !== "home" && nb[nxt]) { liveView = { s: "main", flash: BASE_LBL[nxt] + " is occupied" }; renderLive(); return; }
+  nb[base] = null;
+  const sb = act === "sb" ? [["SB", 1]] : [];
+  if (nxt === "home") {
+    doAction({ bats: [{ player: name, team: bt, cols: [["R", 1]].concat(sb) }], pitCols: [["R", 1], ["ER", 1]], setBases: nb,
+      flash: (act === "sb" ? "Steals home! — " : "Scores — ") + name,
+      pbp: name + (act === "sb" ? " steals home!" : " scores.") });
+  } else {
+    nb[nxt] = name;
+    doAction({ bats: sb.length ? [{ player: name, team: bt, cols: sb }] : [], setBases: nb,
+      flash: (act === "sb" ? "SB — " : "Advances — ") + name + " to " + BASE_LBL[nxt],
+      pbp: name + (act === "sb" ? " steals " : " advances to ") + BASE_LBL[nxt] + "." });
+  }
+}
+
+function livePitchSub(name) {
+  const L = form.live, ft = fieldingTeam();
+  if (!name.trim()) return;
+  L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null, pbpN: 1 });
+  form.pbp.push({ h: L.half, i: L.inning, t: "Pitching change for " + teamLabel(ft) + ": " + name.trim() + " now on the mound." });
+  L.teams[ft].pitcher = name.trim();
+  liveView = { s: "main", flash: "Now pitching: " + name.trim() };
+  renderLive();
+}
+function liveJump(i) {
+  const L = form.live, bt = battingTeam();
+  L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null });
+  L.teams[bt].idx = i; L.balls = 0; L.strikes = 0;
+  liveView = { s: "main" };
+  renderLive();
+}
+function liveUndo() {
+  const e = form.live.log.pop();
+  if (!e) return;
+  for (const b of e.bats) revertColsG(b.player, b.team, "batting", b.cols);
+  if (e.pit) revertPit(e.pit.player, e.pit.team, e.pit.cols, e.pit.outs);
+  if (e.fld) revertColsG(e.fld.player, e.fld.team, "fielding", e.fld.cols);
+  if (e.note) { form.notes = form.notes.replace(e.note, "").replace(/\s{2,}/g, " ").trim(); syncNotesField(); }
+  if (e.pbpN) form.pbp.splice(-e.pbpN);
+  restore(e.snap);
+  liveView = { s: "main" };
+  renderLive();
+}
+
+// the field: green outfield, dirt infield, red bases when occupied
+function diamondSVG() {
+  const b = form.live.bases;
+  const base = (cx, cy, occ) =>
+    '<rect x="' + (cx - 7) + '" y="' + (cy - 7) + '" width="14" height="14" transform="rotate(45 ' + cx + ' ' + cy + ')" fill="' + (occ ? "#C0392B" : "#FFFFFF") + '" stroke="' + (occ ? "#8E2B20" : "#9AA59A") + '" stroke-width="1.5"/>';
+  const label = (x, y, anchor, name) => name
+    ? '<text x="' + x + '" y="' + y + '" text-anchor="' + anchor + '" font-size="11" font-weight="bold" fill="#FFFFFF" stroke="#1E3A5F" stroke-width="2.5" paint-order="stroke" font-family="Arial Narrow, sans-serif">' + esc(lastName(name)) + "</text>" : "";
+  return '<div class="diamond-wrap"><svg viewBox="0 0 240 158" xmlns="http://www.w3.org/2000/svg">'
+    + '<rect width="240" height="158" fill="#4C8C5C"/>'
+    + '<path d="M 8 150 Q 120 -52 232 150 Z" fill="#57975F"/>'
+    + '<polygon points="120,154 190,98 120,42 50,98" fill="#C2935B"/>'
+    + '<polygon points="120,140 162,106 120,72 78,106" fill="#57975F"/>'
+    + '<circle cx="120" cy="104" r="8" fill="#B07F44"/>'
+    + '<line x1="120" y1="150" x2="34" y2="80" stroke="#FFFFFF" stroke-width="1.6" opacity=".85"/>'
+    + '<line x1="120" y1="150" x2="206" y2="80" stroke="#FFFFFF" stroke-width="1.6" opacity=".85"/>'
+    + '<polygon points="120,144 126,150 120,156 114,150" fill="#FFFFFF" stroke="#9AA59A"/>'
+    + '<g data-base="first" style="cursor:pointer">' + base(176, 98, b.first) + label(192, 102, "start", b.first) + "</g>"
+    + '<g data-base="second" style="cursor:pointer">' + base(120, 50, b.second) + label(120, 32, "middle", b.second) + "</g>"
+    + '<g data-base="third" style="cursor:pointer">' + base(64, 98, b.third) + label(48, 102, "end", b.third) + "</g>"
+    + "</svg></div>";
+}
+
+function renderLive() {
+  if (!form.live) { renderLiveSetup(); return; }
+  const L = form.live;
+  const bt = battingTeam(), ft = fieldingTeam();
+  const cur = curBatter().player;
+  const nxt = L.teams[bt].order[(L.teams[bt].idx + 1) % L.teams[bt].order.length];
+  const pitcher = L.teams[ft].pitcher;
+  const pRow = pitcher ? form.box.find(x => x.group === "pitching" && x.team === ft && x.player.trim().toLowerCase() === pitcher.trim().toLowerCase()) : null;
+  const pLine = pRow ? ["IP", "H", "ER", "BB", "K", "PC"].filter(c => filled(pRow.stats[c])).map(c => c + " " + pRow.stats[c]).join(" · ") : "";
+  const bRow = form.box.find(x => x.group === "batting" && x.team === bt && x.player.trim().toLowerCase() === cur.trim().toLowerCase());
+  const bLine = bRow ? ["AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"].filter(c => filled(bRow.stats[c])).map(c => c + " " + bRow.stats[c]).join(" · ") : "";
+  const occupied = runnersOnBase();
+
+  let mid = "";
+  if (liveView.s === "adv") {
+    const pend = liveView.pend, r = pend.runners[pend.idx];
+    mid = '<div class="hint" style="text-align:center">' + esc(pend.label) + " by " + esc(pend.batter.player) + ".<br>Where did <b>" + esc(r.name) + "</b> (on " + BASE_LBL[r.from] + ") end up?</div><div class=\"llist\">"
+      + advOptions(pend).map(([v, lbl]) => '<button data-adv="' + v + '">' + lbl + "</button>").join("")
+      + "</div>";
+  } else if (liveView.s === "fld") {
+    const players = fldPlayers(liveView.team);
+    mid = '<div class="hint" style="text-align:center">' + ({ PO: "Putout recorded by…", A: "Assist by…", E: "Error charged to…" }[liveView.stat]) + " (" + esc(teamLabel(liveView.team)) + ')</div><div class="llist">'
+      + players.map(p => '<button data-fld="' + esc(p) + '">' + esc(p) + "</button>").join("")
+      + '</div><div class="lgrid"><button class="lbtn soft full" data-fldskip="1">' + (liveView.stat === "A" ? "No assist (unassisted)" : "Skip") + "</button></div>";
+  } else if (liveView.s === "runner") {
+    const name = L.bases[liveView.base];
+    mid = '<div class="hint" style="text-align:center"><b>' + esc(name) + "</b> on " + BASE_LBL[liveView.base] + '</div><div class="llist">'
+      + '<button data-ract="sb">Stole a base</button>'
+      + '<button data-ract="adv">Advanced (WP, PB, balk…)' + (liveView.base === "third" ? " → scores" : "") + "</button>"
+      + '<button data-ract="cs">Caught stealing</button>'
+      + '<button data-ract="po">Picked off</button>'
+      + '<button data-ract="outb">Out on the bases</button>'
+      + '</div><div class="lgrid"><button class="lbtn soft full" data-lv="main">Cancel</button></div>';
+  } else if (liveView.s === "bp") {
+    mid = '<div class="hint" style="text-align:center">' + (occupied.length ? "Pick a runner (or tap a red base on the field)" : "No runners on base") + '</div><div class="llist">'
+      + occupied.map(r => '<button data-pickbase="' + r.from + '">' + esc(r.name) + " — on " + BASE_LBL[r.from] + "</button>").join("")
+      + (L.opts.fielding ? '<button data-lv="fldmenu">Fielding credit / error</button>' : "")
+      + '</div><div class="lgrid"><button class="lbtn soft full" data-lv="main">Cancel</button></div>';
+  } else if (liveView.s === "fldmenu") {
+    mid = '<div class="hint" style="text-align:center">Credit what?</div><div class="llist">'
+      + '<button data-fldstat="PO">Putout</button><button data-fldstat="A">Assist</button><button data-fldstat="E">Error</button>'
+      + '</div><div class="lgrid"><button class="lbtn soft full" data-lv="main">Cancel</button></div>';
+  } else if (liveView.s === "log") {
+    mid = '<div id="pbpScroll" style="max-height:280px;overflow-y:auto;text-align:left;border:1px solid var(--line);border-radius:4px;padding:4px 10px;background:#fff">'
+      + (form.pbp.length ? pbpGroupHtml(form.pbp) : '<div class="hint" style="padding:8px 0">No plays yet — the story writes itself as you score.</div>')
+      + '</div><div class="lgrid" style="margin-top:10px"><button class="lbtn soft full" data-lv="main">Back to scoring</button></div>';
+  } else if (liveView.s === "sub") {
+    mid = '<div class="hint" style="text-align:center">New pitcher for ' + esc(teamLabel(ft)) + '</div>'
+      + '<input id="subName" placeholder="Pitcher name" style="margin-bottom:10px">'
+      + '<div class="lgrid lg2"><button class="lbtn" id="subGo">Bring him in</button><button class="lbtn soft" data-lv="main">Cancel</button></div>';
+  } else if (liveView.s === "jump") {
+    mid = '<div class="hint" style="text-align:center">Who\u2019s actually up for ' + esc(teamLabel(bt)) + '?</div><div class="llist">'
+      + L.teams[bt].order.map((p, i) => '<button class="' + (i === L.teams[bt].idx ? "cur" : "") + '" data-jump="' + i + '">' + (i + 1) + ". " + esc(p) + "</button>").join("")
+      + '</div><div class="lgrid"><button class="lbtn soft full" data-lv="main">Cancel</button></div>';
+  } else {
+    const strikeBtns = L.opts.strikeType
+      ? '<button class="lbtn big redb" data-pitch="strike-sw">Strike<br><span style="font-size:11px">swinging</span></button><button class="lbtn big redb" data-pitch="strike-lk">Strike<br><span style="font-size:11px">looking</span></button>'
+      : '<button class="lbtn big redb" data-pitch="strike">Strike</button>';
+    const chips = L.opts.pitchType
+      ? '<div class="pchips">' + ["FB", "CB", "SL", "CH", "OT"].map(t => '<button class="pchip' + ((L.pitchSel || "FB") === t ? " on" : "") + '" data-ptype="' + t + '">' + t + "</button>").join("") + "</div>"
+      : "";
+    mid = chips
+      + '<div class="lgrid ' + (L.opts.strikeType ? "lg3" : "lg2") + '">'
+      + '<button class="lbtn big" data-pitch="ball">Ball</button>' + strikeBtns + "</div>"
+      + '<div class="lgrid lg4"><button class="lbtn soft" data-pitch="foul">Foul</button>'
+      + '<button class="lbtn soft" data-out="hbp">HBP</button><button class="lbtn soft" data-out="out">Out (in play)</button>'
+      + '<button class="lbtn soft" data-out="roe">Error / ROE</button></div>'
+      + '<div class="lgrid lg4"><button class="lbtn" data-out="1b">1B</button><button class="lbtn" data-out="2b">2B</button>'
+      + '<button class="lbtn" data-out="3b">3B</button><button class="lbtn redb" data-out="hr">HR</button></div>'
+      + '<div class="lgrid lg3"><button class="lbtn soft" data-lv="bp">⟢ Base paths</button>'
+      + '<button class="lbtn soft" data-lv="log">📜 Game log</button>'
+      + '<button class="lbtn soft" id="lUndo"' + (L.log.length ? "" : " disabled") + '>↩ Undo</button></div>';
+  }
+
+  const ov = document.getElementById("overlay");
+  ov.innerHTML = '<div class="sheet" style="max-width:480px">'
+    + '<div class="sheet-head"><div><div class="disp" style="font-size:20px;font-weight:700">Live Scorer</div>'
+    + '<div class="mono" style="font-size:12px;color:var(--ink-soft)">' + esc(teamLabel("away")) + " " + teamRuns("away") + " — " + teamRuns("home") + " " + esc(teamLabel("home")) + "</div></div>"
+    + '<button class="xbtn" id="lClose">✕</button></div>'
+    + '<div class="mono" style="text-align:center;font-size:13px;margin-bottom:6px">' + halfLabel() + ' &nbsp; <span style="letter-spacing:3px">' + "●".repeat(L.outs) + "○".repeat(3 - L.outs) + '</span> <span style="color:var(--ink-soft);font-size:11px">outs</span></div>'
+    + diamondSVG()
+    + '<div class="lbatter"><button id="lBatter" title="Tap to change batter">#' + (L.teams[bt].idx + 1) + " " + esc(cur) + " ▾</button></div>"
+    + '<div class="lnext">batting: ' + esc(teamLabel(bt)) + " · on deck: " + esc(nxt) + "</div>"
+    + '<div style="text-align:center;margin-bottom:4px"><button class="addrow" id="lPitcher" style="color:var(--ink)">⚾ P: '
+    + (pitcher ? esc(pitcher) + (pLine ? ' <span class="mono" style="font-size:11px;color:var(--ink-soft)">(' + esc(pLine) + ")</span>" : "") : "<i>none set — tap to add</i>") + " ▾</button></div>"
+    + '<div class="lcount mono" style="font-size:40px;margin-top:0">' + L.balls + "–" + L.strikes + "</div>"
+    + '<div class="lcount-label">Balls – Strikes</div>'
+    + '<div class="lstat-strip mono">' + esc(liveView.flash || bLine || "") + "</div>"
+    + mid
+    + '<button class="donebtn disp" id="lDone">Done — stats are in the box score</button>'
+    + '<div style="text-align:center;margin-top:8px"><button class="addrow" id="lReset" style="color:var(--ink-soft)">⚙ start over with new lineups</button></div>'
+    + "</div>";
+
+  const ps = ov.querySelector("#pbpScroll");
+  if (ps) ps.scrollTop = ps.scrollHeight;
+  ov.querySelector("#lClose").addEventListener("click", closeLive);
+  ov.querySelector("#lDone").addEventListener("click", closeLive);
+  ov.querySelector("#lBatter").addEventListener("click", () => { liveView = { s: "jump" }; renderLive(); });
+  ov.querySelector("#lPitcher").addEventListener("click", () => { liveView = { s: "sub" }; renderLive(); });
+  ov.querySelector("#lReset").addEventListener("click", () => {
+    if (confirm("Start over with new lineups? Stats already in the box score will stay.")) { form.live = null; openLive(); }
+  });
+  const undoBtn = ov.querySelector("#lUndo");
+  if (undoBtn) undoBtn.addEventListener("click", liveUndo);
+  const subGo = ov.querySelector("#subGo");
+  if (subGo) subGo.addEventListener("click", () => livePitchSub(ov.querySelector("#subName").value));
+  ov.querySelectorAll("[data-pitch]").forEach(b => b.addEventListener("click", () => liveCount(b.dataset.pitch)));
+  ov.querySelectorAll("[data-out]").forEach(b => b.addEventListener("click", () => liveOutcome(b.dataset.out)));
+  ov.querySelectorAll("[data-lv]").forEach(b => b.addEventListener("click", () => { liveView = { s: b.dataset.lv }; renderLive(); }));
+  ov.querySelectorAll("[data-jump]").forEach(b => b.addEventListener("click", () => liveJump(parseInt(b.dataset.jump))));
+  ov.querySelectorAll("[data-ptype]").forEach(b => b.addEventListener("click", () => { L.pitchSel = b.dataset.ptype; renderLive(); }));
+  ov.querySelectorAll("[data-adv]").forEach(b => b.addEventListener("click", () => advChoose(b.dataset.adv)));
+  ov.querySelectorAll("[data-base]").forEach(g => g.addEventListener("click", () => {
+    if (liveView.s === "main" && L.bases[g.dataset.base]) { liveView = { s: "runner", base: g.dataset.base }; renderLive(); }
+  }));
+  ov.querySelectorAll("[data-pickbase]").forEach(b => b.addEventListener("click", () => { liveView = { s: "runner", base: b.dataset.pickbase }; renderLive(); }));
+  ov.querySelectorAll("[data-ract]").forEach(b => b.addEventListener("click", () => runnerAct(liveView.base, b.dataset.ract)));
+  ov.querySelectorAll("[data-fldstat]").forEach(b => b.addEventListener("click", () => { liveView = { s: "fld", stat: b.dataset.fldstat, team: fieldingTeam(), then: null }; renderLive(); }));
+  ov.querySelectorAll("[data-fld]").forEach(b => b.addEventListener("click", () => fldApply(b.dataset.fld, liveView.team, liveView.stat, liveView.then)));
+  ov.querySelectorAll("[data-fldskip]").forEach(b => b.addEventListener("click", () => {
+    liveView = liveView.then ? { s: "fld", stat: liveView.then, team: liveView.team, then: null } : { s: "main" };
+    renderLive();
+  }));
+}
+
+function renderLiveSetup() {
+  const S = liveSetup;
+  const ok = S.names.away.some(filled) && S.names.home.some(filled);
+  const ov = document.getElementById("overlay");
+  const lineupSection = t =>
+    '<div style="margin-top:14px"><label>' + esc(teamLabel(t)) + " batting order</label>"
+    + S.names[t].map((n, i) => '<div class="lsetup-row"><span class="n mono">' + (i + 1) + ".</span>"
+      + '<input data-t="' + t + '" data-i="' + i + '" value="' + esc(n) + '" placeholder="Player name">'
+      + '<button class="delrow" data-delt="' + t + '" data-del="' + i + '">🗑</button></div>').join("")
+    + '<button class="addrow" data-add="' + t + '">+ Add a spot</button>'
+    + '<div style="margin-top:8px"><label>' + esc(teamLabel(t)) + ' starting pitcher</label>'
+    + '<input data-pitcher="' + t + '" value="' + esc(S.pitchers[t]) + '" placeholder="Pitcher name (optional)"></div></div>';
+  const optBtn = (key, lbl) =>
+    '<button class="vbtn' + (S.opts[key] ? " active" : "") + '" data-opt="' + key + '">' + (S.opts[key] ? "✓ " : "") + lbl + "</button>";
+
+  ov.innerHTML = '<div class="sheet" style="max-width:480px">'
+    + '<div class="sheet-head"><div><div class="disp" style="font-size:20px;font-weight:700">Lineup Card</div>'
+    + '<div class="mono" style="font-size:12px;color:var(--ink-soft)">' + esc(form.away || "Away") + " @ " + esc(form.home || "Home") + "</div></div>"
+    + '<button class="xbtn" id="lsClose">✕</button></div>'
+    + lineupSection("away") + lineupSection("home")
+    + '<div style="margin-top:16px"><label>How much do you want to track?</label>'
+    + '<div style="font-size:11px;color:var(--ink-soft);font-style:italic;margin-bottom:6px">Baseline (always on): pitch count, baserunners, RISP, full batting & pitching lines.</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap">' + optBtn("strikeType", "Swinging / looking") + optBtn("pitchType", "Pitch type") + optBtn("fielding", "Fielding (PO·A·E)") + "</div></div>"
+    + '<div style="margin-top:16px"><label>Picking up the game at…</label>'
+    + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+    + '<button class="vbtn' + (S.half === "top" ? " active" : "") + '" data-half="top">▲ Top (' + esc(teamLabel("away")) + ' bats)</button>'
+    + '<button class="vbtn' + (S.half === "bottom" ? " active" : "") + '" data-half="bottom">▼ Bottom (' + esc(teamLabel("home")) + ' bats)</button>'
+    + '<span style="font-size:13px">of inning</span><input id="lsInning" inputmode="numeric" value="' + S.inning + '" style="width:54px;text-align:center"></div></div>'
+    + '<div class="grid2" style="margin-top:12px"><div><label>First ' + esc(teamLabel("away")) + ' batter</label><select id="lsStartA"></select></div>'
+    + '<div><label>First ' + esc(teamLabel("home")) + ' batter</label><select id="lsStartH"></select></div></div>'
+    + '<button class="donebtn disp" id="lsGo"' + (ok ? "" : " disabled") + '>Play ball — start scoring</button></div>';
+
+  const sels = { away: ov.querySelector("#lsStartA"), home: ov.querySelector("#lsStartH") };
+  const refreshStart = t => {
+    const opts = S.names[t].map((n, i) => [n, i]).filter(([n]) => filled(n));
+    sels[t].innerHTML = opts.length
+      ? opts.map(([n, i]) => '<option value="' + i + '"' + (i === S.start[t] ? " selected" : "") + ">" + (i + 1) + ". " + esc(n) + "</option>").join("")
+      : '<option value="0">Add players above</option>';
+  };
+  refreshStart("away"); refreshStart("home");
+  ov.querySelector("#lsClose").addEventListener("click", closeLive);
+  ov.querySelectorAll("input[data-t]").forEach(inp => inp.addEventListener("input", () => {
+    S.names[inp.dataset.t][parseInt(inp.dataset.i)] = inp.value;
+    refreshStart(inp.dataset.t);
+    ov.querySelector("#lsGo").disabled = !(S.names.away.some(filled) && S.names.home.some(filled));
+  }));
+  ov.querySelectorAll("input[data-pitcher]").forEach(inp => inp.addEventListener("input", () => S.pitchers[inp.dataset.pitcher] = inp.value));
+  ov.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => { S.names[b.dataset.delt].splice(parseInt(b.dataset.del), 1); renderLiveSetup(); }));
+  ov.querySelectorAll("[data-add]").forEach(b => b.addEventListener("click", () => { S.names[b.dataset.add].push(""); renderLiveSetup(); }));
+  ov.querySelectorAll("[data-half]").forEach(b => b.addEventListener("click", () => { S.half = b.dataset.half; renderLiveSetup(); }));
+  ov.querySelectorAll("[data-opt]").forEach(b => b.addEventListener("click", () => { S.opts[b.dataset.opt] = !S.opts[b.dataset.opt]; renderLiveSetup(); }));
+  ov.querySelector("#lsInning").addEventListener("input", ev => S.inning = Math.max(1, parseInt(ev.target.value) || 1));
+  sels.away.addEventListener("change", () => S.start.away = parseInt(sels.away.value) || 0);
+  sels.home.addEventListener("change", () => S.start.home = parseInt(sels.home.value) || 0);
+  ov.querySelector("#lsGo").addEventListener("click", () => {
+    const teams = {};
+    for (const t of ["away", "home"]) {
+      const order = S.names[t].map(n => n.trim()).filter(Boolean);
+      if (!order.length) return;
+      const chosen = (S.names[t][S.start[t]] || "").trim();
+      let idx = order.indexOf(chosen);
+      if (idx < 0) idx = 0;
+      teams[t] = { order, idx, pitcher: S.pitchers[t].trim() };
+    }
+    form.live = { inning: S.inning, half: S.half, outs: 0, balls: 0, strikes: 0, teams, log: [],
+      bases: { first: null, second: null, third: null }, opts: { ...S.opts }, pitchSel: "FB" };
+    renderLive();
+  });
+}
+
+// ── Wire up top-level controls ────────────────────────────────────────
+document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
+  sportFilter = b.dataset.sport;
+  document.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c === b));
+  renderList();
+}));
+document.getElementById("venueFilter").addEventListener("change", renderList);
+document.getElementById("search").addEventListener("input", renderList);
+document.getElementById("addBtn").addEventListener("click", () => openForm(null));
+document.getElementById("listArea").addEventListener("click", ev => {
+  const btn = ev.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.closest(".card").dataset.id;
+  if (btn.dataset.act === "edit") {
+    openForm(entries.find(e => e.id === id));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } else if (btn.dataset.act === "del") {
+    if (confirm("Delete this game?")) { entries = entries.filter(e => e.id !== id); persist(); renderTally(); renderList(); }
+  }
+});
+
+renderTally();
+renderList();
+
+// Register the service worker so the app works offline once installed
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("./sw.js").catch(() => {});
+}
+
+// ── Backup & restore ──────────────────────────────────────────────────
+document.getElementById("exportBtn").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(entries, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "scorebook-backup-" + today() + ".json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+});
+document.getElementById("importBtn").addEventListener("click", () => document.getElementById("importFile").click());
+document.getElementById("importFile").addEventListener("change", ev => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!Array.isArray(data)) throw new Error("not an array");
+      const existing = new Set(entries.map(e => e.id));
+      let added = 0;
+      for (const e of data) {
+        if (e && e.id && !existing.has(e.id)) { entries.push(e); existing.add(e.id); added++; }
+      }
+      entries.sort((a, b) => a.date < b.date ? 1 : -1);
+      persist(); renderTally(); renderList();
+      alert(added + " game" + (added === 1 ? "" : "s") + " restored." + (added < data.length ? " (" + (data.length - added) + " already in your scorebook.)" : ""));
+    } catch (e2) {
+      alert("That file doesn't look like a scorebook backup.");
+    }
+    ev.target.value = "";
+  };
+  reader.readAsText(file);
+});
+</script>
+</body>
+</html>
