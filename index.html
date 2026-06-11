@@ -1,0 +1,3048 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My Scorebook</title>
+<meta name="theme-color" content="#1E3A5F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Scorebook">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root {
+    --paper: #EAF0E6; --card: #F8FBF5; --ink: #1E3A5F; --ink-soft: #5A7089;
+    --line: #C2D2BC; --red: #C0392B; --red-soft: #F6E3E0;
+  }
+  body.dark {
+    --paper: #14181d; --card: #1d242b; --ink: #d7e3ee; --ink-soft: #8fa3b8;
+    --line: #32404d; --red: #e2604f; --red-soft: #46262a;
+    background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 27px, rgba(50,64,77,.4) 27px, rgba(50,64,77,.4) 28px);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
+    font-family: Georgia, 'Times New Roman', serif;
+    background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 27px, rgba(194,210,188,.33) 27px, rgba(194,210,188,.33) 28px);
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 14px 90px; }
+  .disp { font-family: 'Arial Narrow', 'Helvetica Neue Condensed', Impact, sans-serif; text-transform: uppercase; letter-spacing: .1em; }
+  .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+  header { border-bottom: 3px double var(--ink); padding-bottom: 12px; margin-bottom: 16px; }
+  header h1 { margin: 0; font-size: 32px; line-height: 1; letter-spacing: .06em; }
+  #tally { font-size: 13px; color: var(--ink-soft); margin-top: 6px; font-style: italic; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .chip { font-size: 12px; padding: 6px 12px; border-radius: 999px; border: 1.5px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; }
+  .chip.active { background: var(--ink); color: var(--card); }
+  input, select, textarea {
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: #fff;
+    color: var(--ink); font-family: Georgia, serif; font-size: 16px; width: 100%;
+  }
+  select.inline { width: auto; font-size: 13px; padding: 6px 8px; }
+  #search { flex: 1; min-width: 150px; font-size: 14px; }
+  label { display: block; font-family: 'Arial Narrow', Impact, sans-serif; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: var(--ink-soft); margin-bottom: 4px; }
+  .addbtn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px; margin-bottom: 20px; border: 2px dashed var(--ink); border-radius: 6px; background: transparent; color: var(--ink); font-size: 14px; cursor: pointer; }
+  .panel { background: var(--card); border: 1.5px solid var(--ink); border-radius: 6px; padding: 14px; margin-bottom: 22px; box-shadow: 3px 3px 0 var(--ink); }
+  .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .xbtn { background: none; border: none; color: var(--ink-soft); font-size: 20px; cursor: pointer; line-height: 1; padding: 2px 6px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .grid-teams { display: grid; grid-template-columns: 1fr 58px 1fr 58px; gap: 6px; margin-bottom: 12px; align-items: end; }
+  .venue-row { margin-bottom: 12px; }
+  .venue-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .vbtn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 4px; font-size: 13px; cursor: pointer; border: 1.5px solid var(--line); background: #fff; color: var(--ink); font-family: Georgia, serif; }
+  .vbtn.active { border-color: var(--red); background: var(--red-soft); color: var(--red); }
+  .boxlaunch { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 4px; cursor: pointer; border: 1.5px solid var(--red); background: #fff; color: var(--red); font-size: 13px; font-weight: 700; }
+  .boxlaunch.has { background: var(--red-soft); }
+  .saverow { display: flex; gap: 8px; margin-top: 12px; }
+  .savebtn { flex: 1; padding: 10px; background: var(--ink); color: var(--card); border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+  .cancelbtn { padding: 10px 16px; background: transparent; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 4px; font-size: 13px; cursor: pointer; font-family: Georgia, serif; }
+  .card { position: relative; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--ink); border-radius: 4px; padding: 13px 14px; margin-bottom: 13px; }
+  .stamp { position: absolute; top: 10px; right: 12px; transform: rotate(-6deg); border: 2px solid var(--red); color: var(--red); border-radius: 3px; font-size: 10px; letter-spacing: .12em; padding: 2px 7px; opacity: .85; }
+  .meta { font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
+  .matchup { font-size: 19px; font-weight: 700; letter-spacing: .04em; }
+  .matchup .at { color: var(--ink-soft); font-weight: 400; font-size: 14px; margin: 0 6px; }
+  .matchup .score { font-size: 17px; }
+  .teamhead { font-size: 11px; font-weight: 700; border-bottom: 2px solid var(--ink); padding-bottom: 2px; margin: 8px 0 4px; }
+  .boxwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .sheet.wide { width: max-content; min-width: min(100%, 340px); max-width: none; }
+  table.edit thead th { position: sticky; top: 0; background: var(--card); z-index: 2; }
+  /* live: pitch-type chips + diamond */
+  .pchips { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .pchip { padding: 5px 10px; font-size: 11px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink-soft); cursor: pointer; font-family: ui-monospace, Menlo, monospace; }
+  .pchip.on { border-color: var(--red); color: var(--red); background: var(--red-soft); font-weight: 700; }
+  .diamond-wrap { margin: 2px 0 6px; } .diamond-wrap svg { width: 100%; height: auto; display: block; border-radius: 6px; }
+  table.box { border-collapse: collapse; font-size: 12px; width: 100%; }
+  table.box th { text-align: right; color: var(--ink-soft); font-weight: 600; padding: 2px 6px; font-size: 11px; }
+  table.box th.pl { text-align: left; font-weight: 400; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; padding-left: 0; }
+  table.box td { text-align: right; padding: 2px 6px; white-space: nowrap; }
+  table.box td.pl { text-align: left; font-weight: 600; padding-left: 0; }
+  .mline { font-size: 11px; color: var(--red); padding: 0 0 4px 8px; text-align: left !important; }
+  .notes { margin-top: 8px; font-size: 13px; font-style: italic; color: var(--ink-soft); }
+  .cardbtns { display: flex; gap: 14px; margin-top: 9px; }
+  .cardbtns button { background: none; border: none; font-size: 12px; cursor: pointer; padding: 0; font-family: Georgia, serif; }
+  .ebtn { color: var(--ink-soft); } .dbtn { color: var(--red); }
+  .empty { text-align: center; color: var(--ink-soft); padding: 40px 10px; font-style: italic; }
+  /* box score overlay */
+  #overlay { position: fixed; inset: 0; z-index: 50; background: rgba(30,58,95,.45); overflow: auto; padding: 12px 6px; }
+  #overlay.hidden, .hidden { display: none; }
+  .sheet { background: var(--card); border: 2px solid var(--ink); border-radius: 6px; box-shadow: 4px 4px 0 var(--ink); max-width: 880px; margin: 0 auto; padding: 14px; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 3px double var(--ink); padding-bottom: 10px; margin-bottom: 6px; }
+  .hint { font-size: 11px; color: var(--ink-soft); font-style: italic; margin-bottom: 12px; }
+  .grouplabel { font-size: 13px; font-weight: 700; color: var(--red); margin: 14px 0 6px; }
+  table.edit { border-collapse: collapse; width: 100%; }
+  table.edit th { font-size: 10px; color: var(--ink); text-align: center; padding: 4px 2px; border-bottom: 2px solid var(--ink); }
+  table.edit th.pl { color: var(--ink-soft); text-align: left; min-width: 104px; font-family: 'Arial Narrow', Impact, sans-serif; text-transform: uppercase; letter-spacing: .08em; }
+  table.edit td { padding: 5px 2px 2px; }
+  table.edit input.stat { width: 44px; padding: 7px 1px; text-align: center; font-size: 14px; }
+  table.edit input.pname { min-width: 104px; padding: 6px 8px; font-size: 13px; }
+  .teamtog { font-size: 11px; padding: 6px 8px; cursor: pointer; border: 1px solid var(--line); border-radius: 3px; background: #fff; color: var(--ink); max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mrow td { padding: 0 0 6px 4px; border-bottom: 1px dashed var(--line); font-size: 11px; }
+  .addrow { background: none; border: none; color: var(--red); font-size: 13px; cursor: pointer; padding: 6px 0 0; font-family: Georgia, serif; }
+  .delrow { background: none; border: none; color: var(--ink-soft); cursor: pointer; font-size: 15px; }
+  .donebtn { width: 100%; padding: 11px; background: var(--ink); color: var(--card); border: none; border-radius: 4px; font-size: 14px; cursor: pointer; margin-top: 8px; }
+  .err { background: var(--red-soft); border: 1px solid var(--red); border-radius: 4px; padding: 8px 12px; font-size: 13px; margin-bottom: 12px; color: var(--red); }
+  /* live scorer */
+  .lcount { font-size: 52px; font-weight: 700; text-align: center; letter-spacing: .05em; margin: 6px 0 2px; }
+  .lcount-label { text-align: center; font-size: 11px; color: var(--ink-soft); letter-spacing: .15em; text-transform: uppercase; margin-bottom: 14px; }
+  .lbatter { text-align: center; margin-bottom: 4px; }
+  .lbatter button { background: none; border: none; cursor: pointer; color: var(--ink); font-size: 21px; font-weight: 700; font-family: 'Arial Narrow', Impact, sans-serif; text-transform: uppercase; letter-spacing: .05em; border-bottom: 2px dashed var(--line); padding: 2px 4px; }
+  .lnext { text-align: center; font-size: 12px; color: var(--ink-soft); font-style: italic; margin-bottom: 10px; }
+  .lgrid { display: grid; gap: 8px; margin-bottom: 8px; }
+  .lg2 { grid-template-columns: 1fr 1fr; } .lg3 { grid-template-columns: 1fr 1fr 1fr; } .lg4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .lbtn { padding: 16px 4px; font-size: 16px; font-weight: 700; border: 1.5px solid var(--ink); border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; font-family: 'Arial Narrow', Impact, sans-serif; text-transform: uppercase; letter-spacing: .06em; }
+  .lbtn.big { padding: 22px 4px; font-size: 19px; }
+  .lbtn.redb { border-color: var(--red); color: var(--red); }
+  .lbtn.soft { border-color: var(--line); color: var(--ink-soft); font-size: 13px; padding: 11px 4px; }
+  .lbtn:disabled { opacity: .35; cursor: default; }
+  .lbtn.full { grid-column: 1 / -1; }
+  .llist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .llist button { padding: 12px; font-size: 15px; border: 1.5px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; text-align: left; font-family: Georgia, serif; }
+  .llist button.cur { border-color: var(--red); background: var(--red-soft); }
+  .lsetup-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .lsetup-row .n { width: 22px; font-size: 13px; color: var(--ink-soft); text-align: right; }
+  .lstat-strip { font-size: 11px; text-align: center; color: var(--red); margin-bottom: 12px; min-height: 14px; }
+  html, body { overscroll-behavior-y: none; }
+  #seasonBar { display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-top: 8px; }
+  #seasonBar.hidden { display: none; }
+  .seasontbl { border-collapse: collapse; font-size: 11px; width: 100%; margin-top: 4px; }
+  .seasontbl th, .seasontbl td { border: 1px solid var(--line); padding: 3px 6px; text-align: center; }
+  .seasontbl th:first-child, .seasontbl td:first-child { text-align: left; }
+  .lbtn:active, .vbtn:active, .pchip:active { background: var(--red) !important; color: #fff !important; border-color: var(--red) !important; transform: scale(.97); }
+  @keyframes flashpulse { 0% { background: var(--red); color: #fff; } 100% { background: transparent; color: inherit; } }
+  .flashpulse { animation: flashpulse .9s ease-out; border-radius: 6px; }
+  .modebar { display: flex; gap: 0; margin: 12px 0 0; border: 1.5px solid var(--ink); border-radius: 999px; overflow: hidden; }
+  .modebtn { flex: 1; padding: 8px 4px; border: none; background: transparent; color: var(--ink); font-size: 12px; cursor: pointer; }
+  .modebtn.active { background: var(--red); color: #fff; }
+  .nav { display: flex; gap: 8px; margin: 14px 0 16px; }
+  .navbtn { flex: 1; padding: 8px 2px; border: 1.5px solid var(--ink); border-radius: 6px; background: transparent; color: var(--ink); font-size: 11px; cursor: pointer; }
+  .recrow { font-size: 13px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .recnum { color: var(--ink-soft); display: inline-block; width: 18px; }
+  .navbtn.active { background: var(--ink); color: var(--card); }
+  details.card summary::-webkit-details-marker { display: none; }
+  .statk { cursor: pointer; border-bottom: 1px dotted currentColor; }
+  #statTip { position: fixed; z-index: 100; max-width: 250px; background: var(--ink); color: var(--card); font-size: 12px; line-height: 1.45; padding: 8px 11px; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.35); font-family: Georgia, serif; pointer-events: none; }
+  .backup { text-align: center; margin-top: 30px; font-size: 12px; color: var(--ink-soft); }
+  .backup button { background: none; border: none; color: var(--ink); font-size: 12px; cursor: pointer; text-decoration: underline; font-family: Georgia, serif; padding: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <h1 class="disp" style="margin:0">My Scorebook ⚾</h1>
+      <button id="themeBtn" style="background:none;border:1.5px solid var(--ink);color:var(--ink);border-radius:999px;width:38px;height:38px;cursor:pointer;font-size:16px;flex:none">🌙</button>
+    </div>
+    <div id="tally"></div>
+  </header>
+  <div class="modebar">
+    <button class="modebtn disp active" data-mode="real">⚾ Real games</button>
+    <button class="modebtn disp" data-mode="video">🎮 Video games</button>
+  </div>
+  <div id="seasonBar" class="hint hidden">
+    <span>📅 Current season: <b id="seasonLabel">not set</b></span><span style="white-space:nowrap;color:var(--ink-soft)">tap to change</span>
+  </div>
+  <div id="err" class="err hidden">Couldn't save — your browser may be blocking storage (private browsing?). Changes will be lost when you close this page.</div>
+  <div class="nav">
+    <button class="navbtn disp active" data-view="games">📓 Games</button>
+    <button class="navbtn disp" data-view="teams">👥 Teams</button>
+    <button class="navbtn disp" data-view="stats">📊 Stats</button>
+    <button class="navbtn disp" data-view="records">🏆 Records</button>
+  </div>
+  <div id="view-games">
+  <div class="controls">
+    <select id="venueFilter" class="inline">
+      <option value="all">TV + in person + radio</option>
+      <option value="tv">On TV only</option>
+      <option value="in-person">In person only</option>
+      <option value="radio">Radio only</option>
+    </select>
+    <input id="search" placeholder="Search players, teams, notes…">
+  </div>
+  <button id="addBtn" class="addbtn disp">＋ Log a game</button>
+  <div id="draftNote" class="hint hidden">↩ Restored your unsaved game — it auto-saves as you go.</div>
+  <div id="backupNudge" class="hint hidden" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <span>It's been a while since your last backup — your scorebook lives only on this phone.</span>
+    <span style="white-space:nowrap"><button class="addrow" id="nudgeGo">💾 Back up</button> <button class="addrow" id="nudgeLater">✕</button></span>
+  </div>
+  <div id="formArea"></div>
+  <div id="listArea"></div>
+  <div class="backup">
+    Your scorebook and teams live on this device.
+    <button id="exportBtn">⬇ Back up to a file</button> ·
+    <button id="importBtn">⬆ Restore from backup</button>
+    <input type="file" id="importFile" accept=".json,application/json" hidden>
+  </div>
+  </div>
+  <div id="view-teams" class="hidden"></div>
+  <div id="view-stats" class="hidden"></div>
+  <div id="view-records" class="hidden"></div>
+</div>
+<div id="overlay" class="hidden"></div>
+<div id="statTip" class="hidden"></div>
+
+<script>
+"use strict";
+// ── Schemas & math ────────────────────────────────────────────────────
+const num = v => { const x = parseFloat(String(v ?? "").replace(/[^\d.\-]/g, "")); return isNaN(x) ? 0 : x; };
+const filled = v => String(v ?? "").trim() !== "";
+const f1 = x => x.toFixed(1), f2 = x => x.toFixed(2);
+const b3 = x => { const s = x.toFixed(3); return s.startsWith("0") ? s.slice(1) : s; };
+const pctStr = x => (x * 100).toFixed(1) + "%";
+const ipVal = v => { const s = String(v ?? "").trim(); if (!s) return 0; const p = s.split("."); return (parseInt(p[0]) || 0) + Math.min(parseInt(p[1]) || 0, 2) / 3; };
+const clampR = x => Math.max(0, Math.min(2.375, x));
+
+const SPORTS = { basketball: "🏀", football: "🏈", baseball: "⚾" };
+const BOX = {
+  baseball: [
+    { id: "batting", label: "Batting", add: "Add batter", cols: ["AB","R","H","2B","3B","HR","RBI","BB","IBB","HBP","SO","SB","SF","XBT","RAB","RH","PIT","PH","PBB","PK","PIO","IPO"],
+      calc: s => {
+        const out=[], ab=num(s.AB), h=num(s.H), d=num(s["2B"]), t=num(s["3B"]), hr=num(s.HR), bb=num(s.BB), hbp=num(s.HBP);
+        const tb = (h-d-t-hr) + 2*d + 3*t + 4*hr;
+        const xbt = num(s.XBT);
+        if (h > 0 || xbt > 0) out.push(["TB", String(tb + xbt)]);
+        let avg=null, obp=null, slg=null;
+        if (ab > 0) { avg = h/ab; slg = tb/ab; }
+        const sf = num(s.SF);
+        const oden = ab + bb + hbp + sf;
+        if (oden > 0) obp = (h+bb+hbp)/oden;
+        if (avg !== null) out.push(["AVG", b3(avg)]);
+        if (obp !== null) out.push(["OBP", b3(obp)]);
+        if (slg !== null) out.push(["SLG", b3(slg)]);
+        if (obp !== null && slg !== null) out.push(["OPS", b3(obp+slg)]);
+        const rab = num(s.RAB);
+        if (rab > 0) out.push(["RISP", b3(num(s.RH)/rab) + " (" + num(s.RH) + "-" + rab + ")"]);
+        if (avg !== null && slg !== null && tb > h) out.push(["ISO", b3(slg - avg)]);
+        const so = num(s.SO), bipDen = ab - so - hr + sf;
+        if (bipDen > 0 && filled(s.SO)) out.push(["BABIP", b3((h - hr) / bipDen)]);
+        const pa = ab + bb + hbp + sf;
+        if (bb > 0 && pa > 0) out.push(["BB%", pctStr(bb / pa)]);
+        if (so > 0 && pa > 0) out.push(["K%", pctStr(so / pa)]);
+        const pit = num(s.PIT);
+        if (pit > 0 && pa > 0) out.push(["P/PA", f1(pit / pa)]);
+        if (num(s.PH) > 0 && h > 0) out.push(["P/H", f1(num(s.PH) / h)]);
+        if (num(s.PBB) > 0 && bb > 0) out.push(["P/BB", f1(num(s.PBB) / bb)]);
+        if (num(s.PK) > 0 && so > 0) out.push(["P/K", f1(num(s.PK) / so)]);
+        if (num(s.PIO) > 0 && num(s.IPO) > 0) out.push(["P/O", f1(num(s.PIO) / num(s.IPO))]);
+        const ibbN = num(s.IBB);
+        const wDen = ab + bb - ibbN + sf + hbp;
+        if (wDen > 0 && (h > 0 || bb > 0 || hbp > 0)) {
+          const s1b = h - d - t - hr;
+          const woba = (0.69 * (bb - ibbN) + 0.72 * hbp + 0.88 * s1b + 1.27 * d + 1.62 * t + 2.10 * hr) / wDen;
+          out.push(["wOBA", b3(woba)]);
+        }
+        if (hr > 0 && ab > 0) out.push(["AB/HR", f1(ab / hr)]);
+        if (pa > 0) out.push(["PA", String(pa)]);
+        return out;
+      }},
+    { id: "pitching", label: "Pitching", add: "Add pitcher", cols: ["IP","H","R","ER","BB","IBB","K","HR","PC","BAL","STR","PH","PBB","PK","PIO","IPO","SwS","LkS","FB","CB","SL","CH","OT"],
+      calc: s => {
+        const out=[], inn=ipVal(s.IP), bb=num(s.BB), k=num(s.K);
+        if (inn > 0) out.push(["ERA", f2(9*num(s.ER)/inn)], ["WHIP", f2((bb+num(s.H))/inn)], ["K/9", f1(9*k/inn)]);
+        if (bb > 0) out.push(["K/BB", f1(k/bb)]);
+        if (inn > 0) {
+          out.push(["H/9", f1(9*num(s.H)/inn)]);
+          if (num(s.HR) > 0) out.push(["HR/9", f1(9*num(s.HR)/inn)]);
+          out.push(["FIP", f2((13*num(s.HR) + 3*bb - 2*k)/inn + 3.1)]);
+        }
+        const sw=num(s.SwS), lk=num(s.LkS), pc=num(s.PC), strn=num(s.STR);
+        if (pc > 0 && strn > 0) out.push(["Str%", pctStr(strn/pc)]);
+        if (pc > 0 && (sw+lk) > 0) out.push(["SwStr%", pctStr(sw/pc)]);
+        if (num(s.PH) > 0 && num(s.H) > 0) out.push(["P/H", f1(num(s.PH) / num(s.H))]);
+        if (num(s.PBB) > 0 && num(s.BB) > 0) out.push(["P/BB", f1(num(s.PBB) / num(s.BB))]);
+        if (num(s.PK) > 0 && num(s.K) > 0) out.push(["P/K", f1(num(s.PK) / num(s.K))]);
+        if (num(s.PIO) > 0 && num(s.IPO) > 0) out.push(["P/O", f1(num(s.PIO) / num(s.IPO))]);
+        const bf = Math.round(inn * 3) + num(s.H) + num(s.BB);
+        if (bf > 0) {
+          if (k > 0) out.push(["K%", pctStr(k / bf)]);
+          if (bb > 0) out.push(["BB%", pctStr(bb / bf)]);
+          if (k > 0 || bb > 0) out.push(["K-BB%", pctStr((k - bb) / bf)]);
+        }
+        if (num(s.H) > 0 && (Math.round(inn * 3) + num(s.H)) > 0) out.push(["AVGa", b3(num(s.H) / (Math.round(inn * 3) + num(s.H)))]);
+        return out;
+      }},
+    { id: "fielding", label: "Fielding", add: "Add fielder", cols: ["PO","A","E"],
+      calc: s => {
+        const po=num(s.PO), a=num(s.A), e=num(s.E), den=po+a+e;
+        return den > 0 ? [["FLD%", b3((po+a)/den)]] : [];
+      }},
+  ],
+};
+
+// ── State ─────────────────────────────────────────────────────────────
+const STAT_GLOSSARY = {
+  "MIN": "Minutes played", "FGM": "Field goals made", "FGA": "Field goals attempted", "3PM": "Three-pointers made", "3PA": "Three-point attempts",
+  "FTM": "Free throws made", "FTA": "Free throws attempted", "OREB": "Offensive rebounds", "DREB": "Defensive rebounds", "REB": "Total rebounds",
+  "AST": "Assists", "STL": "Steals", "BLK": "Blocks", "TO": "Turnovers", "PF": "Personal fouls", "PTS": "Points",
+  "FG%": "Field goal percentage: shots made out of shots taken", "3P%": "Three-point percentage", "FT%": "Free throw percentage",
+  "eFG%": "Effective FG%: like FG% but threes count 1.5x", "TS%": "True shooting %: overall scoring efficiency including threes and free throws",
+  "GmSc": "Game Score: one number for the whole performance. ~10 is average, 30+ is huge", "2P%": "Two-point field goal percentage",
+  "3PAr": "Three-point attempt rate: share of shots taken from deep", "AST/TO": "Assist-to-turnover ratio. Higher = better ball security",
+  "EFF": "Efficiency: points + rebounds + assists + steals + blocks, minus missed shots and turnovers",
+  "CMP": "Completions", "ATT": "Pass attempts", "YDS": "Yards", "TD": "Touchdowns", "INT": "Interceptions", "SACK": "Times sacked",
+  "CMP%": "Completion percentage", "Y/A": "Yards per pass attempt", "AY/A": "Adjusted yards per attempt: TDs add 20, INTs subtract 45",
+  "RTG": "NFL passer rating (0 to 158.3; ~95 is good)", "CAR": "Carries", "YPC": "Yards per carry", "LONG": "Longest play", "FUM": "Fumbles",
+  "TGT": "Targets: passes thrown his way", "REC": "Receptions", "Y/R": "Yards per reception", "YPT": "Yards per target", "CATCH%": "Catch rate: receptions out of targets",
+  "AB": "At-bats (walks and HBP do not count)", "R": "Runs scored", "H": "Hits", "2B": "Doubles", "3B": "Triples", "HR": "Home runs",
+  "RBI": "Runs batted in", "BB": "Walks", "HBP": "Hit by pitch", "SO": "Strikeouts", "SB": "Stolen bases",
+  "SF": "Sacrifice fly: an out that scores a runner. No at-bat charged, but it counts in OBP and plate appearances",
+  "IBB": "Intentional walk. Also counts as a BB; the modern auto-IBB adds no pitches",
+  "RAB": "At-bats with runners in scoring position (2nd or 3rd)", "RH": "Hits with runners in scoring position",
+  "PIT": "Total pitches seen at the plate", "PH": "Pitches seen in at-bats that ended in a hit", "PBB": "Pitches seen during walks", "PK": "Pitches seen during strikeouts",
+  "P/PA": "Average pitches seen per plate appearance. 4.0+ is a grinder who works the count", "P/H": "Average pitches in at-bats where he got a hit",
+  "P/BB": "Average pitches per walk", "P/K": "Average pitches per strikeout",
+  "IPO": "In-play outs: at-bats ending with a ball in play turned into an out", "PIO": "Pitches in at-bats that ended in an in-play out",
+  "P/O": "Average pitches per in-play out", "XBH": "Extra-base hits: doubles + triples + home runs",
+  "wOBA": "Weighted on-base average: OBP where each way of reaching is weighted by its run value. ~.320 is average, .400 elite",
+  "AB/HR": "At-bats per home run: lower means more power", "PA": "Plate appearances",
+  "K-BB%": "Strikeout rate minus walk rate, per batter faced. The cleanest single pitching skill number",
+  "AVGa": "Opponents' batting average against this pitcher",
+  "QS": "Quality start: 6+ innings with 3 or fewer earned runs", "CG": "Complete game", "SHO": "Shutout: a complete game allowing no runs", "XBT": "Extra bases taken: steals, advancing on a teammate's hit, and runs scored from the bases (solo tracking)",
+  "R/G": "Runs scored per game, across the games you witnessed",
+  "TB": "Total bases — plus extra bases taken (XBT) when tracked. SLG and ISO use the official hits-only version", "AVG": "Batting average: hits per at-bat",
+  "OBP": "On-base percentage: how often he reaches base", "SLG": "Slugging: total bases per at-bat", "OPS": "OBP + SLG. .800+ is a good hitter",
+  "RISP": "Average with runners in scoring position: clutch hitting", "ISO": "Isolated power (SLG minus AVG): extra bases only",
+  "BABIP": "Batting average on balls in play. ~.300 is normal; far off suggests luck", "BB%": "Walk rate per plate appearance", "K%": "Strikeout rate per plate appearance",
+  "IP": "Innings pitched: .1 = one out, .2 = two outs", "ER": "Earned runs", "K": "Strikeouts", "PC": "Pitch count", "BAL": "Balls thrown", "STR": "Strikes thrown: called, swinging, fouls, and balls put in play",
+  "Str%": "Strike rate: strikes per pitch. 62%+ means he is pounding the zone",
+  "SwS": "Swinging strikes", "LkS": "Called strikes (looking)", "SwStr%": "Swinging-strike rate: whiffs per pitch. 12%+ is nasty stuff",
+  "FB": "Fastballs thrown", "CB": "Curveballs", "SL": "Sliders", "CH": "Changeups", "OT": "Other pitches",
+  "ERA": "Earned run average per 9 innings. Lower is better", "WHIP": "Walks + hits per inning pitched. Under 1.20 is strong",
+  "K/9": "Strikeouts per 9 innings", "K/BB": "Strikeout-to-walk ratio", "H/9": "Hits allowed per 9 innings", "HR/9": "Home runs allowed per 9 innings",
+  "FIP": "Fielding-independent pitching: an ERA-style number built only from Ks, walks, and homers",
+  "PO": "Putouts: recorded the out (catch, tag, force)", "A": "Assists: threw to the out", "E": "Errors",
+  "FLD%": "Fielding percentage: (PO + A) out of total chances. .980+ is clean",
+};
+
+const KEY = "sports-stat-log-v1";
+let entries = [];
+try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
+const TKEY = "sports-stat-teams-v1";
+const PKEY = "sports-stat-parks-v1";
+let parksDB = [];
+try { parksDB = JSON.parse(localStorage.getItem(PKEY) || "[]"); } catch (e) {}
+function persistParks() {
+  try { localStorage.setItem(PKEY, JSON.stringify(parksDB)); } catch (e) {}
+}
+let teamsDB = [];
+try { teamsDB = JSON.parse(localStorage.getItem(TKEY) || "[]"); } catch (e) {}
+
+// ── App mode: real games vs video games ───────────────────────────────
+let appMode = "real";
+try { appMode = localStorage.getItem("sports-stat-mode") === "video" ? "video" : "real"; } catch (e) {}
+let currentView = "games";
+
+const VENUES = {
+  real: [
+    { v: "tv", label: "📺 On TV", meta: " · on TV", words: "tv on tv television watched", placeLbl: "Where you watched (optional)", placePh: "Home, sports bar…" },
+    { v: "in-person", label: "📍 In person", meta: "", words: "in person in-person live attended stadium ballpark arena", stamp: "In person", placeLbl: "Stadium / ballpark", placePh: "Wrigley Field" },
+    { v: "radio", label: "📻 Radio", meta: " · on the radio", words: "radio on the radio listened", placeLbl: "Where you listened (optional)", placePh: "Car, kitchen radio…" },
+  ],
+  video: [
+    { v: "played", label: "🎮 Played it", meta: " · played", words: "played playing video game controller", stamp: "Played it", placeLbl: "Game / platform (optional)", placePh: "MLB The Show 26 · PS5" },
+    { v: "stream", label: "📺 Watched", meta: " · watched (stream)", words: "stream watched twitch youtube replay", placeLbl: "Game / where you watched (optional)", placePh: "MLB The Show · Twitch" },
+    { v: "online", label: "🌐 Online vs someone", meta: " · online", words: "online ranked versus multiplayer opponent", placeLbl: "Game / opponent (optional)", placePh: "MLB The Show · vs Mike" },
+  ],
+};
+function venueDef(e) {
+  const all = VENUES.real.concat(VENUES.video);
+  return all.find(x => x.v === e.venue) || VENUES.real[0];
+}
+function modeOf(x) { return (x && x.mode) === "video" ? "video" : "real"; }
+function modeTeams() { return teamsDB.filter(t => modeOf(t) === appMode); }
+function seasonOf(e) {
+  const s = e && e.season != null ? String(e.season).trim() : "";
+  return s || String((e && e.date) || "").slice(0, 4);
+}
+function currentSeason() {
+  try { return (localStorage.getItem("sports-stat-season") || "").trim(); } catch (e) { return ""; }
+}
+function renderSeasonBar() {
+  const sb = document.getElementById("seasonBar");
+  if (!sb) return;
+  sb.classList.toggle("hidden", appMode !== "video");
+  document.getElementById("seasonLabel").textContent = currentSeason() || "not set";
+}
+function yearOptionsHtml() {
+  const by = {};
+  for (const e of entries) {
+    if (modeOf(e) !== appMode) continue;
+    const sl = seasonOf(e);
+    if (!sl) continue;
+    if (!by[sl] || (e.date || "") < by[sl]) by[sl] = e.date || "";
+  }
+  const labels = Object.keys(by);
+  if (appMode === "video") labels.sort((a, b) => (by[a] < by[b] ? -1 : 1));
+  else labels.sort().reverse();
+  return '<option value="all">All seasons</option>' + labels.map(y => '<option value="' + esc(y) + '">' + esc(y) + "</option>").join("");
+}
+function venueFilterOptionsHtml() {
+  const vs = VENUES[appMode];
+  return '<option value="all">' + (appMode === "video" ? "Played + watched + online" : "TV + in person + radio") + "</option>"
+    + vs.map(d => '<option value="' + d.v + '">' + d.label.replace(/^[^ ]+ /, "") + " only</option>").join("");
+}
+function setMode(m) {
+  appMode = m;
+  try { localStorage.setItem("sports-stat-mode", m); } catch (e) {}
+  document.querySelectorAll(".modebtn").forEach(b => b.classList.toggle("active", b.dataset.mode === m));
+  const vf = document.getElementById("venueFilter");
+  if (vf) { vf.innerHTML = venueFilterOptionsHtml(); vf.value = "all"; }
+  renderSeasonBar();
+  renderTally();
+  renderList();
+  if (currentView === "teams") renderTeamsView();
+  if (currentView === "stats") renderStatsView();
+  if (currentView === "records") renderRecordsView();
+}
+
+// Ask the browser to mark this data as persistent so the OS won't evict it to free space
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+let form = null, editingId = null, rowSeq = 0;
+
+const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const today = () => new Date().toISOString().slice(0, 10);
+const emptyForm = () => ({ sport: "baseball", date: today(), away: "", home: "", awayScore: "", homeScore: "", venue: appMode === "video" ? "played" : "tv", place: "", box: [], pbp: [], notes: "", mode: appMode });
+const newRow = g => ({ id: "r" + Date.now().toString(36) + (rowSeq++), player: "", team: "away", group: g, stats: {} });
+const mline = m => m.map(([k, v]) => k + " " + v).join("  ·  ");
+const mlineHtml = m => m.map(([k, v]) => '<span class="statk" data-stat="' + esc(k) + '">' + esc(k) + "</span> " + esc(v)).join(" · ");
+
+function persist() {
+  try { localStorage.setItem(KEY, JSON.stringify(entries)); document.getElementById("err").classList.add("hidden"); }
+  catch (e) { document.getElementById("err").classList.remove("hidden"); }
+}
+
+// ── Tally & list ──────────────────────────────────────────────────────
+function renderTally() {
+  const list = entries.filter(e => modeOf(e) === appMode);
+  const key = appMode === "video" ? "played" : "in-person";
+  const m = list.filter(e => e.venue === key).length;
+  document.getElementById("tally").textContent = list.length === 0
+    ? (appMode === "video" ? "Every video game, on the record." : "Every game you've watched, on the record.")
+    : list.length + " game" + (list.length === 1 ? "" : "s") + " logged · " + m + (appMode === "video" ? " played yourself" : " seen in person");
+}
+
+function boxDisplayHTML(e) {
+  const groups = BOX[e.sport] || [], rows = e.box || [];
+  if (!rows.length) return "";
+  let html = "";
+  for (const t of ["away", "home"]) {
+    const tr = rows.filter(r => r.team === t);
+    if (!tr.length) continue;
+    html += '<div class="teamhead disp">' + esc(t === "away" ? e.away || "Away" : e.home || "Home") + "</div>";
+    for (const g of groups) {
+      const gr = tr.filter(r => r.group === g.id);
+      if (!gr.length) continue;
+      const used = g.cols.filter(c => gr.some(r => filled(r.stats[c])));
+      const cols = used.length ? used : g.cols;
+      html += '<div class="boxwrap"><table class="box mono"><tr><th class="pl">' + (groups.length > 1 ? esc(g.label) : "") + "</th>"
+        + cols.map(c => '<th class="statk" data-stat="' + esc(c) + '">' + esc(c) + "</th>").join("") + "</tr>";
+      for (const r of gr) {
+        html += '<tr><td class="pl">' + esc(r.player || "—") + "</td>" + cols.map(c => "<td>" + esc(r.stats[c] || "·") + "</td>").join("") + "</tr>";
+        const m = g.calc(r.stats);
+        if (m.length) html += '<tr><td class="mline" colspan="' + (cols.length + 1) + '">' + mlineHtml(m) + "</td></tr>";
+      }
+      html += "</table></div>";
+    }
+  }
+  return '<div style="margin-top:8px">' + html + "</div>";
+}
+
+function lineScoreTable(line, away, home, minInn) {
+  if (!line) return "";
+  const n = Math.max(minInn || 0, line.a.length, line.h.length, (line.prior ? 1 : 0));
+  if (!n) return "";
+  const pr = line.prior || { a: 0, h: 0 };
+  const tot = (arr, p0) => (p0 || 0) + arr.reduce((x, y) => x + (y || 0), 0);
+  const cell = v => '<td style="padding:1px 5px;text-align:center">' + v + "</td>";
+  const row = (name, arr, hits, errs, p0) =>
+    "<tr><td style=\"text-align:left;padding:1px 6px 1px 0;font-weight:600;white-space:nowrap\">" + esc(String(name).slice(0, 14)) + "</td>"
+    + Array.from({ length: n }, (_, i) => cell(arr[i] != null ? arr[i] : "·")).join("")
+    + "<td style=\"padding:1px 5px;text-align:center;font-weight:700;border-left:1px solid var(--line)\">" + tot(arr, p0) + "</td>"
+    + cell(hits) + cell(errs) + "</tr>";
+  return '<div class="boxwrap"><table class="mono" style="font-size:11px;border-collapse:collapse;margin:4px auto 6px">'
+    + "<tr><td></td>" + Array.from({ length: n }, (_, i) => '<td style="padding:1px 5px;text-align:center;color:var(--ink-soft)">' + (i + 1) + "</td>").join("")
+    + "<td style=\"padding:1px 5px;font-weight:700;border-left:1px solid var(--line)\">R</td><td style=\"padding:1px 5px;font-weight:700\">H</td><td style=\"padding:1px 5px;font-weight:700\">E</td></tr>"
+    + row(away || "Away", line.a, line.hits.away, line.errs.away, pr.a)
+    + row(home || "Home", line.h, line.hits.home, line.errs.home, pr.h)
+    + "</table></div>";
+}
+function pbpGroupHtml(pbp) {
+  let h = "", lastKey = "";
+  for (const p of pbp) {
+    const key = p.h + "-" + p.i;
+    if (key !== lastKey) { h += '<div class="disp" style="font-size:11px;font-weight:700;color:var(--red);margin:8px 0 3px">' + (p.h === "top" ? "▲ Top " : "▼ Bottom ") + p.i + "</div>"; lastKey = key; }
+    h += '<div style="font-size:13px;padding:2px 0;border-bottom:1px dashed var(--line)">' + esc(p.t) + "</div>";
+  }
+  return h;
+}
+function renderList() {
+  const venueFilter = document.getElementById("venueFilter").value;
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  const list = entries.filter(e => {
+    if (modeOf(e) !== appMode) return false;
+    if (venueFilter !== "all" && e.venue !== venueFilter) return false;
+    if (q) {
+      const legacy = (e.statLines || []).map(s => s.player + " " + s.line);
+      const names = (e.box || []).map(r => r.player);
+      const venueWords = venueDef(e).words || "";
+      if (![e.away, e.home, e.place, e.notes, venueWords, ...legacy, ...names].join(" ").toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+  const area = document.getElementById("listArea");
+  if (!list.length) {
+    area.innerHTML = '<div class="empty">' + (entries.length === 0 ? "No games yet. Log the first one above." : "No games match those filters.") + "</div>";
+    return;
+  }
+  area.innerHTML = list.map(e => {
+    const hasScore = filled(e.awayScore) || filled(e.homeScore);
+    const legacy = (e.statLines || []).length
+      ? '<div style="margin-top:8px;border-top:1px dashed var(--line);padding-top:8px">' + e.statLines.map(s =>
+          '<div class="mono" style="font-size:13px;display:flex;gap:12px;padding:2px 0"><span style="min-width:120px;font-weight:600">' + esc(s.player) + "</span><span>" + esc(s.line) + "</span></div>").join("") + "</div>"
+      : "";
+    return '<div class="card" data-id="' + e.id + '">'
+      + (venueDef(e).stamp ? '<div class="stamp disp">' + venueDef(e).stamp + "</div>" : "")
+      + '<div class="meta mono">' + (SPORTS[e.sport] || "") + " " + esc(e.date) + (e.place ? " · " + esc(e.place) : esc(venueDef(e).meta || "")) + (modeOf(e) === "video" && e.season ? " · 📅 " + esc(e.season) : "") + (e.noRec ? " · 🚫 no records" : "") + "</div>"
+      + '<div class="matchup disp">' + esc(e.away || "?") + " " + (hasScore ? '<span class="score mono">' + esc(e.awayScore || "–") + "</span>" : "")
+      + '<span class="at">@</span>' + esc(e.home || "?") + " " + (hasScore ? '<span class="score mono">' + esc(e.homeScore || "–") + "</span>" : "") + "</div>"
+      + (e.sport === "baseball" && e.live && e.live.line ? lineScoreTable(e.live.line, e.away, e.home, 0) : "")
+      + boxDisplayHTML(e)
+      + ((e.pbp && e.pbp.length) ? '<details style="margin-top:8px"><summary class="disp" style="cursor:pointer;font-size:12px;color:var(--ink)">📜 Game log · ' + e.pbp.length + ' plays</summary><div style="margin-top:4px">' + pbpGroupHtml(e.pbp) + "</div></details>" : "")
+      + legacy
+      + (e.notes ? '<div class="notes">“' + esc(e.notes) + "”</div>" : "")
+      + '<div class="cardbtns"><button class="ebtn" data-act="edit">✎ Edit</button>'
+      + (e.sport === "baseball" ? '<button class="ebtn" data-act="share">📤 Share</button>' : "")
+      + '<button class="dbtn" data-act="del">🗑 Delete</button></div></div>';
+  }).join("");
+}
+
+// ── Game form ─────────────────────────────────────────────────────────
+function openForm(entry, restored) {
+  if (restored && restored.form) {
+    form = restored.form;
+    editingId = restored.editingId || null;
+  } else {
+    form = entry ? JSON.parse(JSON.stringify({ ...emptyForm(), ...entry })) : emptyForm();
+    editingId = entry ? entry.id : null;
+  }
+  form.box = form.box || [];
+  form.pbp = form.pbp || [];
+  form.season = form.season == null ? "" : form.season;
+  form.noRec = !!form.noRec;
+  if (!editingId && !(restored && restored.form) && modeOf(form) === "video" && !form.season) form.season = currentSeason();
+  const a = document.getElementById("formArea");
+  a.innerHTML = '<div class="panel">'
+    + '<div class="panel-head"><span class="disp" style="font-size:15px;font-weight:700">' + (editingId ? "Edit game" : "New game") + '</span><button class="xbtn" id="fClose">✕</button></div>'
+    + '<div style="margin-bottom:12px"><label>Date</label><input type="date" id="fDate" value="' + esc(form.date) + '"></div>'
+    + '<div class="grid-teams"><div><label>Away</label><input id="fAway" placeholder="Cubs" value="' + esc(form.away) + '"></div>'
+    + '<div><label>Pts</label><input id="fAwayScore" class="mono" style="text-align:center" value="' + esc(form.awayScore) + '"></div>'
+    + '<div><label>Home</label><input id="fHome" placeholder="Dodgers" value="' + esc(form.home) + '"></div>'
+    + '<div><label>Pts</label><input id="fHomeScore" class="mono" style="text-align:center" value="' + esc(form.homeScore) + '"></div></div>'
+    + '<div class="venue-row"><label>Watched / listened</label><div class="venue-btns">'
+        + VENUES[modeOf(form)].map(d => '<button class="vbtn" data-v="' + d.v + '">' + d.label + "</button>").join("") + "</div>"
+    + '<label id="placeLabel"></label><input id="fPlace" value="' + esc(form.place) + '"></div>'
+    + '<button class="boxlaunch disp" id="fBox"></button>'
+    + '<button class="boxlaunch disp" id="fLive"></button>'
+    + '<label>Notes</label><textarea id="fNotes" rows="2" placeholder="Buzzer beater in OT, sat behind the dugout…">' + esc(form.notes) + "</textarea>"
+    + (modeOf(form) === "video" ? '<div style="margin-top:8px"><label>Season</label><input id="fSeason" placeholder="Season 1" value="' + esc(form.season) + '"></div>' : "")
+    + '<label class="hint" style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-style:normal"><input type="checkbox" id="fNoRec"' + (form.noRec ? " checked" : "") + ' style="width:auto;margin:0"> 🚫 Leave this game out of the Records page</label>'
+    + '<div class="saverow"><button class="savebtn disp" id="fSave">' + (editingId ? "Save changes" : "Add to scorebook") + '</button><button class="cancelbtn" id="fCancel">Cancel</button></div></div>';
+  document.getElementById("addBtn").classList.add("hidden");
+
+  const bind = (id, key) => document.getElementById(id).addEventListener("input", ev => form[key] = ev.target.value);
+  bind("fDate", "date"); bind("fAway", "away"); bind("fAwayScore", "awayScore");
+  bind("fHome", "home"); bind("fHomeScore", "homeScore"); bind("fPlace", "place"); bind("fNotes", "notes");
+  if (document.getElementById("fSeason")) bind("fSeason", "season");
+  document.getElementById("fNoRec").addEventListener("change", ev => form.noRec = ev.target.checked);
+  a.querySelectorAll(".vbtn").forEach(b => b.addEventListener("click", () => { form.venue = b.dataset.v; updateVenue(); }));
+  document.getElementById("fBox").addEventListener("click", openBox);
+  document.getElementById("fLive").addEventListener("click", openLive);
+  document.getElementById("fClose").addEventListener("click", closeForm);
+  document.getElementById("fCancel").addEventListener("click", closeForm);
+  document.getElementById("fSave").addEventListener("click", saveEntry);
+  updateVenue(); updateBoxBtn();
+}
+
+function updateVenue() {
+  const defs = VENUES[modeOf(form)];
+  document.querySelectorAll("#formArea .vbtn[data-v]").forEach(b => b.classList.toggle("active", b.dataset.v === form.venue));
+  const d = defs.find(x => x.v === form.venue) || defs[0];
+  document.getElementById("placeLabel").textContent = d.placeLbl;
+  document.getElementById("fPlace").placeholder = d.placePh;
+}
+function updateBoxBtn() {
+  const n = form.box.filter(r => r.player.trim()).length;
+  const b = document.getElementById("fBox");
+  b.textContent = n > 0 ? "📋 Box score · " + n + " player" + (n === 1 ? "" : "s") + " — tap to edit" : "📋 Log stats — open box score";
+  b.classList.toggle("has", n > 0);
+  const lv = document.getElementById("fLive");
+  lv.classList.toggle("hidden", form.sport !== "baseball");
+  lv.textContent = form.live ? "⚾ Resume live scoring" : "⚾ Live scoring — pitch by pitch";
+  lv.classList.toggle("has", !!form.live);
+}
+function closeForm() {
+  clearDraft();
+  const dn = document.getElementById("draftNote");
+  if (dn) dn.classList.add("hidden");
+  document.getElementById("formArea").innerHTML = "";
+  document.getElementById("addBtn").classList.remove("hidden");
+  form = null; editingId = null;
+}
+function saveEntry() {
+  if (!form.away.trim() && !form.home.trim()) { document.getElementById("fAway").focus(); return; }
+  const cleaned = { ...form, box: form.box.filter(r => r.player.trim() || Object.values(r.stats).some(v => String(v).trim())) };
+  if (!cleaned.mode) cleaned.mode = "real";
+  cleaned.season = cleaned.season ? String(cleaned.season).trim() : "";
+  if (cleaned.live && cleaned.live.line && (cleaned.live.line.a.length || cleaned.live.line.h.length || cleaned.live.line.prior)) {
+    const pr0 = cleaned.live.line.prior || { a: 0, h: 0 };
+    const la = pr0.a + cleaned.live.line.a.reduce((x, y) => x + (y || 0), 0);
+    const lh = pr0.h + cleaned.live.line.h.reduce((x, y) => x + (y || 0), 0);
+    if (!filled(cleaned.awayScore)) cleaned.awayScore = String(la);
+    if (!filled(cleaned.homeScore)) cleaned.homeScore = String(lh);
+  }
+  if (editingId) {
+    entries = entries.map(e => e.id === editingId ? { ...cleaned, id: editingId } : e);
+  } else {
+    entries.unshift({ ...cleaned, id: Date.now().toString(36) });
+  }
+  entries.sort((a, b) => a.date < b.date ? 1 : -1);
+  persist(); closeForm(); renderTally(); renderList();
+}
+
+// ── Box score editor ──────────────────────────────────────────────────
+function openBox() {
+  const ov = document.getElementById("overlay");
+  ov.classList.remove("hidden");
+  renderBoxEditor();
+  document.body.style.overflow = "hidden";
+}
+function closeBox() {
+  document.getElementById("overlay").classList.add("hidden");
+  document.body.style.overflow = "";
+  updateBoxBtn();
+}
+function teamName(t) { return t === "away" ? form.away || "Away" : form.home || "Home"; }
+
+function renderBoxEditor() {
+  const groups = BOX[form.sport] || [];
+  let html = '<div class="sheet wide"><div class="sheet-head"><div>'
+    + '<div class="disp" style="font-size:20px;font-weight:700">Official Box Score</div>'
+    + '<div class="mono" style="font-size:12px;color:var(--ink-soft)">' + esc(form.away || "Away") + " @ " + esc(form.home || "Home") + " · " + esc(form.date) + "</div>"
+    + '</div><button class="xbtn" id="bClose">✕</button></div>'
+    + '<div class="hint">Enter the basics — advanced metrics appear in red under each player as you type.'
+    + (form.sport === "baseball" ? " Pitcher innings: enter 6.2 for 6⅔ IP." : "") + "</div>";
+  for (const g of groups) {
+    const rows = form.box.filter(r => r.group === g.id);
+    html += '<div class="grouplabel disp">' + esc(g.label) + '</div><table class="edit"><thead>'
+      + '<tr><th class="pl">Player</th><th class="pl">Team</th>' + g.cols.map(c => '<th class="mono statk" data-stat="' + esc(c) + '">' + esc(c) + "</th>").join("") + '<th></th></tr></thead><tbody>';
+    if (!rows.length) html += '<tr><td colspan="' + (g.cols.length + 3) + '" style="font-size:12px;font-style:italic;color:var(--ink-soft);padding:10px 4px">No ' + g.label.toLowerCase() + " entries yet.</td></tr>";
+    for (const r of rows) {
+      const m = g.calc(r.stats);
+      html += '<tr><td><input class="pname" data-row="' + r.id + '" data-f="player" value="' + esc(r.player) + '" placeholder="Name"></td>'
+        + '<td><button class="teamtog mono" data-row="' + r.id + '" data-f="team" title="Tap to switch team">' + esc(teamName(r.team)) + "</button></td>"
+        + g.cols.map(c => '<td><input class="stat mono" inputmode="decimal" data-row="' + r.id + '" data-col="' + esc(c) + '" value="' + esc(r.stats[c] || "") + '"></td>').join("")
+        + '<td><button class="delrow" data-row="' + r.id + '" data-f="del">🗑</button></td></tr>'
+        + '<tr class="mrow"><td colspan="' + (g.cols.length + 3) + '"><span class="mono" id="m-' + r.id + '" style="color:' + (m.length ? "var(--red)" : "var(--line)") + '">'
+        + (m.length ? "→ " + mlineHtml(m) : "→ metrics will calculate here") + "</span></td></tr>";
+    }
+    html += '</tbody></table><button class="addrow" style="display:block" data-group="' + g.id + '">+ ' + esc(g.add) + "</button>";
+  }
+  html += '<button class="donebtn disp" id="bDone">Done — back to game</button></div>';
+  const ov = document.getElementById("overlay");
+  ov.innerHTML = html;
+
+  ov.querySelector("#bClose").addEventListener("click", closeBox);
+  ov.querySelector("#bDone").addEventListener("click", closeBox);
+  ov.addEventListener("click", ev => { if (ev.target === ov) closeBox(); });
+  ov.querySelectorAll(".addrow").forEach(b => b.addEventListener("click", () => { form.box.push(newRow(b.dataset.group)); renderBoxEditor(); }));
+  ov.querySelectorAll(".delrow").forEach(b => b.addEventListener("click", () => { form.box = form.box.filter(r => r.id !== b.dataset.row); renderBoxEditor(); }));
+  ov.querySelectorAll(".teamtog").forEach(b => b.addEventListener("click", () => {
+    const r = form.box.find(r => r.id === b.dataset.row);
+    r.team = r.team === "away" ? "home" : "away";
+    b.textContent = teamName(r.team);
+  }));
+  ov.querySelectorAll("input.pname").forEach(i => i.addEventListener("input", () => {
+    const r = form.box.find(r => r.id === i.dataset.row);
+    r.player = i.value;
+  }));
+  ov.querySelectorAll("input.stat").forEach(i => i.addEventListener("input", () => {
+    const r = form.box.find(r => r.id === i.dataset.row);
+    r.stats[i.dataset.col] = i.value;
+    const g = BOX[form.sport].find(g => g.id === r.group);
+    const m = g.calc(r.stats);
+    const span = document.getElementById("m-" + r.id);
+    span.innerHTML = m.length ? "→ " + mlineHtml(m) : "→ metrics will calculate here";
+    span.style.color = m.length ? "var(--red)" : "var(--line)";
+  }));
+}
+
+// ── Live baseball scoring (diamond + baserunners + tracking options) ──
+let liveSetup = null;
+let liveView = { s: "main" };
+
+const teamLabel = t => t === "away" ? (form.away || "Away") : (form.home || "Home");
+const battingTeam = () => form.live.half === "top" ? "away" : "home";
+const fieldingTeam = () => form.live.half === "top" ? "home" : "away";
+const halfLabel = () => (form.live.half === "top" ? "▲ Top " : "▼ Bot ") + form.live.inning;
+const teamRuns = t => form.box.filter(r => r.group === "batting" && r.team === t).reduce((a, r) => a + num(r.stats.R), 0);
+function lineRuns(t) {
+  const L = form.live;
+  if (L && L.line) {
+    const pr = L.line.prior || { a: 0, h: 0 };
+    const arr = t === "away" ? L.line.a : L.line.h;
+    return (t === "away" ? pr.a : pr.h) + arr.reduce((x, y) => x + (y || 0), 0);
+  }
+  return teamRuns(t);
+}
+function stampInning(team) {
+  const L = form.live;
+  if (!L || !L.line) return;
+  const arr = team === "away" ? L.line.a : L.line.h;
+  while (arr.length < L.inning) arr.push(null);
+  if (arr[L.inning - 1] == null) arr[L.inning - 1] = 0;
+  if (!L.line.det) L.line.det = { a: [], h: [] };
+  const darr = team === "away" ? L.line.det.a : L.line.det.h;
+  while (darr.length < L.inning) darr.push(null);
+  if (!darr[L.inning - 1]) darr[L.inning - 1] = { r: 0, h: 0, br: 0, ps: {}, full: false, partial: false };
+}
+const BASE_LBL = { first: "1st", second: "2nd", third: "3rd" };
+const lastName = n => String(n || "").trim().split(/\s+/).slice(-1)[0];
+
+const ipOutsOf = v => { const s = String(v ?? "").trim(); if (!s) return 0; const p = s.split("."); return (parseInt(p[0]) || 0) * 3 + Math.min(parseInt(p[1]) || 0, 2); };
+const outsToIp = o => o <= 0 ? "" : Math.floor(o / 3) + "." + (o % 3);
+
+function openLive() {
+  holdScreen();
+  if (form.live && !form.live.teams && !form.live.solo) form.live = null; // discard very old sessions
+  if (form.live && form.live.teams && !form.live.bases) {                            // migrate sessions from before baserunners
+    form.live.bases = { first: null, second: null, third: null };
+    form.live.opts = form.live.opts || { strikeType: false, pitchType: false, fielding: false };
+    form.live.pitchSel = form.live.pitchSel || "FB";
+  }
+  if (form.live && form.live.abPit === undefined) form.live.abPit = 0;
+  if (form.live && form.live.teams && !form.live.line) form.live.line = { a: [], h: [], hits: { away: 0, home: 0 }, errs: { away: 0, home: 0 } };
+  if (!form.live) {
+    liveSetup = { names: { away: Array(9).fill(""), home: Array(9).fill("") }, pitchers: { away: "", home: "" }, half: "top", inning: 1, start: { away: 0, home: 0 }, opts: { strikeType: false, pitchType: false, fielding: false } };
+    for (const t of ["away", "home"]) {
+      const pre = form.box.filter(r => r.group === "batting" && r.team === t).map(r => r.player);
+      pre.slice(0, 9).forEach((p, i) => liveSetup.names[t][i] = p);
+      const pp = form.box.find(r => r.group === "pitching" && r.team === t);
+      if (pp) liveSetup.pitchers[t] = pp.player;
+    }
+  }
+  liveView = { s: "main" };
+  document.getElementById("overlay").classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  renderLive();
+}
+function closeLive() {
+  releaseScreen();
+  document.getElementById("overlay").classList.add("hidden");
+  document.body.style.overflow = "";
+  updateBoxBtn();
+}
+
+function ensureRowG(player, team, group) {
+  const key = player.trim().toLowerCase();
+  let r = form.box.find(x => x.group === group && x.team === team && x.player.trim().toLowerCase() === key);
+  if (!r) { r = newRow(group); r.player = player.trim(); r.team = team; form.box.push(r); }
+  return r;
+}
+function applyColsG(player, team, group, cols) {
+  const r = ensureRowG(player, team, group);
+  for (const [c, d] of cols) r.stats[c] = String(num(r.stats[c]) + d);
+}
+function revertColsG(player, team, group, cols) {
+  const r = ensureRowG(player, team, group);
+  for (const [c, d] of cols) { const v = num(r.stats[c]) - d; r.stats[c] = v <= 0 ? "" : String(v); }
+}
+function applyPit(player, team, cols, outs) {
+  const r = ensureRowG(player, team, "pitching");
+  for (const [c, d] of cols) r.stats[c] = String(num(r.stats[c]) + d);
+  if (outs) r.stats.IP = outsToIp(ipOutsOf(r.stats.IP) + outs);
+}
+function revertPit(player, team, cols, outs) {
+  const r = ensureRowG(player, team, "pitching");
+  for (const [c, d] of cols) { const v = num(r.stats[c]) - d; r.stats[c] = v <= 0 ? "" : String(v); }
+  if (outs) r.stats.IP = outsToIp(ipOutsOf(r.stats.IP) - outs);
+}
+
+function snap() {
+  const L = form.live;
+  return { ia: L.teams.away.idx, ih: L.teams.home.idx, b: L.balls, s: L.strikes, ap: L.abPit, o: L.outs, h: L.half, i: L.inning,
+           pa: L.teams.away.pitcher, ph: L.teams.home.pitcher,
+           b1: L.bases.first, b2: L.bases.second, b3v: L.bases.third,
+           ls: L.line ? JSON.stringify(L.line) : null };
+}
+function restore(s) {
+  const L = form.live;
+  L.teams.away.idx = s.ia; L.teams.home.idx = s.ih; L.balls = s.b; L.strikes = s.s; L.abPit = s.ap || 0;
+  L.outs = s.o; L.half = s.h; L.inning = s.i; L.teams.away.pitcher = s.pa; L.teams.home.pitcher = s.ph;
+  L.bases = { first: s.b1, second: s.b2, third: s.b3v };
+  if (s.ls) L.line = JSON.parse(s.ls);
+}
+function curBatter() {
+  const bt = battingTeam(), T = form.live.teams[bt];
+  return { player: T.order[T.idx], team: bt };
+}
+function syncNotesField() { const nf = document.getElementById("fNotes"); if (nf) nf.value = form.notes; }
+const rispNow = () => !!(form.live.bases.second || form.live.bases.third);
+
+// per-pitch tally: pitch count, pitch type, swinging/looking
+function pitchCols(strikeKind, isBall) {
+  const L = form.live, cols = [["PC", 1], [isBall ? "BAL" : "STR", 1]];
+  if (L.opts.pitchType) cols.push([L.pitchSel || "FB", 1]);
+  if (L.opts.strikeType && strikeKind === "sw") cols.push(["SwS", 1]);
+  if (L.opts.strikeType && strikeKind === "lk") cols.push(["LkS", 1]);
+  return cols;
+}
+
+function doAction(o) {
+  const L = form.live;
+  const entry = { snap: snap(), bats: [], pit: null, fld: null, note: null };
+  for (const b of (o.bats || [])) { applyColsG(b.player, b.team, "batting", b.cols); entry.bats.push(b); }
+  if ((o.pitCols && o.pitCols.length) || o.pitOuts) {
+    const ft = fieldingTeam(), p = L.teams[ft].pitcher;
+    if (p && p.trim()) { applyPit(p, ft, o.pitCols || [], o.pitOuts || 0); entry.pit = { player: p, team: ft, cols: o.pitCols || [], outs: o.pitOuts || 0 }; }
+  }
+  if (o.fld) { applyColsG(o.fld.player, o.fld.team, "fielding", o.fld.cols); entry.fld = o.fld; }
+  if (o.note) { form.notes = (form.notes ? form.notes + " " : "") + o.note; entry.note = o.note; syncNotesField(); }
+  if (L.line) {
+    const bt0 = battingTeam();
+    const runsAdded = (o.bats || []).reduce((a, b) => a + (b.team === bt0 ? b.cols.filter(c => c[0] === "R").reduce((x, c) => x + c[1], 0) : 0), 0) + (o.oppRuns || 0);
+    if (runsAdded) {
+      stampInning(bt0);
+      const arr = bt0 === "away" ? L.line.a : L.line.h;
+      arr[L.inning - 1] += runsAdded;
+    }
+    if (!L.line.det) L.line.det = { a: [], h: [] };
+    const darr0 = bt0 === "away" ? L.line.det.a : L.line.det.h;
+    while (darr0.length < L.inning) darr0.push(null);
+    if (!darr0[L.inning - 1]) darr0[L.inning - 1] = { r: 0, h: 0, br: 0, ps: {}, full: false, partial: true };
+    const drec = darr0[L.inning - 1];
+    drec.r += runsAdded;
+    if (o.hit) drec.h++;
+    if (o.hit || o.reach) drec.br++;
+    const fp0 = (L.teams[bt0 === "away" ? "home" : "away"].pitcher || "").trim();
+    if (fp0) drec.ps[fp0.toLowerCase()] = fp0;
+    if (o.hit) L.line.hits[bt0]++;
+    if (o.err) L.line.errs[o.err]++;
+    if (o.priorRun) {
+      L.line.prior = L.line.prior || { a: 0, h: 0 };
+      L.line.prior[o.priorRun === "away" ? "a" : "h"]++;
+    }
+  }
+  if (o.pbp) {
+    const lines = Array.isArray(o.pbp) ? o.pbp : [o.pbp];
+    entry.pbpN = 0;
+    for (const t of lines) { form.pbp.push({ h: entry.snap.h, i: entry.snap.i, t }); entry.pbpN++; }
+  }
+  let flash = o.flash || "";
+  if (o.setBases) L.bases = o.setBases;
+  if (o.advance) { const bt = battingTeam(); L.teams[bt].idx = (L.teams[bt].idx + 1) % L.teams[bt].order.length; L.balls = 0; L.strikes = 0; L.abPit = 0; }
+  if (o.outs) {
+    L.outs += o.outs;
+    if (L.outs >= 3) {
+      L.outs = 0; L.balls = 0; L.strikes = 0; L.abPit = 0;
+      L.bases = { first: null, second: null, third: null };
+      if (L.line && L.line.det) {
+        const finArr = battingTeam() === "away" ? L.line.det.a : L.line.det.h;
+        const fin = finArr[L.inning - 1];
+        if (fin) fin.full = true;
+      }
+      if (L.half === "top") L.half = "bottom"; else { L.half = "top"; L.inning++; }
+      stampInning(battingTeam());
+      flash += " · side retired → " + halfLabel();
+      form.pbp.push({ h: entry.snap.h, i: entry.snap.i, t: "Side retired — end of " + (entry.snap.h === "top" ? "the top" : "the bottom") + " of " + entry.snap.i + ". " + teamLabel("away") + " " + lineRuns("away") + ", " + teamLabel("home") + " " + lineRuns("home") + "." });
+      entry.pbpN = (entry.pbpN || 0) + 1;
+    }
+  }
+  L.log.push(entry);
+  liveView = Object.assign({ s: "main", flash }, o.nextView || {});
+  if (o.nextView) liveView.flash = flash;
+  renderLive();
+}
+
+// forced advancement for walks / HBP: returns {bases, scored}
+function forcedBases(batter) {
+  const b = form.live.bases;
+  const had1 = b.first, had2 = b.second, had3 = b.third;
+  const nb = { first: batter, second: b.second, third: b.third };
+  const scored = [];
+  if (had1) {
+    if (had2) {
+      if (had3) scored.push(had3);
+      nb.third = had2;
+    } else nb.third = had3;
+    nb.second = had1;
+  }
+  return { bases: nb, scored };
+}
+
+function liveCount(kind) {
+  const L = form.live, b = curBatter();
+  const strikeKind = kind === "strike-sw" ? "sw" : kind === "strike-lk" ? "lk" : null;
+  const isStrike = kind === "strike" || strikeKind;
+  if (kind === "ball") {
+    if (L.balls === 3) { // walk: forced advancement
+      const f = forcedBases(b.player);
+      const np = L.abPit + 1;
+      const bats = [{ ...b, cols: [["BB", 1], ["PIT", np], ["PBB", np]].concat(f.scored.length ? [["RBI", f.scored.length]] : []) }];
+      for (const r of f.scored) bats.push({ player: r, team: b.team, cols: [["R", 1]] });
+      const pit = pitchCols(null, true).concat([["BB", 1], ["PBB", np]]);
+      if (f.scored.length) pit.push(["R", f.scored.length], ["ER", f.scored.length]);
+      doAction({ bats, pitCols: pit, advance: true, reach: true, setBases: f.bases, flash: "Walk — " + b.player + (f.scored.length ? " · " + f.scored.join(", ") + " scores" : ""),
+        pbp: b.player + " walks" + (f.scored.length ? ". " + f.scored.join(" and ") + (f.scored.length === 1 ? " scores." : " score.") : ".") });
+      return;
+    }
+    L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null });
+    applyPitchOnly(null, true); L.abPit++; L.balls++;
+  } else if (isStrike) {
+    if (L.strikes === 2) { // strikeout
+      const np = L.abPit + 1;
+      const cols = [["SO", 1], ["AB", 1], ["PIT", np], ["PK", np]];
+      if (rispNow()) cols.push(["RAB", 1]);
+      doAction({ bats: [{ ...b, cols }], pitCols: pitchCols(strikeKind, false).concat([["K", 1], ["PK", np]]), pitOuts: 1, outs: 1, advance: true, flash: "Strikeout" + (strikeKind === "lk" ? " looking" : strikeKind === "sw" ? " swinging" : "") + " — " + b.player,
+        pbp: b.player + " strikes out" + (strikeKind === "lk" ? " looking" : strikeKind === "sw" ? " swinging" : "") + "." });
+      return;
+    }
+    L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null });
+    applyPitchOnly(strikeKind, false); L.abPit++; L.strikes++;
+  } else { // foul
+    if (L.strikes < 2) { L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null }); applyPitchOnly(null, false); L.abPit++; L.strikes++; }
+    else { L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null }); applyPitchOnly(null, false); L.abPit++; }
+  }
+  liveView = { s: "main" };
+  renderLive();
+}
+// pitch tally attached to the count-entry just pushed (so undo reverts it)
+function applyPitchOnly(strikeKind, isBall) {
+  const L = form.live, ft = fieldingTeam(), p = L.teams[ft].pitcher;
+  if (!p || !p.trim()) return;
+  const cols = pitchCols(strikeKind || null, !!isBall);
+  applyPit(p, ft, cols, 0);
+  L.log[L.log.length - 1].pit = { player: p, team: ft, cols, outs: 0 };
+}
+
+const HIT_DEST = { "1b": "first", "2b": "second", "3b": "third", "roe": "first" };
+function runnersOnBase() {
+  const b = form.live.bases, out = [];
+  if (b.third) out.push({ name: b.third, from: "third" });
+  if (b.second) out.push({ name: b.second, from: "second" });
+  if (b.first) out.push({ name: b.first, from: "first" });
+  return out;
+}
+
+function liveOutcome(kind) {
+  const L = form.live, b = curBatter();
+  const risp = rispNow();
+  const runners = runnersOnBase();
+  const np = L.abPit + 1;
+  if (kind === "hbp") {
+    const f = forcedBases(b.player);
+    const bats = [{ ...b, cols: [["HBP", 1], ["PIT", np]].concat(f.scored.length ? [["RBI", f.scored.length]] : []) }];
+    for (const r of f.scored) bats.push({ player: r, team: b.team, cols: [["R", 1]] });
+    const pit = pitchCols(null, true);
+    if (f.scored.length) pit.push(["R", f.scored.length], ["ER", f.scored.length]);
+    doAction({ bats, pitCols: pit, advance: true, reach: true, setBases: f.bases, flash: "HBP — " + b.player + (f.scored.length ? " · run scores" : ""),
+      pbp: b.player + " is hit by the pitch" + (f.scored.length ? ". " + f.scored.join(" and ") + (f.scored.length === 1 ? " scores." : " score.") : ".") });
+    return;
+  }
+  if (kind === "ibb") {
+    const f = forcedBases(b.player);
+    const cols = [["BB", 1], ["IBB", 1]];
+    if (L.abPit > 0) cols.push(["PIT", L.abPit], ["PBB", L.abPit]);
+    const bats = [{ ...b, cols: cols.concat(f.scored.length ? [["RBI", f.scored.length]] : []) }];
+    for (const r of f.scored) bats.push({ player: r, team: b.team, cols: [["R", 1]] });
+    const pit = [["BB", 1], ["IBB", 1]];
+    if (L.abPit > 0) pit.push(["PBB", L.abPit]);
+    if (f.scored.length) pit.push(["R", f.scored.length], ["ER", f.scored.length]);
+    doAction({ bats, pitCols: pit, advance: true, reach: true, setBases: f.bases, flash: "Intentional walk — " + b.player,
+      pbp: b.player + " is intentionally walked" + (f.scored.length ? ". " + f.scored.join(" and ") + (f.scored.length === 1 ? " scores." : " score.") : ".") });
+    return;
+  }
+  if (kind === "sf") {
+    const r3 = L.bases.third;
+    if (!r3 || L.outs >= 2) return;
+    const bats = [{ ...b, cols: [["RBI", 1], ["SF", 1], ["PIT", np], ["PIO", np], ["IPO", 1]] }, { player: r3, team: b.team, cols: [["R", 1]] }];
+    doAction({ bats, pitCols: pitchCols(null, false).concat([["R", 1], ["ER", 1], ["PIO", np], ["IPO", 1]]), pitOuts: 1, outs: 1, advance: true,
+      setBases: { ...L.bases, third: null },
+      flash: "Sac fly — " + r3 + " scores",
+      pbp: b.player + " hits a sacrifice fly. " + r3 + " scores." });
+    return;
+  }
+  if (kind === "hr") {
+    const nRuns = runners.length + 1;
+    const batCols = [["H", 1], ["HR", 1], ["AB", 1], ["R", 1], ["RBI", nRuns], ["PIT", np], ["PH", np]];
+    if (risp) batCols.push(["RAB", 1], ["RH", 1]);
+    const bats = [{ ...b, cols: batCols }];
+    for (const r of runners) bats.push({ player: r.name, team: b.team, cols: [["R", 1]] });
+    const others = runners.map(r => r.name);
+    const hrPbp = nRuns === 1 ? b.player + " hits a solo home run."
+      : nRuns === 4 ? b.player + " hits a GRAND SLAM! " + others.join(", ") + " all score."
+      : b.player + " hits a " + nRuns + "-run home run. " + others.join(" and ") + (others.length === 1 ? " scores." : " score.");
+    doAction({ bats, pitCols: pitchCols(null, false).concat([["H", 1], ["HR", 1], ["R", nRuns], ["ER", nRuns], ["PH", np]]), advance: true, hit: true, reach: true,
+      setBases: { first: null, second: null, third: null },
+      flash: (runners.length ? (nRuns) + "-run homer" : "Home run!") + " — " + b.player, pbp: hrPbp });
+    return;
+  }
+  // hits / ROE / out-in-play: may need runner advancement prompts
+  const defs = {
+    "1b": { batCols: [["H", 1], ["AB", 1]], pitExtra: [["H", 1]], reaches: true, rbi: true, er: true, label: "Single" },
+    "2b": { batCols: [["H", 1], ["2B", 1], ["AB", 1]], pitExtra: [["H", 1]], reaches: true, rbi: true, er: true, label: "Double" },
+    "3b": { batCols: [["H", 1], ["3B", 1], ["AB", 1]], pitExtra: [["H", 1]], reaches: true, rbi: true, er: true, label: "Triple" },
+    "roe": { batCols: [["AB", 1]], pitExtra: [], reaches: true, rbi: false, er: false, label: "Reached on error" },
+    "out": { batCols: [["AB", 1]], pitExtra: [], reaches: false, rbi: true, er: true, label: "Out" },
+  };
+  const d = defs[kind];
+  if (risp) { d.batCols = d.batCols.concat([["RAB", 1]]); if (kind === "1b" || kind === "2b" || kind === "3b") d.batCols.push(["RH", 1]); }
+  d.batCols = d.batCols.concat([["PIT", np]]);
+  if (kind === "1b" || kind === "2b" || kind === "3b") d.batCols.push(["PH", np]);
+  if (kind === "out") d.batCols.push(["PIO", np], ["IPO", 1]);
+  const pend = {
+    kind, label: d.label, batter: b, batCols: d.batCols, pitExtra: d.pitExtra,
+    reaches: d.reaches, dest: d.reaches ? HIT_DEST[kind] : null,
+    rbiOnRuns: d.rbi, erOnRuns: d.er, batterOut: !d.reaches,
+    runners, idx: 0, results: {},
+    claimed: d.reaches ? [HIT_DEST[kind]] : [],
+    ftPre: fieldingTeam(),
+  };
+  if (pend.batterOut && form.live.outs === 2) {
+    for (const r of runners) pend.results[r.name] = "stay";
+    commitPend(pend);
+  }
+  else if (runners.length === 0) commitPend(pend);
+  else { liveView = { s: "adv", pend }; renderLive(); }
+}
+
+function advOptions(pend) {
+  const r = pend.runners[pend.idx];
+  const opts = [["score", "Scored"]];
+  const forward = { first: ["second", "third"], second: ["third"], third: [] }[r.from];
+  for (const fb of forward) if (!pend.claimed.includes(fb)) opts.push([fb, "To " + BASE_LBL[fb]]);
+  if (!pend.claimed.includes(r.from)) opts.push(["stay", "Stayed on " + BASE_LBL[r.from]]);
+  opts.push(["out", "Out on the play"]);
+  return opts;
+}
+function advChoose(choice) {
+  const pend = liveView.pend;
+  const r = pend.runners[pend.idx];
+  pend.results[r.name] = choice;
+  if (choice === "stay") pend.claimed.push(r.from);
+  else if (choice === "second" || choice === "third") pend.claimed.push(choice);
+  pend.idx++;
+  const rOuts = pend.runners.filter(x => pend.results[x.name] === "out").length;
+  if (form.live.outs + (pend.batterOut ? 1 : 0) + rOuts >= 3) {
+    for (const x of pend.runners) if (!(x.name in pend.results)) pend.results[x.name] = "stay";
+    commitPend(pend);
+    return;
+  }
+  if (pend.idx >= pend.runners.length) commitPend(pend);
+  else { liveView = { s: "adv", pend }; renderLive(); }
+}
+function commitPend(pend) {
+  const b = pend.batter;
+  const nb = { first: null, second: null, third: null };
+  if (pend.reaches) nb[pend.dest] = b.player;
+  const runs = []; let runnerOuts = 0;
+  for (const r of pend.runners) {
+    const res = pend.results[r.name];
+    if (res === "score") runs.push(r.name);
+    else if (res === "out") runnerOuts++;
+    else if (res === "stay") nb[r.from] = r.name;
+    else nb[res] = r.name;
+  }
+  const batCols = pend.batCols.concat(pend.rbiOnRuns && runs.length ? [["RBI", runs.length]] : []);
+  const bats = [{ ...b, cols: batCols }];
+  for (const rn of runs) bats.push({ player: rn, team: b.team, cols: [["R", 1]] });
+  const npC = form.live.abPit + 1;
+  const splitCols = pend.kind === "out" ? [["PIO", npC], ["IPO", 1]]
+    : (pend.kind === "1b" || pend.kind === "2b" || pend.kind === "3b") ? [["PH", npC]] : [];
+  const pit = pitchCols(null, false).concat(pend.pitExtra).concat(splitCols);
+  if (runs.length) { pit.push(["R", runs.length]); if (pend.erOnRuns) pit.push(["ER", runs.length]); }
+  const totalOuts = (pend.batterOut ? 1 : 0) + runnerOuts;
+  let flash = pend.label + " — " + b.player;
+  if (runs.length) flash += " · " + runs.map(lastName).join(", ") + (runs.length === 1 ? " scores" : " score");
+  if (runnerOuts) flash += " · " + runnerOuts + " runner" + (runnerOuts === 1 ? "" : "s") + " out";
+  // fielding prompts after the play, when enabled
+  let nextView = null;
+  if (form.live.opts.fielding && (!form.live.oneTeam || pend.ftPre === form.live.oneTeam.side)) {
+    if (pend.kind === "out") nextView = { s: "fld", stat: "PO", team: pend.ftPre, then: "A" };
+    else if (pend.kind === "roe") nextView = { s: "fld", stat: "E", team: pend.ftPre, then: null, fromROE: true };
+  }
+  const verbs = { "1b": " singles.", "2b": " doubles.", "3b": " triples.", "roe": " reaches on an error.", "out": " is out on a ball in play." };
+  let pbpTxt = b.player + verbs[pend.kind];
+  for (const r of pend.runners) {
+    const res = pend.results[r.name];
+    if (res === "score") pbpTxt += " " + r.name + " scores.";
+    else if (res === "out") pbpTxt += " " + r.name + " is out on the play.";
+    else if (res === "second" || res === "third") pbpTxt += " " + r.name + " takes " + BASE_LBL[res] + ".";
+  }
+  doAction({ bats, pitCols: pit, pitOuts: totalOuts, outs: totalOuts, advance: true, reach: pend.kind !== "out", setBases: nb, flash, nextView, pbp: pbpTxt,
+    hit: (pend.kind === "1b" || pend.kind === "2b" || pend.kind === "3b"),
+    err: pend.kind === "roe" ? pend.ftPre : null });
+}
+
+// fielding credit (its own undo step)
+function fldApply(player, team, stat, then) {
+  doAction({ fld: { player, team, cols: [[stat, 1]] }, flash: { PO: "Putout", A: "Assist", E: "Error" }[stat] + " — " + player,
+    err: (stat === "E" && !liveView.fromROE) ? team : null,
+    pbp: stat === "E" ? "Error charged to " + player + "." : null,
+    nextView: then ? { s: "fld", stat: then, team, then: null } : null });
+}
+function fldPlayers(team) {
+  const L = form.live;
+  const list = L.teams[team].order.slice();
+  const p = L.teams[team].pitcher;
+  if (p && p.trim() && !list.some(x => x.trim().toLowerCase() === p.trim().toLowerCase())) list.push(p.trim());
+  return list;
+}
+
+// runner actions from tapping a base or the base-paths menu
+function runnerAct(base, act) {
+  const L = form.live, name = L.bases[base], bt = battingTeam();
+  if (!name) return;
+  const nb = { ...L.bases };
+  if (act === "cs" || act === "po" || act === "outb") {
+    nb[base] = null;
+    const note = act === "cs" ? "[CS: " + name + "]" : act === "po" ? "[Picked off: " + name + "]" : null;
+    doAction({ note, outs: 1, pitOuts: 1, setBases: nb, flash: (act === "cs" ? "Caught stealing" : act === "po" ? "Picked off" : "Out on the bases") + " — " + name,
+      pbp: name + (act === "cs" ? " is caught stealing." : act === "po" ? " is picked off." : " is out on the bases.") });
+    return;
+  }
+  // sb / adv: move up one base (from third = scores)
+  const nxt = { first: "second", second: "third", third: "home" }[base];
+  if (nxt !== "home" && nb[nxt]) { liveView = { s: "main", flash: BASE_LBL[nxt] + " is occupied" }; renderLive(); return; }
+  nb[base] = null;
+  const sb = act === "sb" ? [["SB", 1]] : [];
+  if (nxt === "home") {
+    doAction({ bats: [{ player: name, team: bt, cols: [["R", 1]].concat(sb) }], pitCols: [["R", 1], ["ER", 1]], setBases: nb,
+      flash: (act === "sb" ? "Steals home! — " : "Scores — ") + name,
+      pbp: name + (act === "sb" ? " steals home!" : " scores.") });
+  } else {
+    nb[nxt] = name;
+    doAction({ bats: sb.length ? [{ player: name, team: bt, cols: sb }] : [], setBases: nb,
+      flash: (act === "sb" ? "SB — " : "Advances — ") + name + " to " + BASE_LBL[nxt],
+      pbp: name + (act === "sb" ? " steals " : " advances to ") + BASE_LBL[nxt] + "." });
+  }
+}
+
+function livePitchSub(name) {
+  const L = form.live, ft = fieldingTeam();
+  if (!name.trim()) return;
+  L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null, pbpN: 1 });
+  form.pbp.push({ h: L.half, i: L.inning, t: "Pitching change for " + teamLabel(ft) + ": " + name.trim() + " now on the mound." });
+  L.teams[ft].pitcher = name.trim();
+  ensureRowG(name.trim(), ft, "pitching");
+  if (L.opts.fielding) ensureRowG(name.trim(), ft, "fielding");
+  liveView = { s: "main", flash: "Now pitching: " + name.trim() };
+  renderLive();
+}
+function liveJump(i) {
+  const L = form.live, bt = battingTeam();
+  L.log.push({ snap: snap(), bats: [], pit: null, fld: null, note: null });
+  L.teams[bt].idx = i; L.balls = 0; L.strikes = 0; L.abPit = 0;
+  liveView = { s: "main" };
+  renderLive();
+}
+function oneTeamOppRun() {
+  const opp = form.live.oneTeam.side === "away" ? "home" : "away";
+  doAction({ priorRun: opp, flash: "+1 " + teamLabel(opp),
+    pbp: teamLabel(opp) + " run added to the score (not seen play-by-play)." });
+}
+function liveUndo() {
+  const e = form.live.log.pop();
+  if (!e) return;
+  for (const b of e.bats) revertColsG(b.player, b.team, "batting", b.cols);
+  if (e.pit) revertPit(e.pit.player, e.pit.team, e.pit.cols, e.pit.outs);
+  if (e.fld) revertColsG(e.fld.player, e.fld.team, "fielding", e.fld.cols);
+  if (e.note) { form.notes = form.notes.replace(e.note, "").replace(/\s{2,}/g, " ").trim(); syncNotesField(); }
+  if (e.pbpN) form.pbp.splice(-e.pbpN);
+  restore(e.snap);
+  liveView = { s: "main" };
+  renderLive();
+}
+
+// the field: green outfield, dirt infield, red bases when occupied
+function diamondSVG() {
+  const b = form.live.bases;
+  const base = (cx, cy, occ) =>
+    '<rect x="' + (cx - 7) + '" y="' + (cy - 7) + '" width="14" height="14" transform="rotate(45 ' + cx + ' ' + cy + ')" fill="' + (occ ? "#C0392B" : "#FFFFFF") + '" stroke="' + (occ ? "#8E2B20" : "#9AA59A") + '" stroke-width="1.5"/>';
+  const label = (x, y, anchor, name) => name
+    ? '<text x="' + x + '" y="' + y + '" text-anchor="' + anchor + '" font-size="11" font-weight="bold" fill="#FFFFFF" stroke="#1E3A5F" stroke-width="2.5" paint-order="stroke" font-family="Arial Narrow, sans-serif">' + esc(lastName(name)) + "</text>" : "";
+  return '<div class="diamond-wrap"><svg viewBox="0 0 240 158" xmlns="http://www.w3.org/2000/svg">'
+    + '<rect width="240" height="158" fill="#4C8C5C"/>'
+    + '<path d="M 8 150 Q 120 -52 232 150 Z" fill="#57975F"/>'
+    + '<polygon points="120,154 190,98 120,42 50,98" fill="#C2935B"/>'
+    + '<polygon points="120,140 162,106 120,72 78,106" fill="#57975F"/>'
+    + '<circle cx="120" cy="104" r="8" fill="#B07F44"/>'
+    + '<line x1="120" y1="150" x2="34" y2="80" stroke="#FFFFFF" stroke-width="1.6" opacity=".85"/>'
+    + '<line x1="120" y1="150" x2="206" y2="80" stroke="#FFFFFF" stroke-width="1.6" opacity=".85"/>'
+    + '<polygon points="120,144 126,150 120,156 114,150" fill="#FFFFFF" stroke="#9AA59A"/>'
+    + '<g data-base="first" style="cursor:pointer">' + base(176, 98, b.first) + label(192, 102, "start", b.first) + "</g>"
+    + '<g data-base="second" style="cursor:pointer">' + base(120, 50, b.second) + label(120, 32, "middle", b.second) + "</g>"
+    + '<g data-base="third" style="cursor:pointer">' + base(64, 98, b.third) + label(48, 102, "end", b.third) + "</g>"
+    + "</svg></div>";
+}
+
+// ── Solo player tracking ──────────────────────────────────────────────
+function soloSnap() { const L = form.live; return { b: L.balls, s: L.strikes, ap: L.abPit, r: !!L.risp, role: L.solo.type }; }
+function soloRestore(s) { const L = form.live; L.balls = s.b; L.strikes = s.s; L.abPit = s.ap; L.risp = s.r; if (s.role) L.solo.type = s.role; }
+function soloPname() {
+  const S = form.live.solo;
+  if (S.type === "pitcher") return { p: S.player, t: S.team };
+  return (S.oppPitcher && S.oppPitcher.trim()) ? { p: S.oppPitcher.trim(), t: S.team === "away" ? "home" : "away" } : null;
+}
+function soloPitch(e, strikeKind, isBall, extraCols, outs) {
+  const tgt = soloPname();
+  if (!tgt || !tgt.p) return;
+  const L = form.live;
+  const cols = [["PC", 1], [isBall ? "BAL" : "STR", 1]];
+  if (L.opts.pitchType) cols.push([L.pitchSel || "FB", 1]);
+  if (L.opts.strikeType && strikeKind === "sw") cols.push(["SwS", 1]);
+  if (L.opts.strikeType && strikeKind === "lk") cols.push(["LkS", 1]);
+  const all = cols.concat(extraCols || []);
+  applyPit(tgt.p, tgt.t, all, outs || 0);
+  e.pit = { player: tgt.p, team: tgt.t, cols: all, outs: outs || 0 };
+}
+function soloBatCols(e, cols) {
+  const S = form.live.solo;
+  if (S.type !== "batter") return;
+  applyColsG(S.player, S.team, "batting", cols);
+  e.bats.push({ player: S.player, team: S.team, cols });
+}
+function soloEndAB(flash) {
+  const L = form.live;
+  L.balls = 0; L.strikes = 0; L.abPit = 0; L.risp = false;
+  liveView = { s: "main", flash };
+  renderLive();
+}
+function soloCount(kind) {
+  const L = form.live, S = L.solo;
+  const sk = kind === "strike-sw" ? "sw" : kind === "strike-lk" ? "lk" : null;
+  const isStrike = kind === "strike" || sk;
+  const e = { snap: soloSnap(), bats: [], pit: null };
+  L.log.push(e);
+  if (kind === "ball") {
+    if (L.balls === 3) {
+      const np = L.abPit + 1;
+      soloBatCols(e, [["BB", 1], ["PIT", np], ["PBB", np]]);
+      soloPitch(e, null, true, [["BB", 1], ["PBB", np]], 0);
+      soloEndAB((S.type === "batter" ? S.player : "Batter") + " walks");
+      return;
+    }
+    soloPitch(e, null, true); L.balls++; L.abPit++;
+  } else if (isStrike) {
+    if (L.strikes === 2) {
+      const np = L.abPit + 1;
+      const bc = [["SO", 1], ["AB", 1], ["PIT", np], ["PK", np]];
+      if (L.risp) bc.push(["RAB", 1]);
+      soloBatCols(e, bc);
+      soloPitch(e, sk, false, [["K", 1], ["PK", np]], 1);
+      soloEndAB("Strikeout" + (sk === "lk" ? " looking" : sk === "sw" ? " swinging" : ""));
+      return;
+    }
+    soloPitch(e, sk, false); L.strikes++; L.abPit++;
+  } else { // foul
+    soloPitch(e, null, false); L.abPit++;
+    if (L.strikes < 2) L.strikes++;
+  }
+  liveView = { s: "main" };
+  renderLive();
+}
+function soloOutcome(kind) {
+  const L = form.live, np = L.abPit + 1;
+  const e = { snap: soloSnap(), bats: [], pit: null };
+  L.log.push(e);
+  if (kind === "ibb") {
+    const bc = [["BB", 1], ["IBB", 1]];
+    if (L.abPit > 0) bc.push(["PIT", L.abPit], ["PBB", L.abPit]);
+    soloBatCols(e, bc);
+    const t = soloPname();
+    if (t && t.p) {
+      const pcols = [["BB", 1], ["IBB", 1]];
+      if (L.abPit > 0) pcols.push(["PBB", L.abPit]);
+      applyPit(t.p, t.t, pcols, 0);
+      e.pit = { player: t.p, team: t.t, cols: pcols, outs: 0 };
+    }
+    soloEndAB("Intentional walk");
+    return;
+  }
+  if (kind === "sf") {
+    soloBatCols(e, [["RBI", 1], ["SF", 1], ["PIT", np], ["PIO", np], ["IPO", 1]]);
+    soloPitch(e, null, false, [["R", 1], ["ER", 1], ["PIO", np], ["IPO", 1]], 1);
+    soloEndAB("Sac fly — run scores");
+    return;
+  }
+  const defs = {
+    "1b": { b: [["H", 1], ["AB", 1]], p: [["H", 1], ["PH", np]], h: true, f: "Single" },
+    "2b": { b: [["H", 1], ["2B", 1], ["AB", 1]], p: [["H", 1], ["PH", np]], h: true, f: "Double" },
+    "3b": { b: [["H", 1], ["3B", 1], ["AB", 1]], p: [["H", 1], ["PH", np]], h: true, f: "Triple" },
+    "hr": { b: [["H", 1], ["HR", 1], ["AB", 1], ["R", 1], ["RBI", 1]], p: [["H", 1], ["HR", 1], ["R", 1], ["ER", 1], ["PH", np]], h: true, f: "Home run!" },
+    "out": { b: [["AB", 1]], p: [["PIO", np], ["IPO", 1]], o: 1, f: "Out" },
+    "hbp": { b: [["HBP", 1]], p: [], ball: true, f: "Hit by pitch" },
+  };
+  const d = defs[kind];
+  const bc = d.b.concat([["PIT", np]]);
+  if (d.h) bc.push(["PH", np]);
+  if (kind === "out") bc.push(["PIO", np], ["IPO", 1]);
+  if (L.risp && kind !== "hbp") { bc.push(["RAB", 1]); if (d.h) bc.push(["RH", 1]); }
+  soloBatCols(e, bc);
+  soloPitch(e, null, !!d.ball, d.p, d.o || 0);
+  soloEndAB(d.f);
+}
+function soloExtra(kind) {
+  const L = form.live;
+  const e = { snap: soloSnap(), bats: [], pit: null };
+  L.log.push(e);
+  if (kind === "sb") { soloBatCols(e, [["SB", 1], ["XBT", 1]]); liveView = { s: "main", flash: "Stolen base" }; }
+  else if (kind === "r") { soloBatCols(e, [["R", 1], ["XBT", 1]]); liveView = { s: "main", flash: "Run scored" }; }
+  else if (kind === "adv") { soloBatCols(e, [["XBT", 1]]); liveView = { s: "main", flash: "Took a base" }; }
+  else if (kind === "rbi") { soloBatCols(e, [["RBI", 1]]); liveView = { s: "main", flash: "+1 RBI" }; }
+  else if (kind === "rer" || kind === "run") {
+    const t = soloPname();
+    if (t && t.p) {
+      const cols = kind === "rer" ? [["R", 1], ["ER", 1]] : [["R", 1]];
+      applyPit(t.p, t.t, cols, 0);
+      e.pit = { player: t.p, team: t.t, cols, outs: 0 };
+    }
+    liveView = { s: "main", flash: kind === "rer" ? "Earned run allowed" : "Unearned run allowed" };
+  }
+  renderLive();
+}
+function soloUndo() {
+  const e = form.live.log.pop();
+  if (!e) return;
+  for (const b of e.bats) revertColsG(b.player, b.team, "batting", b.cols);
+  if (e.pit) revertPit(e.pit.player, e.pit.team, e.pit.cols, e.pit.outs);
+  soloRestore(e.snap);
+  liveView = { s: "main" };
+  renderLive();
+}
+
+function soloSwapRole() {
+  const L = form.live, S = L.solo;
+  S.type = S.type === "batter" ? "pitcher" : "batter";
+  L.balls = 0; L.strikes = 0; L.abPit = 0; L.risp = false;
+  liveView = { s: "main", flash: S.type === "batter" ? "Now batting" : "Now pitching \u26be" };
+  renderLive();
+}
+function markMoment() {
+  const t = (prompt("What just happened? It goes in the game record.") || "").trim();
+  if (!t) return;
+  const L = form.live;
+  if (L && !L.solo) {
+    form.pbp.push({ h: L.half, i: L.inning, t: "📝 " + t });
+  } else {
+    form.notes = (form.notes ? form.notes + " " : "") + "📝 " + t;
+    syncNotesField();
+  }
+  liveView = { s: "main", flash: "Moment saved" };
+  renderLive();
+}
+let seriesSheet = null;
+function seedSolo() {
+  const S = form.live.solo;
+  if (S.type === "batter") {
+    ensureRowG(S.player, S.team, "batting");
+    if (S.oppPitcher) ensureRowG(S.oppPitcher, S.team === "away" ? "home" : "away", "pitching");
+  } else {
+    ensureRowG(S.player, S.team, "pitching");
+  }
+  updateBoxBtn();
+}
+function soloNextGame(newSeries) {
+  const L = form.live, S = L.solo;
+  if (!form.away.trim() && !form.home.trim()) {
+    closeLive();
+    alert("Give the teams names on the game form first, then save the series game.");
+    return;
+  }
+  const carried = { type: S.type, player: S.player, team: S.team, oppPitcher: S.oppPitcher || "",
+    opts: { strikeType: L.opts.strikeType, pitchType: L.opts.pitchType },
+    away: form.away, home: form.home, venue: form.venue, place: form.place, mode: form.mode || appMode,
+    myName: S.team === "away" ? form.away : form.home };
+  closeLive();
+  saveEntry();
+  if (form) return; // save was blocked (e.g. validation) — fix and retry
+  const nf = emptyForm();
+  nf.mode = carried.mode;
+  nf.venue = carried.venue;
+  nf.place = carried.place;
+  nf.live = { solo: { type: carried.type, player: carried.player, team: carried.team, oppPitcher: carried.oppPitcher },
+    balls: 0, strikes: 0, abPit: 0, risp: false, log: [],
+    opts: { strikeType: carried.opts.strikeType, pitchType: carried.opts.pitchType, fielding: false }, pitchSel: "FB" };
+  if (!newSeries) {
+    nf.away = carried.away;
+    nf.home = carried.home;
+    openForm(null, { form: nf, editingId: null });
+    document.getElementById("addBtn").classList.add("hidden");
+    seedSolo();
+    openLive();
+  } else {
+    nf.live.solo.oppPitcher = "";
+    if (carried.team === "away") nf.away = carried.myName; else nf.home = carried.myName;
+    openForm(null, { form: nf, editingId: null });
+    document.getElementById("addBtn").classList.add("hidden");
+    seriesSheet = { carried, opp: "", side: carried.team, oppP: "" };
+    renderSeriesSheet();
+  }
+}
+function ssCapture(ov) {
+  const Z = seriesSheet;
+  const o = ov.querySelector("#ssOpp");
+  if (o) Z.opp = o.value;
+  const p = ov.querySelector("#ssOppP");
+  if (p) Z.oppP = p.value;
+}
+function ssApply() {
+  const Z = seriesSheet;
+  if (!Z) return;
+  const my = Z.side, oppSide = my === "away" ? "home" : "away";
+  form[my] = Z.carried.myName;
+  form[oppSide] = Z.opp.trim();
+  form.live.solo.team = my;
+  form.live.solo.oppPitcher = Z.carried.type === "batter" ? Z.oppP.trim() : "";
+  seedSolo();
+  const fa = document.getElementById("fAway"), fh = document.getElementById("fHome");
+  if (fa) fa.value = form.away;
+  if (fh) fh.value = form.home;
+  seriesSheet = null;
+}
+function renderSeriesSheet() {
+  const ov = document.getElementById("overlay");
+  ov.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  const Z = seriesSheet;
+  ov.innerHTML = '<div class="sheet" style="max-width:480px">'
+    + '<div class="sheet-head"><div><div class="disp" style="font-size:20px;font-weight:700">New series</div>'
+    + '<div class="mono" style="font-size:12px;color:var(--ink-soft)">' + esc(Z.carried.player) + " carries over</div></div>"
+    + '<button class="xbtn" id="ssClose">✕</button></div>'
+    + '<label>Opposing team</label><input id="ssOpp" value="' + esc(Z.opp) + '" placeholder="Team name">'
+    + '<div style="margin-top:10px"><label>Your side</label><div style="display:flex;gap:6px">'
+    + '<button class="vbtn' + (Z.side === "away" ? " active" : "") + '" data-ss="away">Away</button>'
+    + '<button class="vbtn' + (Z.side === "home" ? " active" : "") + '" data-ss="home">Home</button></div></div>'
+    + (Z.carried.type === "batter" ? '<div style="margin-top:10px"><label>Their pitcher (optional)</label><input id="ssOppP" value="' + esc(Z.oppP) + '" placeholder="Pitcher name"></div>' : "")
+    + '<button class="donebtn disp" id="ssGo" style="margin-top:14px">Start tracking</button></div>';
+  ov.querySelector("#ssClose").addEventListener("click", () => { ssCapture(ov); ssApply(); closeLive(); });
+  ov.querySelectorAll("[data-ss]").forEach(b => b.addEventListener("click", () => { ssCapture(ov); seriesSheet.side = b.dataset.ss; renderSeriesSheet(); }));
+  ov.querySelector("#ssGo").addEventListener("click", () => { ssCapture(ov); ssApply(); openLive(); });
+}
+function renderSolo() {
+  const L = form.live, S = L.solo;
+  const isB = S.type === "batter";
+  const row = form.box.find(r => r.group === (isB ? "batting" : "pitching") && r.team === S.team && r.player.trim().toLowerCase() === S.player.trim().toLowerCase());
+  const lineCols = isB ? ["AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"] : ["IP", "H", "R", "ER", "BB", "K", "PC"];
+  const lineStr = row ? lineCols.filter(c => filled(row.stats[c])).map(c => c + " " + row.stats[c]).join(" · ") : "";
+  const metrics = row ? BOX.baseball.find(g => g.id === (isB ? "batting" : "pitching")).calc(row.stats) : [];
+  const opp = soloPname();
+
+  const chips = L.opts.pitchType
+    ? '<div class="pchips">' + ["FB", "CB", "SL", "CH", "OT"].map(t => '<button class="pchip' + ((L.pitchSel || "FB") === t ? " on" : "") + '" data-ptype="' + t + '">' + t + "</button>").join("") + "</div>"
+    : "";
+  const strikeBtns = L.opts.strikeType
+    ? '<button class="lbtn big redb" data-sp="strike-sw">Strike<br><span style="font-size:11px">swinging</span></button><button class="lbtn big redb" data-sp="strike-lk">Strike<br><span style="font-size:11px">looking</span></button>'
+    : '<button class="lbtn big redb" data-sp="strike">Strike</button>';
+
+  let mid = chips
+    + '<div class="lgrid ' + (L.opts.strikeType ? "lg3" : "lg2") + '"><button class="lbtn big" data-sp="ball">Ball</button>' + strikeBtns + "</div>";
+  if (isB) {
+    mid += '<div class="lgrid lg4"><button class="lbtn soft" data-sp="foul">Foul</button><button class="lbtn soft" data-so="hbp">HBP</button><button class="lbtn soft" data-so="out">Out (in play)</button><button class="lbtn soft" data-sx="sb">SB</button></div>'
+      + '<div class="lgrid lg4"><button class="lbtn" data-so="1b">1B</button><button class="lbtn" data-so="2b">2B</button><button class="lbtn" data-so="3b">3B</button><button class="lbtn redb" data-so="hr">HR</button></div>'
+      + '<div class="lgrid lg2"><button class="lbtn soft" data-so="ibb">IBB</button><button class="lbtn soft" data-so="sf">Sac fly (RBI)</button></div>'
+      + '<div class="lgrid lg4"><button class="lbtn soft" data-sx="r">+R (scored)</button><button class="lbtn soft" data-sx="rbi">+RBI</button><button class="lbtn soft" data-sx="adv">+Base taken</button><button class="lbtn soft" id="lUndo"' + (L.log.length ? "" : " disabled") + '>↩ Undo</button></div>';
+  } else {
+    mid += '<div class="lgrid lg3"><button class="lbtn soft" data-sp="foul">Foul</button><button class="lbtn soft" data-so="hbp">HBP</button><button class="lbtn soft" data-so="out">Out (in play)</button></div>'
+      + '<div class="lgrid lg4"><button class="lbtn" data-so="1b">1B</button><button class="lbtn" data-so="2b">2B</button><button class="lbtn" data-so="3b">3B</button><button class="lbtn redb" data-so="hr">HR</button></div>'
+      + '<div class="lgrid lg2"><button class="lbtn soft" data-so="ibb">IBB issued</button><button class="lbtn soft" data-so="sf">Sac fly allowed</button></div>'
+      + '<div class="lgrid lg3"><button class="lbtn soft" data-sx="rer">+R earned</button><button class="lbtn soft" data-sx="run">+R unearned</button><button class="lbtn soft" id="lUndo"' + (L.log.length ? "" : " disabled") + '>↩ Undo</button></div>';
+  }
+
+  const ov = document.getElementById("overlay");
+  ov.innerHTML = '<div class="sheet" style="max-width:480px">'
+    + '<div class="sheet-head"><div><div class="disp" style="font-size:20px;font-weight:700">Solo Tracker</div>'
+    + '<div class="mono" style="font-size:12px;color:var(--ink-soft)">' + (isB ? "Batting" : "Pitching") + " for " + esc(teamLabel(S.team)) + "</div></div>"
+    + '<button class="xbtn" id="lClose">✕</button></div>'
+    + '<div class="lbatter"><span style="font-size:21px;font-weight:700" class="disp">' + esc(S.player) + "</span></div>"
+    + '<div style="text-align:center;margin-bottom:6px"><button class="vbtn" id="soloSwap">⇄ ' + (isB ? "Now pitching" : "Now batting") + '</button></div>'
+    + (isB ? '<div class="lnext">' + (opp ? "facing " + esc(opp.p) : "opposing pitcher not named — pitch counts skipped") + "</div>" : "")
+    + (isB ? '<div style="text-align:center;margin-bottom:6px"><button class="vbtn' + (L.risp ? " active" : "") + '" id="rispTog">' + (L.risp ? "✓ " : "") + "Runners in scoring position</button></div>" : "")
+    + '<div class="lcount mono" style="font-size:40px;margin-top:0">' + L.balls + "–" + L.strikes + "</div>"
+    + '<div class="lcount-label">Balls – Strikes</div>'
+    + (isB ? '<div class="lcount-label" style="margin-top:2px">Pitches faced: ' + (num(row && row.stats.PIT) + L.abPit) + ' \u00b7 ' + L.abPit + ' this AB</div>' : "")
+    + '<div class="lstat-strip mono' + (liveView.flash ? " flashpulse" : "") + '">' + esc(liveView.flash || lineStr || "") + "</div>"
+    + (metrics.length ? '<div class="mono" style="font-size:11px;color:var(--red);text-align:center;margin-bottom:10px">' + mlineHtml(metrics) + "</div>" : "")
+    + mid
+    + '<button class="donebtn disp" id="lDone">Done — stats are in the box score</button>'
+    + '<div class="lgrid lg3" style="margin-top:8px"><button class="lbtn soft" id="serSame">💾 Save & next · same series</button><button class="lbtn soft" id="serNew">💾 New series · keep player</button><button class="lbtn soft" id="momentBtn">📝 Moment</button></div>'
+    + '<div style="text-align:center;margin-top:8px"><button class="addrow" id="lReset" style="color:var(--ink-soft)">⚙ start over</button></div>'
+    + "</div>";
+
+  ov.querySelector("#lClose").addEventListener("click", closeLive);
+  ov.querySelector("#lDone").addEventListener("click", closeLive);
+  ov.querySelector("#soloSwap").addEventListener("click", soloSwapRole);
+  ov.querySelector("#serSame").addEventListener("click", () => soloNextGame(false));
+  ov.querySelector("#serNew").addEventListener("click", () => soloNextGame(true));
+  ov.querySelector("#momentBtn").addEventListener("click", markMoment);
+  ov.querySelector("#lReset").addEventListener("click", () => {
+    if (confirm("Start over? Stats already in the box score will stay.")) { form.live = null; openLive(); }
+  });
+  const undoBtn = ov.querySelector("#lUndo");
+  if (undoBtn) undoBtn.addEventListener("click", soloUndo);
+  const risp = ov.querySelector("#rispTog");
+  if (risp) risp.addEventListener("click", () => { L.risp = !L.risp; renderLive(); });
+  ov.querySelectorAll("[data-ptype]").forEach(b => b.addEventListener("click", () => { L.pitchSel = b.dataset.ptype; renderLive(); }));
+  ov.querySelectorAll("[data-sp]").forEach(b => b.addEventListener("click", () => soloCount(b.dataset.sp)));
+  ov.querySelectorAll("[data-so]").forEach(b => b.addEventListener("click", () => soloOutcome(b.dataset.so)));
+  ov.querySelectorAll("[data-sx]").forEach(b => b.addEventListener("click", () => soloExtra(b.dataset.sx)));
+}
+
+// ── One-team mode: defense half ───────────────────────────────────────
+function defCount(kind) {
+  const L = form.live;
+  const np = L.abPit + 1;
+  const sk = kind === "strike-sw" ? "sw" : kind === "strike-lk" ? "lk" : null;
+  if (kind === "ball" && L.balls === 3) {
+    doAction({ bats: [], pitCols: pitchCols(null, true).concat([["BB", 1], ["PBB", np]]), advance: true, reach: true,
+      flash: "Walk", pbp: "Walk." });
+    return;
+  }
+  if ((kind === "strike" || sk) && L.strikes === 2) {
+    const lbl = "Strikeout" + (sk === "lk" ? " looking" : sk === "sw" ? " swinging" : "");
+    doAction({ bats: [], pitCols: pitchCols(sk, false).concat([["K", 1], ["PK", np]]), pitOuts: 1, outs: 1, advance: true,
+      flash: lbl, pbp: lbl + "." });
+    return;
+  }
+  liveCount(kind); // non-terminal pitches: same tallying, my pitcher is the fielding pitcher
+}
+function defAct(kind) {
+  const L = form.live, my = L.oneTeam.side;
+  const np = L.abPit + 1;
+  const defs = {
+    "1b": { p: [["H", 1], ["PH", np]], hit: true, f: "Single allowed", pbp: "Single allowed." },
+    "2b": { p: [["H", 1], ["PH", np]], hit: true, f: "Double allowed", pbp: "Double allowed." },
+    "3b": { p: [["H", 1], ["PH", np]], hit: true, f: "Triple allowed", pbp: "Triple allowed." },
+    "hr": { p: [["H", 1], ["HR", 1], ["R", 1], ["ER", 1], ["PH", np]], hit: true, oppRuns: 1, f: "Home run allowed", pbp: "Home run allowed." },
+    "out": { p: [["PIO", np], ["IPO", 1]], o: 1, f: "Out", pbp: "Out on a ball in play." },
+    "hbp": { p: [], ball: true, reach: true, f: "Hit by pitch", pbp: "Batter hit by pitch." },
+    "ibb": { p: [["BB", 1], ["IBB", 1]], noPitch: true, reach: true, f: "Intentional walk", pbp: "Intentional walk issued." },
+    "sf": { p: [["R", 1], ["ER", 1], ["PIO", np], ["IPO", 1]], o: 1, oppRuns: 1, f: "Sac fly allowed", pbp: "Sacrifice fly — run scores." },
+  };
+  const d = defs[kind];
+  if (kind === "ibb" && L.abPit > 0) d.p = d.p.concat([["PBB", L.abPit]]);
+  let nextView = null;
+  if (kind === "out" && L.opts.fielding) nextView = { s: "fld", stat: "PO", team: my, then: "A" };
+  doAction({ bats: [], pitCols: (d.noPitch ? [] : pitchCols(null, !!d.ball)).concat(d.p), pitOuts: d.o || 0, outs: d.o || 0,
+    advance: true, hit: !!d.hit, reach: !!(d.hit || d.reach), oppRuns: d.oppRuns || 0, flash: d.f, pbp: d.pbp, nextView });
+}
+function defErr() {
+  const L = form.live, my = L.oneTeam.side;
+  const nextView = L.opts.fielding ? { s: "fld", stat: "E", team: my, then: null, fromROE: true } : null;
+  doAction({ bats: [], pitCols: pitchCols(null, false), advance: true, reach: true, err: my,
+    flash: "Reached on error", pbp: "Batter reaches on an error.", nextView });
+}
+function defRun(earned) {
+  doAction({ bats: [], pitCols: earned ? [["R", 1], ["ER", 1]] : [["R", 1]], oppRuns: 1,
+    flash: earned ? "Earned run allowed" : "Unearned run allowed",
+    pbp: earned ? "Run scores." : "Unearned run scores." });
+}
+
+function renderDef() {
+  const L = form.live, my = L.oneTeam.side;
+  const p = (L.teams[my].pitcher || "").trim();
+  const row = p ? form.box.find(r => r.group === "pitching" && r.team === my && r.player.trim().toLowerCase() === p.toLowerCase()) : null;
+  const lineCols = ["IP", "H", "R", "ER", "BB", "K", "PC"];
+  const lineStr = row ? lineCols.filter(c => filled(row.stats[c])).map(c => c + " " + row.stats[c]).join(" · ") : "";
+  const metrics = row ? BOX.baseball.find(g => g.id === "pitching").calc(row.stats) : [];
+
+  const chips = L.opts.pitchType
+    ? '<div class="pchips">' + ["FB", "CB", "SL", "CH", "OT"].map(t => '<button class="pchip' + ((L.pitchSel || "FB") === t ? " on" : "") + '" data-ptype="' + t + '">' + t + "</button>").join("") + "</div>"
+    : "";
+  const strikeBtns = L.opts.strikeType
+    ? '<button class="lbtn big redb" data-dp="strike-sw">Strike<br><span style="font-size:11px">swinging</span></button><button class="lbtn big redb" data-dp="strike-lk">Strike<br><span style="font-size:11px">looking</span></button>'
+    : '<button class="lbtn big redb" data-dp="strike">Strike</button>';
+
+  const ov = document.getElementById("overlay");
+  ov.innerHTML = '<div class="sheet" style="max-width:480px">'
+    + '<div class="sheet-head"><div><div class="disp" style="font-size:20px;font-weight:700">On Defense</div>'
+    + '<div class="mono" style="font-size:12px;color:var(--ink-soft)">' + (L.half === "top" ? "\u25b2 Top " : "\u25bc Bottom ") + L.inning + " \u00b7 " + L.outs + " out" + (L.outs === 1 ? "" : "s") + " \u00b7 " + esc(teamLabel(my)) + " in the field</div></div>"
+    + '<button class="xbtn" id="lClose">\u2715</button></div>'
+    + (L.line ? lineScoreTable(L.line, teamLabel("away"), teamLabel("home"), L.inning) : "")
+    + '<div class="lbatter"><span style="font-size:21px;font-weight:700" class="disp">' + (p ? esc(p) : "No pitcher set") + "</span></div>"
+    + (p ? "" : '<div class="lnext">tap \u201cpitching change\u201d to name him \u2014 until then pitches aren\u2019t tallied</div>')
+    + '<div class="lcount mono" style="font-size:40px;margin-top:0">' + L.balls + "\u2013" + L.strikes + "</div>"
+    + '<div class="lcount-label">Balls \u2013 Strikes</div>'
+    + '<div class="lstat-strip mono' + (liveView.flash ? " flashpulse" : "") + '">' + esc(liveView.flash || lineStr || "") + "</div>"
+    + (metrics.length ? '<div class="mono" style="font-size:11px;color:var(--red);text-align:center;margin-bottom:10px">' + mlineHtml(metrics) + "</div>" : "")
+    + chips
+    + '<div class="lgrid ' + (L.opts.strikeType ? "lg3" : "lg2") + '"><button class="lbtn big" data-dp="ball">Ball</button>' + strikeBtns + "</div>"
+    + '<div class="lgrid lg4"><button class="lbtn soft" data-dp="foul">Foul</button><button class="lbtn soft" data-da="hbp">HBP</button><button class="lbtn soft" data-da="out">Out (in play)</button><button class="lbtn soft" id="dErr">Error (ROE)</button></div>'
+    + '<div class="lgrid lg4"><button class="lbtn" data-da="1b">1B</button><button class="lbtn" data-da="2b">2B</button><button class="lbtn" data-da="3b">3B</button><button class="lbtn redb" data-da="hr">HR</button></div>'+ '<div class="lgrid lg2"><button class="lbtn soft" data-da="ibb">IBB issued</button><button class="lbtn soft" data-da="sf"' + (L.outs < 2 ? "" : " disabled") + '>Sac fly allowed</button></div>'
+    + '<div class="lgrid lg2"><button class="lbtn soft" id="dRer">+R earned (runner scores)</button><button class="lbtn soft" id="dRun">+R unearned</button></div>'
+    + '<div class="lgrid lg4"><button class="lbtn soft" data-lv="sub">\u21c4 Pitching change</button><button class="lbtn soft" data-lv="log">\ud83d\udcdc Game log</button><button class="lbtn soft" id="momentBtn">\ud83d\udcdd Moment</button><button class="lbtn soft" id="lUndo"' + (L.log.length ? "" : " disabled") + '>\u21a9 Undo</button></div>'
+    + '<div class="lgrid"><button class="lbtn soft full" id="oppRunBtn">\uff0b1 '+ esc(teamLabel(my === "away" ? "home" : "away")) + ' run (score correction \u2014 no pitcher charge)</button></div>'
+    + '<button class="donebtn disp" id="lDone">Pause \u2014 back to the game form</button></div>';
+
+  ov.querySelector("#lClose").addEventListener("click", closeLive);
+  ov.querySelector("#lDone").addEventListener("click", closeLive);
+  const undoBtn = ov.querySelector("#lUndo");
+  if (undoBtn) undoBtn.addEventListener("click", liveUndo);
+  const oppRunB2 = ov.querySelector("#oppRunBtn");
+  if (oppRunB2) oppRunB2.addEventListener("click", oneTeamOppRun);
+  const momB2 = ov.querySelector("#momentBtn");
+  if (momB2) momB2.addEventListener("click", markMoment);
+  ov.querySelector("#dErr").addEventListener("click", defErr);
+  ov.querySelector("#dRer").addEventListener("click", () => defRun(true));
+  ov.querySelector("#dRun").addEventListener("click", () => defRun(false));
+  ov.querySelectorAll("[data-ptype]").forEach(b => b.addEventListener("click", () => { L.pitchSel = b.dataset.ptype; renderLive(); }));
+  ov.querySelectorAll("[data-dp]").forEach(b => b.addEventListener("click", () => defCount(b.dataset.dp)));
+  ov.querySelectorAll("[data-da]").forEach(b => b.addEventListener("click", () => defAct(b.dataset.da)));
+  ov.querySelectorAll("[data-lv]").forEach(b => b.addEventListener("click", () => { liveView = { s: b.dataset.lv }; renderLive(); }));
+}
+
+function renderLive() {
+  saveDraft();
+  if (!form.live) { renderLiveSetup(); return; }
+  if (form.live.solo) { renderSolo(); return; }
+  if (form.live.oneTeam && battingTeam() !== form.live.oneTeam.side && (!liveView.s || liveView.s === "main")) { renderDef(); return; }
+  const L = form.live;
+  const bt = battingTeam(), ft = fieldingTeam();
+  const cur = curBatter().player;
+  const nxt = L.teams[bt].order[(L.teams[bt].idx + 1) % L.teams[bt].order.length];
+  const pitcher = L.teams[ft].pitcher;
+  const pRow = pitcher ? form.box.find(x => x.group === "pitching" && x.team === ft && x.player.trim().toLowerCase() === pitcher.trim().toLowerCase()) : null;
+  const pLine = pRow ? ["IP", "H", "ER", "BB", "K", "PC"].filter(c => filled(pRow.stats[c])).map(c => c + " " + pRow.stats[c]).join(" · ") : "";
+  const bRow = form.box.find(x => x.group === "batting" && x.team === bt && x.player.trim().toLowerCase() === cur.trim().toLowerCase());
+  const bLine = bRow ? ["AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"].filter(c => filled(bRow.stats[c])).map(c => c + " " + bRow.stats[c]).join(" · ") : "";
+  const occupied = runnersOnBase();
+
+  let mid = "";
+  if (liveView.s === "adv") {
+    const pend = liveView.pend, r = pend.runners[pend.idx];
+    mid = '<div class="hint" style="text-align:center">' + esc(pend.label) + " by " + esc(pend.batter.player) + ".<br>Where did <b>" + esc(r.name) + "</b> (on " + BASE_LBL[r.from] + ") end up?</div><div class=\"llist\">"
+      + advOptions(pend).map(([v, lbl]) => '<button data-adv="' + v + '">' + lbl + "</button>").join("")
+      + "</div>";
+  } else if (liveView.s === "fld") {
+    const players = fldPlayers(liveView.team);
+    mid = '<div class="hint" style="text-align:center">' + ({ PO: "Putout recorded by…", A: "Assist by…", E: "Error charged to…" }[liveView.stat]) + " (" + esc(teamLabel(liveView.team)) + ')</div><div class="llist">'
+      + players.map(p => '<button data-fld="' + esc(p) + '">' + esc(p) + "</button>").join("")
+      + '</div><div class="lgrid"><button class="lbtn soft full" data-fldskip="1">' + (liveView.stat === "A" ? "No assist (unassisted)" : "Skip") + "</button></div>";
+  } else if (liveView.s === "runner") {
+    const name = L.bases[liveView.base];
+    mid = '<div class="hint" style="text-align:center"><b>' + esc(name) + "</b> on " + BASE_LBL[liveView.base] + '</div><div class="llist">'
+      + '<button data-ract="sb">Stole a base</button>'
+      + '<button data-ract="adv">Advanced (WP, PB, balk…)' + (liveView.base === "third" ? " → scores" : "") + "</button>"
+      + '<button data-ract="cs">Caught stealing</button>'
+      + '<button data-ract="po">Picked off</button>'
+      + '<button data-ract="outb">Out on the bases</button>'
+      + '</div><div class="lgrid"><button class="lbtn soft full" data-lv="main">Cancel</button></div>';
+  } else if (liveView.s === "bp") {
+    mid = '<div class="hint" style="text-align:center">' + (occupied.length ? "Pick a runner (or tap a red base on the field)" : "No runners on base") + '</div><div class="llist">'
+      + occupied.map(r => '<button data-pickbase="' + r.from + '">' + esc(r.name) + " — on " + BASE_LBL[r.from] + "</button>").join("")
+      + (L.opts.fielding && (!L.oneTeam || fieldingTeam() === L.oneTeam.side) ? '<button data-lv="fldmenu">Fielding credit / error</button>' : "")
+      + '</div><div class="lgrid"><button class="lbtn soft full" data-lv="main">Cancel</button></div>';
+  } else if (liveView.s === "fldmenu") {
+    mid = '<div class="hint" style="text-align:center">Credit what?</div><div class="llist">'
+      + '<button data-fldstat="PO">Putout</button><button data-fldstat="A">Assist</button><button data-fldstat="E">Error</button>'
+      + '</div><div class="lgrid"><button class="lbtn soft full" data-lv="main">Cancel</button></div>';
+  } else if (liveView.s === "log") {
+    mid = '<div id="pbpScroll" style="max-height:280px;overflow-y:auto;text-align:left;border:1px solid var(--line);border-radius:4px;padding:4px 10px;background:#fff">'
+      + (form.pbp.length ? pbpGroupHtml(form.pbp) : '<div class="hint" style="padding:8px 0">No plays yet — the story writes itself as you score.</div>')
+      + '</div><div class="lgrid" style="margin-top:10px"><button class="lbtn soft full" data-lv="main">Back to scoring</button></div>';
+  } else if (liveView.s === "sub") {
+    const subTm = teamsDB.find(x => x.id === L.teams[ft].teamId);
+    const curP = (L.teams[ft].pitcher || "").trim().toLowerCase();
+    const subChips = subTm
+      ? '<div class="pchips" style="justify-content:flex-start;margin-bottom:8px">'
+        + subTm.roster.slice().sort((a, b) => ((b.pos === "P") ? 1 : 0) - ((a.pos === "P") ? 1 : 0))
+          .filter(p => p.name.trim().toLowerCase() !== curP)
+          .map(p => '<button class="pchip" data-subpick="' + esc(p.name) + '">' + esc(p.name) + (p.pos ? " (" + esc(p.pos) + ")" : "") + "</button>").join("")
+        + "</div>"
+      : "";
+    mid = '<div class="hint" style="text-align:center">New pitcher for ' + esc(teamLabel(ft)) + "</div>" + subChips
+      + '<input id="subName" placeholder="Pitcher name" style="margin-bottom:10px">'
+      + '<div class="lgrid lg2"><button class="lbtn" id="subGo">Bring him in</button><button class="lbtn soft" data-lv="main">Cancel</button></div>';
+  } else if (liveView.s === "jump") {
+    mid = '<div class="hint" style="text-align:center">Who\u2019s actually up for ' + esc(teamLabel(bt)) + '?</div><div class="llist">'
+      + L.teams[bt].order.map((p, i) => '<button class="' + (i === L.teams[bt].idx ? "cur" : "") + '" data-jump="' + i + '">' + (i + 1) + ". " + esc(p) + "</button>").join("")
+      + '</div><div class="lgrid"><button class="lbtn soft full" data-lv="main">Cancel</button></div>';
+  } else {
+    const strikeBtns = L.opts.strikeType
+      ? '<button class="lbtn big redb" data-pitch="strike-sw">Strike<br><span style="font-size:11px">swinging</span></button><button class="lbtn big redb" data-pitch="strike-lk">Strike<br><span style="font-size:11px">looking</span></button>'
+      : '<button class="lbtn big redb" data-pitch="strike">Strike</button>';
+    const chips = L.opts.pitchType
+      ? '<div class="pchips">' + ["FB", "CB", "SL", "CH", "OT"].map(t => '<button class="pchip' + ((L.pitchSel || "FB") === t ? " on" : "") + '" data-ptype="' + t + '">' + t + "</button>").join("") + "</div>"
+      : "";
+    mid = chips
+      + '<div class="lgrid ' + (L.opts.strikeType ? "lg3" : "lg2") + '">'
+      + '<button class="lbtn big" data-pitch="ball">Ball</button>' + strikeBtns + "</div>"
+      + '<div class="lgrid lg4"><button class="lbtn soft" data-pitch="foul">Foul</button>'
+      + '<button class="lbtn soft" data-out="hbp">HBP</button><button class="lbtn soft" data-out="out">Out (in play)</button>'
+      + '<button class="lbtn soft" data-out="roe">Error / ROE</button></div>'
+      + '<div class="lgrid lg4"><button class="lbtn" data-out="1b">1B</button><button class="lbtn" data-out="2b">2B</button>'
+      + '<button class="lbtn" data-out="3b">3B</button><button class="lbtn redb" data-out="hr">HR</button></div>'+ '<div class="lgrid lg2"><button class="lbtn soft" data-out="ibb">IBB (intentional)</button><button class="lbtn soft" data-out="sf"' + ((L.bases.third && L.outs < 2) ? "" : " disabled") + '>Sac fly</button></div>'
+      + '<div class="lgrid lg4"><button class="lbtn soft" data-lv="bp">⟢ Base paths</button>'
+      + '<button class="lbtn soft" data-lv="log">📜 Game log</button>'
+      + '<button class="lbtn soft" id="momentBtn">📝 Moment</button>'
+      + '<button class="lbtn soft" id="lUndo"' + (L.log.length ? "" : " disabled") + '>↩ Undo</button></div>'
+      + (L.oneTeam ? '<div class="lgrid"><button class="lbtn soft full" id="oppRunBtn">＋1 ' + esc(teamLabel(L.oneTeam.side === "away" ? "home" : "away")) + ' run (score correction)</button></div>' : "");
+  }
+
+  const ov = document.getElementById("overlay");
+  ov.innerHTML = '<div class="sheet" style="max-width:480px">'
+    + '<div class="sheet-head"><div><div class="disp" style="font-size:20px;font-weight:700">Live Scorer</div>'
+    + '<div class="mono" style="font-size:12px;color:var(--ink-soft)">' + esc(teamLabel("away")) + " " + lineRuns("away") + " — " + lineRuns("home") + " " + esc(teamLabel("home")) + "</div></div>"
+    + '<button class="xbtn" id="lClose">✕</button></div>'
+    + '<div class="mono" style="text-align:center;font-size:13px;margin-bottom:6px">' + halfLabel() + ' &nbsp; <span style="letter-spacing:3px">' + "●".repeat(L.outs) + "○".repeat(3 - L.outs) + '</span> <span style="color:var(--ink-soft);font-size:11px">outs</span></div>'
+    + (L.line ? lineScoreTable(L.line, teamLabel("away"), teamLabel("home"), L.inning) : "")
+    + diamondSVG()
+    + '<div class="lbatter"><button id="lBatter" title="Tap to change batter">#' + (L.teams[bt].idx + 1) + " " + esc(cur) + " ▾</button></div>"
+    + '<div class="lnext">batting: ' + esc(teamLabel(bt)) + " · on deck: " + esc(nxt) + "</div>"
+    + '<div style="text-align:center;margin-bottom:4px"><button class="addrow" id="lPitcher" style="color:var(--ink)">⚾ P: '
+    + (pitcher ? esc(pitcher) + (pLine ? ' <span class="mono" style="font-size:11px;color:var(--ink-soft)">(' + esc(pLine) + ")</span>" : "") : "<i>none set — tap to add</i>") + " ▾</button></div>"
+    + '<div class="lcount mono" style="font-size:40px;margin-top:0">' + L.balls + "–" + L.strikes + "</div>"
+    + '<div class="lcount-label">Balls – Strikes</div>'
+    + '<div class="lstat-strip mono">' + esc(liveView.flash || bLine || "") + "</div>"
+    + mid
+    + '<button class="donebtn disp" id="lDone">Done — stats are in the box score</button>'
+    + '<div style="text-align:center;margin-top:8px"><button class="addrow" id="lReset" style="color:var(--ink-soft)">⚙ start over with new lineups</button></div>'
+    + "</div>";
+
+  const ps = ov.querySelector("#pbpScroll");
+  if (ps) ps.scrollTop = ps.scrollHeight;
+  ov.querySelector("#lClose").addEventListener("click", closeLive);
+  ov.querySelector("#lDone").addEventListener("click", closeLive);
+  ov.querySelector("#lBatter").addEventListener("click", () => { liveView = { s: "jump" }; renderLive(); });
+  ov.querySelector("#lPitcher").addEventListener("click", () => { liveView = { s: "sub" }; renderLive(); });
+  ov.querySelector("#lReset").addEventListener("click", () => {
+    if (confirm("Start over with new lineups? Stats already in the box score will stay.")) { form.live = null; openLive(); }
+  });
+  const undoBtn = ov.querySelector("#lUndo");
+  if (undoBtn) undoBtn.addEventListener("click", liveUndo);
+  const oppRunB = ov.querySelector("#oppRunBtn");
+  if (oppRunB) oppRunB.addEventListener("click", oneTeamOppRun);
+  const momB = ov.querySelector("#momentBtn");
+  if (momB) momB.addEventListener("click", markMoment);
+  const subGo = ov.querySelector("#subGo");
+  if (subGo) subGo.addEventListener("click", () => livePitchSub(ov.querySelector("#subName").value));
+  ov.querySelectorAll("[data-subpick]").forEach(b => b.addEventListener("click", () => livePitchSub(b.dataset.subpick)));
+  ov.querySelectorAll("[data-pitch]").forEach(b => b.addEventListener("click", () => liveCount(b.dataset.pitch)));
+  ov.querySelectorAll("[data-out]").forEach(b => b.addEventListener("click", () => liveOutcome(b.dataset.out)));
+  ov.querySelectorAll("[data-lv]").forEach(b => b.addEventListener("click", () => { liveView = { s: b.dataset.lv }; renderLive(); }));
+  ov.querySelectorAll("[data-jump]").forEach(b => b.addEventListener("click", () => liveJump(parseInt(b.dataset.jump))));
+  ov.querySelectorAll("[data-ptype]").forEach(b => b.addEventListener("click", () => { L.pitchSel = b.dataset.ptype; renderLive(); }));
+  ov.querySelectorAll("[data-adv]").forEach(b => b.addEventListener("click", () => advChoose(b.dataset.adv)));
+  ov.querySelectorAll("[data-base]").forEach(g => g.addEventListener("click", () => {
+    if (liveView.s === "main" && L.bases[g.dataset.base]) { liveView = { s: "runner", base: g.dataset.base }; renderLive(); }
+  }));
+  ov.querySelectorAll("[data-pickbase]").forEach(b => b.addEventListener("click", () => { liveView = { s: "runner", base: b.dataset.pickbase }; renderLive(); }));
+  ov.querySelectorAll("[data-ract]").forEach(b => b.addEventListener("click", () => runnerAct(liveView.base, b.dataset.ract)));
+  ov.querySelectorAll("[data-fldstat]").forEach(b => b.addEventListener("click", () => { liveView = { s: "fld", stat: b.dataset.fldstat, team: fieldingTeam(), then: null }; renderLive(); }));
+  ov.querySelectorAll("[data-fld]").forEach(b => b.addEventListener("click", () => fldApply(b.dataset.fld, liveView.team, liveView.stat, liveView.then)));
+  ov.querySelectorAll("[data-fldskip]").forEach(b => b.addEventListener("click", () => {
+    liveView = liveView.then ? { s: "fld", stat: liveView.then, team: liveView.team, then: null } : { s: "main" };
+    renderLive();
+  }));
+}
+
+function renderLiveSetup() {
+  const S = liveSetup;
+  if (!S.teamSel) S.teamSel = { away: null, home: null };
+  if (S.solo === undefined) { S.solo = null; S.soloSide = "away"; S.soloTeamSel = null; S.soloPlayer = ""; S.soloOpp = ""; }
+  if (!S.mid) S.mid = { show: false, sa: "", sh: "", outs: 0, balls: 0, strikes: 0, b1: "", b2: "", b3: "" };
+  const ok = S.solo === "team" ? S.names[S.soloSide].some(filled)
+    : S.solo ? filled(S.soloPlayer)
+    : (S.names.away.some(filled) && S.names.home.some(filled));
+  const ov = document.getElementById("overlay");
+  const tms = modeTeams();
+  const teamById = id => tms.find(t => t.id === id);
+
+  const lineupSection = t => {
+    const saved = teamById(S.teamSel[t]);
+    let body = "";
+    if (saved) {
+      const chosen = S.names[t].map(n => n.trim()).filter(Boolean);
+      const avail = saved.roster.filter(p => !chosen.some(c => c.toLowerCase() === p.name.toLowerCase()));
+      body = '<div style="font-size:11px;color:var(--ink-soft);font-style:italic;margin-bottom:4px">Tap roster names in batting order. Tap an ordered name to remove it.</div>'
+        + '<div class="llist" style="gap:4px">'
+        + chosen.map((n, i) => '<button class="cur" data-rm="' + t + '" data-name="' + esc(n) + '">' + (i + 1) + ". " + esc(n) + " &nbsp;\u2715</button>").join("")
+        + (chosen.length ? "" : '<div style="font-size:12px;color:var(--ink-soft);padding:2px 0">No one in the order yet.</div>')
+        + "</div>"
+        + '<div class="pchips" style="justify-content:flex-start;margin-top:6px">'
+        + avail.map(p => '<button class="pchip" data-addp="' + t + '" data-name="' + esc(p.name) + '">' + esc(p.name) + (p.pos ? " (" + esc(p.pos) + ")" : "") + "</button>").join("")
+        + "</div>"
+        + '<div class="lsetup-row" style="margin-top:6px"><input data-guest="' + t + '" placeholder="Add someone not on the roster"><button class="addrow" data-guestadd="' + t + '" style="white-space:nowrap">+ Add</button></div>'
+        + '<div style="margin-top:8px"><label>' + esc(teamLabel(t)) + ' starting pitcher</label>'
+        + '<select data-psel="' + t + '"><option value="">\u2014 pick from roster \u2014</option>'
+        + saved.roster.slice().sort((a, b) => ((b.pos === "P") ? 1 : 0) - ((a.pos === "P") ? 1 : 0)).map(p => '<option value="' + esc(p.name) + '"' + (S.pitchers[t] === p.name ? " selected" : "") + ">" + esc(p.name) + (p.pos ? " (" + esc(p.pos) + ")" : "") + "</option>").join("")
+        + "</select>"
+        + '<input data-pitcher="' + t + '" value="' + esc(S.pitchers[t]) + '" placeholder="\u2026or type a pitcher" style="margin-top:6px"></div>';
+    } else {
+      body = S.names[t].map((n, i) => '<div class="lsetup-row"><span class="n mono">' + (i + 1) + ".</span>"
+        + '<input data-t="' + t + '" data-i="' + i + '" value="' + esc(n) + '" placeholder="Player name">'
+        + '<button class="delrow" data-delt="' + t + '" data-del="' + i + '">\ud83d\uddd1</button></div>').join("")
+        + '<button class="addrow" data-add="' + t + '">+ Add a spot</button>'
+        + '<div style="margin-top:8px"><label>' + esc(teamLabel(t)) + ' starting pitcher</label>'
+        + '<input data-pitcher="' + t + '" value="' + esc(S.pitchers[t]) + '" placeholder="Pitcher name (optional)"></div>';
+    }
+    return '<div style="margin-top:14px"><label>' + esc(teamLabel(t)) + " batting order</label>"
+      + '<select data-teamsel="' + t + '" style="margin-bottom:8px"><option value="">Type lineup manually</option>'
+      + tms.map(tm => '<option value="' + tm.id + '"' + (S.teamSel[t] === tm.id ? " selected" : "") + ">" + esc(tm.name) + " (" + esc(tm.category) + ")</option>").join("")
+      + "</select>" + body + "</div>";
+  };
+
+  const soloBody = () => {
+    const saved = tms.find(t => t.id === S.soloTeamSel);
+    return '<div style="margin-top:14px"><label>Whose side is your player on?</label>'
+      + '<div style="display:flex;gap:6px;margin-bottom:10px">'
+      + '<button class="vbtn' + (S.soloSide === "away" ? " active" : "") + '" data-sside="away">' + esc(form.away || "Away") + "</button>"
+      + '<button class="vbtn' + (S.soloSide === "home" ? " active" : "") + '" data-sside="home">' + esc(form.home || "Home") + "</button></div>"
+      + '<label>Pick from a saved team (optional)</label>'
+      + '<select id="soloTeam" style="margin-bottom:8px"><option value="">\u2014 type the name below \u2014</option>'
+      + tms.map(t => '<option value="' + t.id + '"' + (S.soloTeamSel === t.id ? " selected" : "") + ">" + esc(t.name) + " (" + esc(t.category) + ")</option>").join("") + "</select>"
+      + (saved ? '<select id="soloRoster" style="margin-bottom:8px"><option value="">\u2014 pick the player \u2014</option>'
+          + saved.roster.map(p => '<option value="' + esc(p.name) + '"' + (S.soloPlayer === p.name ? " selected" : "") + ">" + esc(p.name) + (p.pos ? " (" + esc(p.pos) + ")" : "") + "</option>").join("") + "</select>" : "")
+      + '<label>' + (S.solo === "batter" ? "Batter" : "Pitcher") + "</label>"
+      + '<input id="soloPlayer" value="' + esc(S.soloPlayer) + '" placeholder="Player name">'
+      + (S.solo === "batter" ? '<div style="margin-top:8px"><label>Opposing pitcher (optional \u2014 tracks pitch counts against him)</label><input id="soloOpp" value="' + esc(S.soloOpp) + '" placeholder="Pitcher name"></div>' : "")
+      + "</div>";
+  };
+
+  const optBtn = (key, lbl) =>
+    '<button class="vbtn' + (S.opts[key] ? " active" : "") + '" data-opt="' + key + '">' + (S.opts[key] ? "\u2713 " : "") + lbl + "</button>";
+  const modeChips = '<div style="margin-top:10px"><label>What are you scoring?</label><div style="display:flex;gap:6px;flex-wrap:wrap">'
+    + [["", "Full game"], ["team", "One team"], ["batter", "One batter"], ["pitcher", "One pitcher"]].map(([v, l]) =>
+      '<button class="vbtn' + ((S.solo || "") === v ? " active" : "") + '" data-solo="' + v + '">' + ((S.solo || "") === v ? "\u2713 " : "") + l + "</button>").join("") + "</div></div>";
+
+    const battingSideAtPickup = S.half === "top" ? "away" : "home";
+  const midRunnersOk = S.solo !== "team" || battingSideAtPickup === S.soloSide;
+  const runnerOpts = sel => '<option value="">\u2014 empty \u2014</option>' + S.names[battingSideAtPickup].map(n => n.trim()).filter(Boolean).map(n => '<option' + (sel === n ? " selected" : "") + ">" + esc(n) + "</option>").join("");
+  const midHtml = !S.mid.show
+    ? '<button class="addrow" id="midTog" style="margin-top:8px">\u23f1 Joining mid-game? Set the score & situation</button>'
+    : '<div style="margin-top:10px;border:1px dashed var(--line);border-radius:6px;padding:10px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center"><label style="margin:0">Situation when you tuned in</label><button class="addrow" id="midTog">hide</button></div>'
+      + '<div class="grid2" style="margin-top:6px"><div><label>' + esc(teamLabel("away")) + ' runs so far</label><input id="midSA" inputmode="numeric" value="' + esc(S.mid.sa) + '" placeholder="0"></div>'
+      + '<div><label>' + esc(teamLabel("home")) + ' runs so far</label><input id="midSH" inputmode="numeric" value="' + esc(S.mid.sh) + '" placeholder="0"></div></div>'
+      + '<label>Outs</label><div style="display:flex;gap:6px;margin-bottom:10px">' + [0, 1, 2].map(o => '<button class="vbtn' + (S.mid.outs === o ? " active" : "") + '" data-mout="' + o + '">' + o + "</button>").join("") + "</div>"
+      + '<div class="grid2"><div><label>Balls</label><div style="display:flex;gap:4px">' + [0, 1, 2, 3].map(o => '<button class="vbtn' + (S.mid.balls === o ? " active" : "") + '" data-mball="' + o + '">' + o + "</button>").join("") + "</div></div>"
+      + '<div><label>Strikes</label><div style="display:flex;gap:4px">' + [0, 1, 2].map(o => '<button class="vbtn' + (S.mid.strikes === o ? " active" : "") + '" data-mstrike="' + o + '">' + o + "</button>").join("") + "</div></div></div>"
+      + (midRunnersOk
+        ? '<label style="margin-top:10px;display:block">Runners on (' + esc(teamLabel(battingSideAtPickup)) + ' batting \u2014 add the lineup first)</label>'
+          + '<div class="grid2"><div><label>On 1st</label><select id="midB1">' + runnerOpts(S.mid.b1) + "</select></div>"
+          + '<div><label>On 2nd</label><select id="midB2">' + runnerOpts(S.mid.b2) + "</select></div></div>"
+          + '<div style="margin-top:6px"><label>On 3rd</label><select id="midB3">' + runnerOpts(S.mid.b3) + "</select></div>"
+        : '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">Opponent batting \u2014 their baserunners aren\u2019t tracked; use the +R buttons when they score.</div>')
+      + "</div>";
+const pickupHtml = '<div style="margin-top:16px"><label>Picking up the game at\u2026</label>'
+    + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+    + '<button class="vbtn' + (S.half === "top" ? " active" : "") + '" data-half="top">\u25b2 Top (' + esc(teamLabel("away")) + ' bats)</button>'
+    + '<button class="vbtn' + (S.half === "bottom" ? " active" : "") + '" data-half="bottom">\u25bc Bottom (' + esc(teamLabel("home")) + ' bats)</button>'
+    + '<span style="font-size:13px">of inning</span><input id="lsInning" inputmode="numeric" value="' + S.inning + '" style="width:54px;text-align:center"></div></div>' + midHtml;
+  const fullBody = lineupSection("away") + lineupSection("home") + pickupHtml
+    + '<div class="grid2" style="margin-top:12px"><div><label>First ' + esc(teamLabel("away")) + ' batter</label><select id="lsStartA"></select></div>'
+    + '<div><label>First ' + esc(teamLabel("home")) + ' batter</label><select id="lsStartH"></select></div></div>';
+  const teamBody = () => '<div style="margin-top:14px"><label>Which side is your team?</label>'
+    + '<div style="display:flex;gap:6px;margin-bottom:4px">'
+    + '<button class="vbtn' + (S.soloSide === "away" ? " active" : "") + '" data-sside="away">' + esc(form.away || "Away") + "</button>"
+    + '<button class="vbtn' + (S.soloSide === "home" ? " active" : "") + '" data-sside="home">' + esc(form.home || "Home") + "</button></div>"
+    + '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">When they bat you get the full scorer; when they\u2019re in the field you track your pitcher and the outs.</div>'
+    + lineupSection(S.soloSide) + pickupHtml
+    + '<div style="margin-top:12px"><label>First ' + esc(teamLabel(S.soloSide)) + ' batter</label><select id="' + (S.soloSide === "away" ? "lsStartA" : "lsStartH") + '"></select></div>';
+
+  ov.innerHTML = '<div class="sheet" style="max-width:480px">'
+    + '<div class="sheet-head"><div><div class="disp" style="font-size:20px;font-weight:700">Lineup Card</div>'
+    + '<div class="mono" style="font-size:12px;color:var(--ink-soft)">' + esc(form.away || "Away") + " @ " + esc(form.home || "Home") + (modeOf(form) === "video" ? " \u00b7 \ud83c\udfae" : "") + "</div></div>"
+    + '<button class="xbtn" id="lsClose">\u2715</button></div>'
+    + (tms.length ? "" : '<div class="hint">Tip: save your teams in the \ud83d\udc65 Teams tab and lineups become tap-to-pick.</div>')
+    + modeChips
+    + (S.solo === "team" ? teamBody() : S.solo ? soloBody() : fullBody)
+    + '<div style="margin-top:16px"><label>How much do you want to track?</label>'
+    + '<div style="font-size:11px;color:var(--ink-soft);font-style:italic;margin-bottom:6px">Baseline (always on): pitch count, balls/strikes, ' + (S.solo === "team" ? "baserunners & RISP when your side bats, your pitcher\u2019s full line on defense." : S.solo ? "pitches per AB, full stat line." : "baserunners, RISP, pitches per AB, full batting & pitching lines.") + "</div>"
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap">' + optBtn("strikeType", "Swinging / looking") + optBtn("pitchType", "Pitch type") + (S.solo === "batter" || S.solo === "pitcher" ? "" : optBtn("fielding", "Fielding (PO\u00b7A\u00b7E)")) + "</div></div>"
+    + '<button class="donebtn disp" id="lsGo"' + (ok ? "" : " disabled") + ">" + (S.solo === "team" ? "Play ball \u2014 track your side" : S.solo ? "Start tracking" : "Play ball \u2014 start scoring") + "</button></div>";
+
+  const sels = { away: ov.querySelector("#lsStartA"), home: ov.querySelector("#lsStartH") };
+  const refreshStart = t => {
+    if (!sels[t]) return;
+    const opts = S.names[t].map((n, i) => [n, i]).filter(([n]) => filled(n));
+    sels[t].innerHTML = opts.length
+      ? opts.map(([n, i]) => '<option value="' + i + '"' + (i === S.start[t] ? " selected" : "") + ">" + (i + 1) + ". " + esc(n) + "</option>").join("")
+      : '<option value="0">Add players above</option>';
+  };
+  refreshStart("away"); refreshStart("home");
+
+  ov.querySelector("#lsClose").addEventListener("click", closeLive);
+  ov.querySelectorAll("[data-solo]").forEach(b => b.addEventListener("click", () => { S.solo = b.dataset.solo || null; renderLiveSetup(); }));
+  ov.querySelectorAll("[data-sside]").forEach(b => b.addEventListener("click", () => { S.soloSide = b.dataset.sside; renderLiveSetup(); }));
+  const soloTeam = ov.querySelector("#soloTeam");
+  if (soloTeam) soloTeam.addEventListener("change", () => {
+    S.soloTeamSel = soloTeam.value || null;
+    const tm = tms.find(x => x.id === S.soloTeamSel);
+    if (tm && !(S.soloSide === "away" ? form.away : form.home).trim()) {
+      if (S.soloSide === "away") form.away = tm.name; else form.home = tm.name;
+      const f = document.getElementById(S.soloSide === "away" ? "fAway" : "fHome");
+      if (f) f.value = tm.name;
+    }
+    renderLiveSetup();
+  });
+  const soloRoster = ov.querySelector("#soloRoster");
+  if (soloRoster) soloRoster.addEventListener("change", () => { S.soloPlayer = soloRoster.value; renderLiveSetup(); });
+  const soloPlayer = ov.querySelector("#soloPlayer");
+  if (soloPlayer) soloPlayer.addEventListener("input", () => {
+    S.soloPlayer = soloPlayer.value;
+    ov.querySelector("#lsGo").disabled = !filled(S.soloPlayer);
+  });
+  const soloOpp = ov.querySelector("#soloOpp");
+  if (soloOpp) soloOpp.addEventListener("input", () => S.soloOpp = soloOpp.value);
+
+  ov.querySelectorAll("select[data-teamsel]").forEach(sel => sel.addEventListener("change", () => {
+    const t = sel.dataset.teamsel;
+    S.teamSel[t] = sel.value || null;
+    if (S.teamSel[t]) {
+      S.names[t] = [];
+      S.pitchers[t] = "";
+      const tm = tms.find(x => x.id === S.teamSel[t]);
+      if (tm && !(t === "away" ? form.away : form.home).trim()) {
+        if (t === "away") form.away = tm.name; else form.home = tm.name;
+        const f = document.getElementById(t === "away" ? "fAway" : "fHome");
+        if (f) f.value = tm.name;
+      }
+    } else {
+      S.names[t] = Array(9).fill("");
+    }
+    renderLiveSetup();
+  }));
+  ov.querySelectorAll("[data-addp]").forEach(b => b.addEventListener("click", () => {
+    S.names[b.dataset.addp].push(b.dataset.name);
+    renderLiveSetup();
+  }));
+  ov.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => {
+    const t = b.dataset.rm;
+    S.names[t] = S.names[t].map(n => n.trim()).filter(Boolean).filter(n => n !== b.dataset.name);
+    if (S.start[t] >= S.names[t].length) S.start[t] = 0;
+    renderLiveSetup();
+  }));
+  ov.querySelectorAll("[data-guestadd]").forEach(b => b.addEventListener("click", () => {
+    const t = b.dataset.guestadd;
+    const inp = ov.querySelector('input[data-guest="' + t + '"]');
+    if (inp && inp.value.trim()) { S.names[t].push(inp.value.trim()); renderLiveSetup(); }
+  }));
+  ov.querySelectorAll("select[data-psel]").forEach(sel => sel.addEventListener("change", () => {
+    S.pitchers[sel.dataset.psel] = sel.value;
+    renderLiveSetup();
+  }));
+  ov.querySelectorAll("input[data-t]").forEach(inp => inp.addEventListener("input", () => {
+    S.names[inp.dataset.t][parseInt(inp.dataset.i)] = inp.value;
+    refreshStart(inp.dataset.t);
+    ov.querySelector("#lsGo").disabled = S.solo === "team" ? !S.names[S.soloSide].some(filled) : !(S.names.away.some(filled) && S.names.home.some(filled));
+  }));
+  ov.querySelectorAll("input[data-pitcher]").forEach(inp => inp.addEventListener("input", () => S.pitchers[inp.dataset.pitcher] = inp.value));
+  ov.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => { S.names[b.dataset.delt].splice(parseInt(b.dataset.del), 1); renderLiveSetup(); }));
+  ov.querySelectorAll("[data-add]").forEach(b => b.addEventListener("click", () => { S.names[b.dataset.add].push(""); renderLiveSetup(); }));
+  ov.querySelectorAll("[data-half]").forEach(b => b.addEventListener("click", () => { S.half = b.dataset.half; S.mid.b1 = ""; S.mid.b2 = ""; S.mid.b3 = ""; renderLiveSetup(); }));
+  const midTog = ov.querySelector("#midTog");
+  if (midTog) midTog.addEventListener("click", () => { S.mid.show = !S.mid.show; renderLiveSetup(); });
+  ov.querySelectorAll("[data-mout]").forEach(b => b.addEventListener("click", () => { S.mid.outs = parseInt(b.dataset.mout); renderLiveSetup(); }));
+  ov.querySelectorAll("[data-mball]").forEach(b => b.addEventListener("click", () => { S.mid.balls = parseInt(b.dataset.mball); renderLiveSetup(); }));
+  ov.querySelectorAll("[data-mstrike]").forEach(b => b.addEventListener("click", () => { S.mid.strikes = parseInt(b.dataset.mstrike); renderLiveSetup(); }));
+  const midSA = ov.querySelector("#midSA");
+  if (midSA) midSA.addEventListener("input", () => S.mid.sa = midSA.value);
+  const midSH = ov.querySelector("#midSH");
+  if (midSH) midSH.addEventListener("input", () => S.mid.sh = midSH.value);
+  for (const [mid_id, mid_k] of [["#midB1", "b1"], ["#midB2", "b2"], ["#midB3", "b3"]]) {
+    const el = ov.querySelector(mid_id);
+    if (el) el.addEventListener("change", () => S.mid[mid_k] = el.value);
+  }
+  ov.querySelectorAll("[data-opt]").forEach(b => b.addEventListener("click", () => { S.opts[b.dataset.opt] = !S.opts[b.dataset.opt]; renderLiveSetup(); }));
+  const lsInning = ov.querySelector("#lsInning");
+  if (lsInning) lsInning.addEventListener("input", ev => S.inning = Math.max(1, parseInt(ev.target.value) || 1));
+  if (sels.away) sels.away.addEventListener("change", () => S.start.away = parseInt(sels.away.value) || 0);
+  if (sels.home) sels.home.addEventListener("change", () => S.start.home = parseInt(sels.home.value) || 0);
+  ov.querySelector("#lsGo").addEventListener("click", () => {
+    const applyMid = () => {
+      const L2 = form.live, M = S.mid;
+      L2.outs = M.outs || 0;
+      L2.balls = M.balls || 0;
+      L2.strikes = M.strikes || 0;
+      L2.abPit = (M.balls || 0) + (M.strikes || 0);
+      const pra = parseInt(M.sa) || 0, prh = parseInt(M.sh) || 0;
+      if (pra || prh) L2.line.prior = { a: pra, h: prh };
+      const bt2 = S.half === "top" ? "away" : "home";
+      if (!L2.oneTeam || bt2 === L2.oneTeam.side) {
+        const ord = L2.teams[bt2].order;
+        L2.bases = {
+          first: ord.includes(M.b1) ? M.b1 : null,
+          second: ord.includes(M.b2) ? M.b2 : null,
+          third: ord.includes(M.b3) ? M.b3 : null,
+        };
+      }
+      if (M.outs || M.balls || M.strikes || M.b1 || M.b2 || M.b3) {
+        if (!L2.line.det) L2.line.det = { a: [], h: [] };
+        const dmid = bt2 === "away" ? L2.line.det.a : L2.line.det.h;
+        while (dmid.length < L2.inning) dmid.push(null);
+        dmid[L2.inning - 1] = { r: 0, h: 0, br: 0, ps: {}, full: false, partial: true };
+      }
+      stampInning(bt2);
+    };
+    if (S.solo === "team") {
+      const side = S.soloSide, opp = side === "away" ? "home" : "away";
+      const order = S.names[side].map(n => n.trim()).filter(Boolean);
+      if (!order.length) return;
+      const chosen = (S.names[side][S.start[side]] || "").trim();
+      let idx = order.indexOf(chosen);
+      if (idx < 0) idx = 0;
+      const teams = {};
+      teams[side] = { order, idx, pitcher: S.pitchers[side].trim(), teamId: S.teamSel[side] || null };
+      teams[opp] = { order: ["Opposing batter"], idx: 0, pitcher: "", teamId: null };
+      form.live = { oneTeam: { side }, inning: S.inning, half: S.half, outs: 0, balls: 0, strikes: 0, abPit: 0, teams, log: [],
+        bases: { first: null, second: null, third: null }, opts: { ...S.opts }, pitchSel: "FB",
+        line: { a: [], h: [], hits: { away: 0, home: 0 }, errs: { away: 0, home: 0 } } };
+      applyMid();
+      for (const p of order) ensureRowG(p, side, "batting");
+      if (teams[side].pitcher) ensureRowG(teams[side].pitcher, side, "pitching");
+      if (S.opts.fielding) for (const p of order) ensureRowG(p, side, "fielding");
+      renderLive();
+      return;
+    }
+    if (S.solo) {
+      const player = S.soloPlayer.trim();
+      if (!player) return;
+      form.live = { solo: { type: S.solo, player, team: S.soloSide, oppPitcher: S.solo === "batter" ? S.soloOpp.trim() : "" },
+        balls: 0, strikes: 0, abPit: 0, risp: false, log: [],
+        opts: { strikeType: S.opts.strikeType, pitchType: S.opts.pitchType, fielding: false }, pitchSel: "FB" };
+      if (S.solo === "batter") {
+        ensureRowG(player, S.soloSide, "batting");
+        if (form.live.solo.oppPitcher) ensureRowG(form.live.solo.oppPitcher, S.soloSide === "away" ? "home" : "away", "pitching");
+      } else {
+        ensureRowG(player, S.soloSide, "pitching");
+      }
+      renderLive();
+      return;
+    }
+    const teams = {};
+    for (const t of ["away", "home"]) {
+      const order = S.names[t].map(n => n.trim()).filter(Boolean);
+      if (!order.length) return;
+      const chosen = (S.names[t][S.start[t]] || "").trim();
+      let idx = order.indexOf(chosen);
+      if (idx < 0) idx = 0;
+      teams[t] = { order, idx, pitcher: S.pitchers[t].trim(), teamId: S.teamSel[t] || null };
+    }
+    form.live = { inning: S.inning, half: S.half, outs: 0, balls: 0, strikes: 0, abPit: 0, teams, log: [],
+      bases: { first: null, second: null, third: null }, opts: { ...S.opts }, pitchSel: "FB",
+      line: { a: [], h: [], hits: { away: 0, home: 0 }, errs: { away: 0, home: 0 } } };
+    applyMid();
+    for (const t of ["away", "home"]) {
+      for (const p of teams[t].order) ensureRowG(p, t, "batting");
+      if (teams[t].pitcher) ensureRowG(teams[t].pitcher, t, "pitching");
+      if (S.opts.fielding) for (const p of teams[t].order) ensureRowG(p, t, "fielding");
+    }
+    renderLive();
+  });
+}
+
+// Stat glossary tooltip
+const statTip = document.getElementById("statTip");
+document.addEventListener("click", ev => {
+  const el = ev.target.closest("[data-stat]");
+  if (!el || !STAT_GLOSSARY[el.dataset.stat]) { statTip.classList.add("hidden"); return; }
+  statTip.innerHTML = "<b>" + esc(el.dataset.stat) + "</b>: " + esc(STAT_GLOSSARY[el.dataset.stat]);
+  statTip.classList.remove("hidden");
+  statTip.style.left = "0px"; statTip.style.top = "0px";
+  const r = el.getBoundingClientRect(), tw = statTip.offsetWidth, th = statTip.offsetHeight;
+  let left = Math.max(6, Math.min(r.left + r.width / 2 - tw / 2, window.innerWidth - tw - 6));
+  let top = r.top - th - 8;
+  if (top < 6) top = r.bottom + 8;
+  statTip.style.left = left + "px"; statTip.style.top = top + "px";
+});
+window.addEventListener("scroll", () => statTip.classList.add("hidden"), true);
+
+// ── Wire up top-level controls ────────────────────────────────────────
+document.getElementById("venueFilter").addEventListener("change", renderList);
+document.getElementById("search").addEventListener("input", renderList);
+document.getElementById("addBtn").addEventListener("click", () => openForm(null));
+document.getElementById("listArea").addEventListener("click", ev => {
+  const btn = ev.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.closest(".card").dataset.id;
+  if (btn.dataset.act === "share") {
+    const e = entries.find(x => x.id === id);
+    if (e) shareScorecard(e);
+  } else if (btn.dataset.act === "edit") {
+    openForm(entries.find(e => e.id === id));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } else if (btn.dataset.act === "del") {
+    if (confirm("Delete this game?")) { entries = entries.filter(e => e.id !== id); persist(); renderTally(); renderList(); }
+  }
+});
+
+renderTally();
+renderList();
+
+// Register the service worker so the app works offline once installed
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("./sw.js").catch(() => {});
+}
+
+// bring back any unsaved game (back swipe, app killed mid-score, etc.)
+try {
+  const _draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+  if (_draft && _draft.form) {
+    openForm(null, _draft);
+    document.getElementById("draftNote").classList.remove("hidden");
+    document.getElementById("addBtn").classList.add("hidden");
+  }
+} catch (e) {}
+
+// ── Teams & aggregate stats ───────────────────────────────────────────
+const MLB_TEAMS = [
+  [109, "Arizona Diamondbacks"], [133, "Athletics"], [144, "Atlanta Braves"], [110, "Baltimore Orioles"],
+  [111, "Boston Red Sox"], [112, "Chicago Cubs"], [145, "Chicago White Sox"], [113, "Cincinnati Reds"],
+  [114, "Cleveland Guardians"], [115, "Colorado Rockies"], [116, "Detroit Tigers"], [117, "Houston Astros"],
+  [118, "Kansas City Royals"], [108, "Los Angeles Angels"], [119, "Los Angeles Dodgers"], [146, "Miami Marlins"],
+  [158, "Milwaukee Brewers"], [142, "Minnesota Twins"], [121, "New York Mets"], [147, "New York Yankees"],
+  [143, "Philadelphia Phillies"], [134, "Pittsburgh Pirates"], [135, "San Diego Padres"], [137, "San Francisco Giants"],
+  [136, "Seattle Mariners"], [138, "St. Louis Cardinals"], [139, "Tampa Bay Rays"], [140, "Texas Rangers"],
+  [141, "Toronto Blue Jays"], [120, "Washington Nationals"],
+];
+const TEAM_CATEGORIES = ["MLB", "Little League", "High School", "College", "Travel / Club", "Other"];
+
+function persistTeams() {
+  try { localStorage.setItem(TKEY, JSON.stringify(teamsDB)); }
+  catch (e) { document.getElementById("err").classList.remove("hidden"); }
+}
+
+async function fetchMlbRoster(mlbId) {
+  const res = await fetch("https://statsapi.mlb.com/api/v1/teams/" + mlbId + "/roster?rosterType=active");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const data = await res.json();
+  const roster = (data.roster || [])
+    .map(r => ({ name: (r.person && r.person.fullName) || "", pos: (r.position && r.position.abbreviation) || "" }))
+    .filter(p => p.name);
+  if (!roster.length) throw new Error("empty roster");
+  return roster;
+}
+
+// ── view switching ──
+function switchView(v) {
+  currentView = v;
+  for (const x of ["games", "teams", "stats", "records"]) {
+    document.getElementById("view-" + x).classList.toggle("hidden", x !== v);
+    document.querySelector('.navbtn[data-view="' + x + '"]').classList.toggle("active", x === v);
+  }
+  if (v === "teams") renderTeamsView();
+  if (v === "stats") renderStatsView();
+  if (v === "records") renderRecordsView();
+}
+document.querySelectorAll(".navbtn").forEach(b => b.addEventListener("click", () => switchView(b.dataset.view)));
+document.querySelectorAll(".modebtn").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
+setMode(appMode);
+document.getElementById("seasonBar").addEventListener("click", () => {
+  const cur = currentSeason();
+  const v = prompt("Name the current season - new video games will be filed under it. (Examples: Season 3, AA 2027, Rookie year. Leave blank to clear.)", cur);
+  if (v === null) return;
+  try { localStorage.setItem("sports-stat-season", v.trim()); } catch (e) {}
+  renderSeasonBar();
+});
+
+// ── theme ──
+let theme = "light";
+try { theme = localStorage.getItem("sports-stat-theme") === "dark" ? "dark" : "light"; } catch (e) {}
+function applyTheme() {
+  document.body.classList.toggle("dark", theme === "dark");
+  const tb2 = document.getElementById("themeBtn");
+  if (tb2) tb2.textContent = theme === "dark" ? "☀️" : "🌙";
+}
+document.getElementById("themeBtn").addEventListener("click", () => {
+  theme = theme === "dark" ? "light" : "dark";
+  try { localStorage.setItem("sports-stat-theme", theme); } catch (e) {}
+  applyTheme();
+});
+
+applyTheme();
+
+// ── keep the screen on while scoring ──
+let wakeLock = null;
+async function holdScreen() {
+  try {
+    if ("wakeLock" in navigator && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    }
+  } catch (e) { wakeLock = null; }
+}
+function releaseScreen() {
+  try { if (wakeLock) wakeLock.release(); } catch (e) {}
+  wakeLock = null;
+}
+document.addEventListener("visibilitychange", () => {
+  const ovEl = document.getElementById("overlay");
+  if (document.visibilityState === "visible" && ovEl && !ovEl.classList.contains("hidden") && form && form.live) holdScreen();
+});
+
+// ── a small buzz on every scoring tap ──
+document.getElementById("overlay").addEventListener("click", ev => {
+  if (ev.target.closest && ev.target.closest(".lbtn,.pchip,.vbtn")) {
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {}
+  }
+});
+
+// ── backup nudge ──
+(function () {
+  const BK = "sports-stat-lastbackup", SN = "sports-stat-backupsnooze", day = 86400000;
+  let last = 0, snooze = 0;
+  try { last = parseInt(localStorage.getItem(BK)) || 0; snooze = parseInt(localStorage.getItem(SN)) || 0; } catch (e) {}
+  const nd = document.getElementById("backupNudge");
+  const realGames = entries.filter(e => modeOf(e) === "real").length;
+  if (realGames >= 5 && Date.now() - last > 30 * day && Date.now() - snooze > 7 * day) nd.classList.remove("hidden");
+  document.getElementById("nudgeGo").addEventListener("click", () => {
+    document.getElementById("exportBtn").click();
+    nd.classList.add("hidden");
+  });
+  document.getElementById("nudgeLater").addEventListener("click", () => {
+    try { localStorage.setItem(SN, String(Date.now())); } catch (e) {}
+    nd.classList.add("hidden");
+  });
+})();
+
+// ── Unsaved-game protection ──
+const DRAFT_KEY = "sports-stat-draft-v1";
+let draftTimer = null;
+function saveDraftNow() {
+  if (!form) return;
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, editingId })); } catch (e) {}
+}
+function saveDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(saveDraftNow, 250);
+}
+function clearDraft() {
+  clearTimeout(draftTimer);
+  try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+}
+// any typing or tapping inside the form or an overlay refreshes the draft
+for (const hostId of ["formArea", "overlay"]) {
+  const host = document.getElementById(hostId);
+  host.addEventListener("input", saveDraft);
+  host.addEventListener("click", saveDraft);
+}
+// the system back gesture never exits the app; it just closes the open sheet
+try {
+  history.replaceState({ sb: 0 }, "");
+  history.pushState({ sb: 1 }, "");
+} catch (e) {}
+window.addEventListener("popstate", () => {
+  try { history.pushState({ sb: 1 }, ""); } catch (e) {}
+  const ov = document.getElementById("overlay");
+  if (ov && !ov.classList.contains("hidden")) closeLive(); // live session stays in the form, resumable
+});
+
+// ── Teams view ──
+let tf = null; // team form state
+
+function renderTeamsView() {
+  const v = document.getElementById("view-teams");
+  let html = "";
+  if (!tf) {
+    html += '<button class="addbtn disp" id="teamAddBtn">＋ Add a ' + (appMode === "video" ? "video game " : "") + 'team</button>';
+  } else {
+    const isMlb = tf.category === "MLB";
+    html += '<div class="panel">'
+      + '<div class="panel-head"><span class="disp" style="font-size:15px;font-weight:700">' + (tf.id ? "Edit team" : "New team") + '</span><button class="xbtn" id="tfClose">✕</button></div>'
+      + '<div class="grid2"><div><label>Team name</label><input id="tfName" value="' + esc(tf.name) + '" placeholder="Boston Red Sox"></div>'
+      + '<div><label>Category</label><select id="tfCat">' + TEAM_CATEGORIES.map(c => '<option' + (tf.category === c ? " selected" : "") + ">" + c + "</option>").join("") + "</select></div></div>";
+    if (isMlb) {
+      html += '<div style="margin-bottom:12px"><label>Import roster from MLB (needs internet)</label>'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap"><select id="tfMlb" style="flex:1;min-width:180px">'
+        + MLB_TEAMS.map(([id, n]) => '<option value="' + id + '"' + (tf.mlbId === id ? " selected" : "") + ">" + n + "</option>").join("")
+        + '</select><button class="vbtn" id="tfImport">⬇ Import active roster</button></div>'
+        + '<div id="tfStatus" style="font-size:12px;color:var(--ink-soft);font-style:italic;margin-top:4px">' + esc(tf.status || "") + "</div></div>";
+    }
+    html += '<label>Roster (' + tf.roster.length + ")</label>";
+    html += tf.roster.map((p, i) => '<div class="lsetup-row"><span class="n mono">' + (i + 1) + ".</span>"
+      + '<input data-ri="' + i + '" data-rf="name" value="' + esc(p.name) + '" placeholder="Player name">'
+      + '<input data-ri="' + i + '" data-rf="pos" value="' + esc(p.pos || "") + '" placeholder="Pos" style="width:64px;flex:none">'
+      + '<button class="delrow" data-rdel="' + i + '">🗑</button></div>').join("");
+    html += '<button class="addrow" id="tfAddPlayer">+ Add a player</button>'
+      + '<div class="saverow"><button class="savebtn disp" id="tfSave">Save team</button><button class="cancelbtn" id="tfCancel">Cancel</button>'
+      + (tf.id ? '<button class="cancelbtn" id="tfDelete" style="color:var(--red);border-color:var(--red)">Delete</button>' : "") + "</div></div>";
+  }
+  const mt = modeTeams();
+  if (!mt.length && !tf) {
+    html += '<div class="empty">No teams yet. Add the squads you follow — MLB rosters can be imported automatically.</div>';
+  } else {
+    html += mt.map(t =>
+      '<div class="card"><div class="meta mono">' + esc(t.category) + " · " + t.roster.length + " players" + (t.updated ? " · updated " + esc(t.updated) : "") + "</div>"
+      + '<div class="matchup disp" style="font-size:17px">' + esc(t.name) + "</div>"
+      + '<div style="font-size:12px;color:var(--ink-soft);margin-top:4px">' + esc(t.roster.slice(0, 6).map(p => p.name).join(", ")) + (t.roster.length > 6 ? "…" : "") + "</div>"
+      + '<div class="cardbtns"><button class="ebtn" data-tedit="' + t.id + '">✎ Edit</button>'
+      + (t.mlbId ? '<button class="ebtn" data-trefresh="' + t.id + '">⟳ Refresh roster</button>' : "")
+      + '<button class="dbtn" data-tdel="' + t.id + '">🗑 Delete</button></div></div>').join("");
+  }
+  v.innerHTML = html;
+
+  const byId = id => v.querySelector(id);
+  if (byId("#teamAddBtn")) byId("#teamAddBtn").addEventListener("click", () => { tf = { id: null, name: "", category: "MLB", mlbId: null, roster: [], status: "", mode: appMode }; renderTeamsView(); });
+  if (tf) {
+    byId("#tfClose").addEventListener("click", () => { tf = null; renderTeamsView(); });
+    byId("#tfCancel").addEventListener("click", () => { tf = null; renderTeamsView(); });
+    byId("#tfName").addEventListener("input", ev => tf.name = ev.target.value);
+    byId("#tfCat").addEventListener("change", ev => { tf.category = ev.target.value; renderTeamsView(); });
+    if (byId("#tfMlb")) byId("#tfMlb").addEventListener("change", ev => tf.mlbId = parseInt(ev.target.value));
+    if (byId("#tfImport")) byId("#tfImport").addEventListener("click", async () => {
+      const id = parseInt(byId("#tfMlb").value);
+      tf.status = "Fetching roster…"; renderTeamsView();
+      try {
+        const roster = await fetchMlbRoster(id);
+        tf.mlbId = id;
+        tf.roster = roster;
+        if (!tf.name.trim()) tf.name = (MLB_TEAMS.find(([i]) => i === id) || [0, ""])[1];
+        tf.status = roster.length + " players imported.";
+      } catch (e) {
+        tf.status = "Couldn't reach MLB — check your connection and try again.";
+      }
+      renderTeamsView();
+    });
+    v.querySelectorAll("input[data-ri]").forEach(inp => inp.addEventListener("input", () => { tf.roster[parseInt(inp.dataset.ri)][inp.dataset.rf] = inp.value; }));
+    v.querySelectorAll("[data-rdel]").forEach(b => b.addEventListener("click", () => { tf.roster.splice(parseInt(b.dataset.rdel), 1); renderTeamsView(); }));
+    byId("#tfAddPlayer").addEventListener("click", () => { tf.roster.push({ name: "", pos: "" }); renderTeamsView(); });
+    byId("#tfSave").addEventListener("click", () => {
+      if (!tf.name.trim()) { byId("#tfName").focus(); return; }
+      const clean = { id: tf.id || ("t" + Date.now().toString(36)), name: tf.name.trim(), category: tf.category, mlbId: tf.mlbId || null,
+        mode: tf.mode || appMode,
+        roster: tf.roster.map(p => ({ name: p.name.trim(), pos: (p.pos || "").trim() })).filter(p => p.name), updated: today() };
+      if (tf.id) teamsDB = teamsDB.map(t => t.id === tf.id ? clean : t);
+      else teamsDB.push(clean);
+      persistTeams(); tf = null; renderTeamsView();
+    });
+    if (byId("#tfDelete")) byId("#tfDelete").addEventListener("click", () => {
+      if (confirm("Delete this team? Your logged games and stats keep their data.")) {
+        teamsDB = teamsDB.filter(t => t.id !== tf.id);
+        persistTeams(); tf = null; renderTeamsView();
+      }
+    });
+  }
+  v.querySelectorAll("[data-tedit]").forEach(b => b.addEventListener("click", () => {
+    const t = teamsDB.find(x => x.id === b.dataset.tedit);
+    tf = JSON.parse(JSON.stringify(t)); tf.status = ""; renderTeamsView();
+  }));
+  v.querySelectorAll("[data-tdel]").forEach(b => b.addEventListener("click", () => {
+    if (confirm("Delete this team? Your logged games and stats keep their data.")) {
+      teamsDB = teamsDB.filter(t => t.id !== b.dataset.tdel);
+      persistTeams(); renderTeamsView();
+    }
+  }));
+  v.querySelectorAll("[data-trefresh]").forEach(b => b.addEventListener("click", async () => {
+    const t = teamsDB.find(x => x.id === b.dataset.trefresh);
+    b.textContent = "⟳ Fetching…";
+    try {
+      t.roster = await fetchMlbRoster(t.mlbId);
+      t.updated = today();
+      persistTeams();
+    } catch (e) { alert("Couldn't reach MLB — check your connection and try again."); }
+    renderTeamsView();
+  }));
+}
+
+// ── Stats view ──
+let statsTab = "players";
+
+function addAgg(acc, stats, group) {
+  for (const c in stats) {
+    const v = stats[c];
+    if (!filled(v)) continue;
+    if (group === "pitching" && c === "IP") acc.IPouts = (acc.IPouts || 0) + ipOutsOf(v);
+    else acc[c] = (acc[c] || 0) + num(v);
+  }
+}
+function aggToStats(acc, group) {
+  const o = {};
+  for (const c in acc) if (c !== "IPouts") o[c] = String(acc[c]);
+  if (group === "pitching" && acc.IPouts) o.IP = outsToIp(acc.IPouts);
+  return o;
+}
+function aggregate(venueF, yearF) {
+  const players = {}, teams = {};
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== appMode) continue;
+    if (venueF !== "all" && e.venue !== venueF) continue;
+    if (yearF && yearF !== "all" && seasonOf(e) !== yearF) continue;
+    for (const side of ["away", "home"]) {
+      const tn = (side === "away" ? e.away : e.home).trim();
+      if (!tn) continue;
+      const key = tn.toLowerCase();
+      const T = teams[key] = teams[key] || { name: tn, gp: 0, w: 0, l: 0, d: 0, bat: {}, pit: {}, fld: {}, ip: 0 };
+      T.gp++;
+      if (filled(e.awayScore) && filled(e.homeScore)) {
+        const my = side === "away" ? num(e.awayScore) : num(e.homeScore);
+        const opp = side === "away" ? num(e.homeScore) : num(e.awayScore);
+        if (my > opp) T.w++; else if (my < opp) T.l++; else T.d++;
+      }
+      T.ip += (e.venue === (appMode === "video" ? "played" : "in-person")) ? 1 : 0;
+    }
+    for (const r of (e.box || [])) {
+      if (!r.player || !r.player.trim()) continue;
+      const tn = ((r.team === "away" ? e.away : e.home) || "").trim();
+      const gkey = { batting: "bat", pitching: "pit", fielding: "fld" }[r.group];
+      if (!gkey) continue;
+      if (tn && teams[tn.toLowerCase()]) addAgg(teams[tn.toLowerCase()][gkey], r.stats, r.group);
+      const pkey = r.player.trim().toLowerCase();
+      const P = players[pkey] = players[pkey] || { name: r.player.trim(), games: {}, teams: {}, bat: {}, pit: {}, fld: {} };
+      P.games[e.id] = 1;
+      if (tn) P.teams[tn] = 1;
+      addAgg(P[gkey], r.stats, r.group);
+    }
+  }
+  return { players, teams };
+}
+
+function seasonBreakdownHtml(pname, venueF) {
+  const rowsBy = {};
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== appMode) continue;
+    if (venueF !== "all" && e.venue !== venueF) continue;
+    for (const r of (e.box || [])) {
+      if (!r.player || r.player.trim().toLowerCase() !== pname) continue;
+      const gkey = { batting: "bat", pitching: "pit" }[r.group];
+      if (!gkey) continue;
+      const sl = seasonOf(e);
+      if (!sl) continue;
+      const S = rowsBy[sl] = rowsBy[sl] || { label: sl, first: e.date || "", games: {}, bat: {}, pit: {} };
+      S.games[e.id] = 1;
+      if ((e.date || "") < S.first) S.first = e.date || "";
+      addAgg(S[gkey], r.stats, r.group);
+    }
+  }
+  const seas = Object.values(rowsBy).sort((a, b) => (a.first < b.first ? -1 : 1));
+  const mkTable = (gkey) => {
+    const have = seas.filter(s => Object.keys(s[gkey]).length);
+    if (have.length < 2) return "";
+    const isP = gkey === "pit";
+    const heads = isP ? ["Season", "G", "ERA", "IP", "K", "WHIP"] : ["Season", "G", "AVG", "HR", "RBI", "R", "SB"];
+    const trs = have.map(s => {
+      const gp2 = Object.keys(s.games).length;
+      const o = aggToStats(s[gkey], isP ? "pitching" : "batting");
+      const m = BOX.baseball[isP ? 1 : 0].calc(o);
+      const gv = k => { const f3 = m.find(x => x[0] === k); return f3 ? f3[1] : "—"; };
+      const cells = isP ? [gp2, gv("ERA"), o.IP || "0", o.K || 0, gv("WHIP")]
+        : [gp2, gv("AVG"), o.HR || 0, o.RBI || 0, o.R || 0, o.SB || 0];
+      return "<tr><td>" + esc(s.label) + "</td>" + cells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
+    }).join("");
+    return '<div class="grouplabel disp" style="margin-top:10px">' + (isP ? "Pitching by season" : "Batting by season") + "</div>"
+      + '<div style="overflow-x:auto"><table class="seasontbl mono"><tr>' + heads.map(h => "<th>" + h + "</th>").join("") + "</tr>" + trs + "</table></div>";
+  };
+  return mkTable("bat") + mkTable("pit");
+}
+const STAT_GROUPS = { bat: ["batting", "Batting"], pit: ["pitching", "Pitching"], fld: ["fielding", "Fielding"] };
+function groupDetailHtml(acc, gkey, gp) {
+  if (!Object.keys(acc).length) return "";
+  const [gid, glabel] = STAT_GROUPS[gkey];
+  const g = BOX.baseball.find(x => x.id === gid);
+  const o = aggToStats(acc, gid);
+  const totals = g.cols.filter(c => filled(o[c]))
+    .map(c => '<span class="statk" data-stat="' + esc(c) + '">' + esc(c) + "</span> " + esc(o[c])).join(" · ");
+  const metrics = g.calc(o);
+  if (gkey === "bat" && gp > 0 && num(o.R) > 0) metrics.push(["R/G", f1(num(o.R) / gp)]);
+  return '<div class="grouplabel disp" style="margin-top:10px">' + glabel + "</div>"
+    + '<div class="mono" style="font-size:12px;line-height:1.7">' + totals + "</div>"
+    + (metrics.length ? '<div class="mono" style="font-size:11px;color:var(--red);margin-top:3px">' + mlineHtml(metrics) + "</div>" : "");
+}
+
+function renderStatsView() {
+  const v = document.getElementById("view-stats");
+  v.innerHTML = '<div class="controls" style="margin-bottom:12px">'
+    + '<button class="chip disp' + (statsTab === "players" ? " active" : "") + '" data-stab="players">Players</button>'
+    + '<button class="chip disp' + (statsTab === "teams" ? " active" : "") + '" data-stab="teams">Teams</button>'
+        + '<select id="sVenue" class="inline">' + venueFilterOptionsHtml() + "</select>"
+    + '<select id="sYear" class="inline">' + yearOptionsHtml() + "</select>"
+    + '<input id="sSearch" placeholder="Search names…" style="flex:1;min-width:140px">'
+    + '</div><div id="statsContent"></div>';
+  v.querySelectorAll("[data-stab]").forEach(b => b.addEventListener("click", () => { statsTab = b.dataset.stab; renderStatsView(); }));
+  v.querySelector("#sVenue").addEventListener("change", renderStatsContent);
+  v.querySelector("#sYear").addEventListener("change", renderStatsContent);
+  v.querySelector("#sSearch").addEventListener("input", renderStatsContent);
+  renderStatsContent();
+}
+
+function renderStatsContent() {
+  const v = document.getElementById("view-stats");
+  const venueF = v.querySelector("#sVenue").value;
+  const yearF = v.querySelector("#sYear").value;
+  const q = v.querySelector("#sSearch").value.trim().toLowerCase();
+  const agg = aggregate(venueF, yearF);
+  const out = v.querySelector("#statsContent");
+  let html = "";
+  if (statsTab === "players") {
+    const list = Object.values(agg.players)
+      .filter(p => !q || p.name.toLowerCase().includes(q) || Object.keys(p.teams).join(" ").toLowerCase().includes(q))
+      .sort((a, b) => Object.keys(b.games).length - Object.keys(a.games).length || a.name.localeCompare(b.name));
+    if (!list.length) html = '<div class="empty">No player stats yet' + (venueF !== "all" ? " for that filter" : "") + ". They build automatically as you log box scores.</div>";
+    for (const p of list) {
+      const gp = Object.keys(p.games).length;
+      const pkeyName = p.name.trim().toLowerCase();
+      const rosterTeams = modeTeams().filter(t => t.roster.some(pl => pl.name.trim().toLowerCase() === pkeyName)).map(t => t.name);
+      const teamNames = (rosterTeams.length ? rosterTeams : Object.keys(p.teams)).join(", ");
+      const qparts = [];
+      if (Object.keys(p.bat).length) {
+        const o = aggToStats(p.bat, "batting");
+        const m = BOX.baseball[0].calc(o);
+        const g2 = k => { const f2 = m.find(x => x[0] === k); return f2 ? f2[1] : "—"; };
+        qparts.push(["AVG " + g2("AVG"), "HR " + (o.HR || 0), "RBI " + (o.RBI || 0), "R " + (o.R || 0), "SB " + (o.SB || 0)].join(" · "));
+      }
+      if (Object.keys(p.pit).length) {
+        const o = aggToStats(p.pit, "pitching");
+        const m = BOX.baseball[1].calc(o);
+        const g2 = k => { const f2 = m.find(x => x[0] === k); return f2 ? f2[1] : "—"; };
+        qparts.push(["ERA " + g2("ERA"), "IP " + (o.IP || "0"), "K " + (o.K || 0), "WHIP " + g2("WHIP")].join(" · "));
+      }
+      const quick = qparts.join(" / ");
+      html += '<details class="card" style="padding:10px 14px"><summary style="cursor:pointer;list-style:none">'
+        + '<span class="disp" style="font-size:15px;font-weight:700">' + esc(p.name) + "</span>"
+        + '<span class="mono" style="font-size:11px;color:var(--ink-soft)"> &nbsp;' + gp + " GP" + (quick ? " · " + quick : "") + "</span>"
+        + (teamNames ? '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">' + esc(teamNames) + "</div>" : "")
+        + "</summary>"
+        + groupDetailHtml(p.bat, "bat", gp) + groupDetailHtml(p.pit, "pit", gp) + groupDetailHtml(p.fld, "fld", gp)
+        + (yearF === "all" ? seasonBreakdownHtml(p.name.trim().toLowerCase(), venueF) : "")
+        + "</details>";
+    }
+  } else {
+    const list = Object.values(agg.teams)
+      .filter(t => !q || t.name.toLowerCase().includes(q))
+      .sort((a, b) => b.gp - a.gp || a.name.localeCompare(b.name));
+    if (!list.length) html = '<div class="empty">No team stats yet' + (venueF !== "all" ? " for that filter" : "") + ".</div>";
+    for (const t of list) {
+      const rec = (t.w + t.l + t.d) ? t.w + "–" + t.l + (t.d ? "–" + t.d : "") + " in games you watched" : "";
+      html += '<details class="card" style="padding:10px 14px"><summary style="cursor:pointer;list-style:none">'
+        + '<span class="disp" style="font-size:15px;font-weight:700">' + esc(t.name) + "</span>"
+        + '<span class="mono" style="font-size:11px;color:var(--ink-soft)"> &nbsp;' + t.gp + " GP" + (t.ip ? " · " + t.ip + (appMode === "video" ? " played" : " in person") : "") + "</span>"
+        + (rec ? '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">' + esc(rec) + "</div>" : "")
+        + "</summary>"
+        + groupDetailHtml(t.bat, "bat", t.gp) + groupDetailHtml(t.pit, "pit", t.gp) + groupDetailHtml(t.fld, "fld", t.gp)
+        + "</details>";
+    }
+  }
+  out.innerHTML = html;
+}
+
+// ── Record book ───────────────────────────────────────────────────────
+function gameTag(e) {
+  return (e.away || "?") + " @ " + (e.home || "?") + " · " + e.date + (e.venue === "in-person" ? " 📍" : e.venue === "radio" ? " 📻" : e.venue === "played" ? " 🎮" : e.venue === "online" ? " 🌐" : "");
+}
+function tbOf(s) {
+  const h = num(s.H), d = num(s["2B"]), t = num(s["3B"]), hr = num(s.HR);
+  return (h - d - t - hr) + 2 * d + 3 * t + 4 * hr + num(s.XBT);
+}
+
+function inningStreaks(chron) {
+  const Q = { scoreless: r => r.r === 0, nohit: r => r.h === 0, perfect: r => r.br === 0 };
+  const out = {};
+  for (const q in Q) out[q] = { pit: {}, team: {}, both: { cur: 0, best: 0 } };
+  const bump = (m, k, name, ok) => {
+    const o = m[k] = m[k] || { name, cur: 0, best: 0 };
+    if (ok) { o.cur++; if (o.cur > o.best) o.best = o.cur; } else o.cur = 0;
+  };
+  for (const e of chron) {
+    const det = e.live && e.live.line && e.live.line.det;
+    if (!det) { for (const q in Q) out[q].both.cur = 0; continue; }
+    const n = Math.max(det.a.length, det.h.length);
+    for (let i = 0; i < n; i++) {
+      for (const [half, fldName] of [["a", e.home], ["h", e.away]]) {
+        const rec = (det[half] || [])[i];
+        const valid = rec && rec.full && !rec.partial;
+        for (const q in Q) {
+          const ok = valid && Q[q](rec);
+          if (valid && fldName && fldName.trim()) bump(out[q].team, fldName.trim().toLowerCase(), fldName.trim(), ok);
+          if (valid) {
+            const ps = Object.values(rec.ps || {});
+            if (ok && ps.length === 1) bump(out[q].pit, ps[0].toLowerCase(), ps[0], true);
+            else if (!ok) for (const p of ps) bump(out[q].pit, p.toLowerCase(), p, false);
+          }
+        }
+      }
+      for (const q in Q) {
+        const ra = (det.a || [])[i], rh = (det.h || [])[i];
+        const bothOk = ra && rh && ra.full && rh.full && !ra.partial && !rh.partial && Q[q](ra) && Q[q](rh);
+        const b = out[q].both;
+        if (bothOk) { b.cur++; if (b.cur > b.best) b.best = b.cur; } else b.cur = 0;
+      }
+    }
+  }
+  return out;
+}
+function renderRecordsView() {
+  const v = document.getElementById("view-records");
+  v.innerHTML = '<div class="controls" style="margin-bottom:12px">'
+        + '<select id="rVenue" class="inline">' + venueFilterOptionsHtml() + "</select>"
+    + '<select id="rYear" class="inline">' + yearOptionsHtml() + "</select>"
+    + '<span style="font-size:12px;color:var(--ink-soft);font-style:italic">Everything here is something you personally witnessed.</span>'
+    + '</div><div id="recContent"></div>';
+  v.querySelector("#rVenue").addEventListener("change", renderRecordsContent);
+  v.querySelector("#rYear").addEventListener("change", renderRecordsContent);
+  renderRecordsContent();
+}
+
+function renderRecordsContent() {
+  const v = document.getElementById("view-records");
+  const venueF = v.querySelector("#rVenue").value;
+  const yearF = v.querySelector("#rYear").value;
+  const games = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec && (venueF === "all" || e.venue === venueF)
+    && (yearF === "all" || seasonOf(e) === yearF));
+  const out = v.querySelector("#recContent");
+
+  // single-game performances
+  const single = { R: [], H: [], HR: [], RBI: [], SB: [], TB: [], XBH: [], K: [], IPg: [] };
+  const cycles = [];
+  for (const e of games) {
+    for (const r of (e.box || [])) {
+      if (!r.player || !r.player.trim()) continue;
+      if (r.group === "batting") {
+        for (const cat of ["R", "H", "HR", "RBI", "SB"]) {
+          const val = num(r.stats[cat]);
+          if (val > 0) single[cat].push({ player: r.player.trim(), val, e });
+        }
+        const tb = tbOf(r.stats);
+        if (tb > 0) single.TB.push({ player: r.player.trim(), val: tb, e });
+        const d2 = num(r.stats["2B"]), t3 = num(r.stats["3B"]), hh = num(r.stats.H), hrx = num(r.stats.HR);
+        const xbh = d2 + t3 + hrx;
+        if (xbh > 0) single.XBH.push({ player: r.player.trim(), val: xbh, e });
+        if (hh - d2 - t3 - hrx >= 1 && d2 >= 1 && t3 >= 1 && hrx >= 1) cycles.push({ player: r.player.trim(), e });
+      } else if (r.group === "pitching") {
+        const k = num(r.stats.K);
+        if (k > 0) single.K.push({ player: r.player.trim(), val: k, e });
+        const ipo = ipOutsOf(r.stats.IP);
+        if (ipo > 0) single.IPg.push({ player: r.player.trim(), val: ipo, e, disp: outsToIp(ipo) });
+      }
+    }
+  }
+  // career totals
+  const agg = aggregate(venueF, yearF);
+  const careerTop = (gkey, col, label, fmt) => {
+    const rows = Object.values(agg.players)
+      .map(p => ({ name: p.name, gp: Object.keys(p.games).length, val: (col === "IP") ? (p[gkey].IPouts || 0) : (p[gkey][col] || 0) }))
+      .filter(r => r.val > 0)
+      .sort((a, b) => b.val - a.val).slice(0, 5);
+    if (!rows.length) return "";
+    return '<div class="grouplabel disp">' + label + "</div>"
+      + rows.map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + ".</span> <b>"
+        + (fmt ? fmt(r.val) : r.val) + "</b> — " + esc(r.name)
+        + ' <span style="color:var(--ink-soft);font-size:11px">(' + r.gp + " GP)</span></div>").join("");
+  };
+  const singleTop = (cat, label, statKey) => {
+    const rows = single[cat].sort((a, b) => b.val - a.val).slice(0, 5);
+    if (!rows.length) return "";
+    return '<div class="grouplabel disp">' + label + "</div>"
+      + rows.map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + ".</span> <b>"
+        + (r.disp || r.val) + '</b> <span class="statk" data-stat="' + statKey + '">' + statKey + "</span> — " + esc(r.player)
+        + '<div style="font-size:11px;color:var(--ink-soft);padding-left:22px">' + esc(gameTag(r.e)) + "</div></div>").join("");
+  };
+  // game records from final scores
+  const scored = games.filter(e => filled(e.awayScore) && filled(e.homeScore))
+    .map(e => ({ e, total: num(e.awayScore) + num(e.homeScore), diff: Math.abs(num(e.awayScore) - num(e.homeScore)) }));
+  const gameTop = (key, label) => {
+    const rows = scored.slice().sort((a, b) => b[key] - a[key]).slice(0, 5).filter(r => r[key] > 0);
+    if (!rows.length) return "";
+    return '<div class="grouplabel disp">' + label + "</div>"
+      + rows.map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + ".</span> <b>"
+        + (key === "total" ? r.total + " runs" : "by " + r.diff) + "</b> — "
+        + esc(r.e.away || "?") + " " + esc(r.e.awayScore) + ", " + esc(r.e.home || "?") + " " + esc(r.e.homeScore)
+        + ' <span style="color:var(--ink-soft);font-size:11px">' + esc(r.e.date) + (r.e.venue === "in-person" ? " 📍" : r.e.venue === "played" ? " 🎮" : "") + "</span></div>").join("");
+  };
+
+  let html = "";
+  if (cycles.length) {
+    html += '<div class="card"><div class="disp" style="font-size:16px;font-weight:700;border-bottom:2px solid var(--ink);padding-bottom:4px">🔄 Cycles witnessed</div>'
+      + cycles.map(c => '<div class="recrow"><b>' + esc(c.player) + "</b> hit for the cycle"
+        + '<div style="font-size:11px;color:var(--ink-soft);padding-left:4px">' + esc(gameTag(c.e)) + "</div></div>").join("") + "</div>";
+  }
+  const sg = singleTop("HR", "Most home runs in a game", "HR") + singleTop("RBI", "Most RBI in a game", "RBI")
+    + singleTop("R", "Most runs scored in a game", "R") + singleTop("H", "Most hits in a game", "H")
+    + singleTop("TB", "Most total bases in a game", "TB") + singleTop("XBH", "Most extra-base hits in a game", "XBH")
+    + singleTop("SB", "Most steals in a game", "SB")
+    + singleTop("K", "Most strikeouts by a pitcher in a game", "K") + singleTop("IPg", "Longest outing in a game", "IP");
+  if (sg) html += '<div class="card"><div class="disp" style="font-size:16px;font-weight:700;border-bottom:2px solid var(--ink);padding-bottom:4px">🏆 Best single games witnessed</div>' + sg + "</div>";
+  const ct = careerTop("bat", "HR", "Most home runs witnessed") + careerTop("bat", "H", "Most hits witnessed")
+    + careerTop("bat", "RBI", "Most RBI witnessed") + careerTop("bat", "R", "Most runs witnessed")
+    + careerTop("bat", "SB", "Most steals witnessed")
+    + (function () {
+      const rows = Object.values(agg.players)
+        .map(p => ({ name: p.name, gp: Object.keys(p.games).length, val: (p.bat["2B"] || 0) + (p.bat["3B"] || 0) + (p.bat.HR || 0) }))
+        .filter(r => r.val > 0).sort((a, b) => b.val - a.val).slice(0, 5);
+      if (!rows.length) return "";
+      return '<div class="grouplabel disp">Most extra-base hits witnessed</div>'
+        + rows.map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + '.</span> <b>' + r.val + "</b> — " + esc(r.name)
+          + ' <span style="color:var(--ink-soft);font-size:11px">(' + r.gp + " GP)</span></div>").join("");
+    })()
+    + careerTop("pit", "K", "Most strikeouts witnessed (pitching)")
+    + careerTop("pit", "IP", "Most innings pitched witnessed", v2 => outsToIp(v2));
+  if (ct) html += '<div class="card"><div class="disp" style="font-size:16px;font-weight:700;border-bottom:2px solid var(--ink);padding-bottom:4px">📚 Career totals — top 5 witnessed</div>' + ct + "</div>";
+  // ── pitching feats ──
+  const feats = {};
+  for (const e of games) {
+    const bySide = { away: [], home: [] };
+    for (const r of (e.box || [])) if (r.group === "pitching" && r.player.trim()) bySide[r.team].push(r);
+    for (const side of ["away", "home"]) {
+      for (const r of bySide[side]) {
+        const o3 = ipOutsOf(r.stats.IP);
+        if (!o3) continue;
+        const k3 = r.player.trim().toLowerCase();
+        const F = feats[k3] = feats[k3] || { name: r.player.trim(), qs: 0, cg: 0, sho: 0 };
+        if (o3 >= 18 && filled(r.stats.ER) && num(r.stats.ER) <= 3) F.qs++;
+        if (o3 >= 24 && bySide[side].length === 1) {
+          F.cg++;
+          if (filled(r.stats.R) && num(r.stats.R) === 0) F.sho++;
+        }
+      }
+    }
+  }
+  const featTop = (key, label, statKey) => {
+    const rows = Object.values(feats).filter(f => f[key] > 0).sort((a, b) => b[key] - a[key]).slice(0, 5);
+    if (!rows.length) return "";
+    return '<div class="grouplabel disp">' + label + "</div>"
+      + rows.map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + '.</span> <b>' + r[key] + '</b> <span class="statk" data-stat="' + statKey + '">' + statKey + "</span> — " + esc(r.name) + "</div>").join("");
+  };
+  const ft = featTop("qs", "Quality starts witnessed (6+ IP, ≤3 ER)", "QS")
+    + featTop("cg", "Complete games witnessed", "CG")
+    + featTop("sho", "Shutouts witnessed", "SHO");
+  if (ft) html += '<div class="card"><div class="disp" style="font-size:16px;font-weight:700;border-bottom:2px solid var(--ink);padding-bottom:4px">🎖 Pitching feats</div>' + ft + "</div>";
+  // ── ballparks ──
+  if (appMode === "real") {
+    const parkGames = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && e.venue === "in-person"
+      && (yearF === "all" || seasonOf(e) === yearF) && (e.place || "").trim());
+    const parkCounts = {};
+    for (const e of parkGames) {
+      const k4 = e.place.trim().toLowerCase();
+      const P4 = parkCounts[k4] = parkCounts[k4] || { name: e.place.trim(), n: 0, first: e.date };
+      P4.n++;
+      if (e.date < P4.first) P4.first = e.date;
+    }
+    const manualParks = parksDB.filter(p => !parkCounts[(p.name || "").trim().toLowerCase()]);
+    let parksHtml = Object.values(parkCounts).sort((a, b) => b.n - a.n)
+      .map(p => '<div class="recrow"><b>' + esc(p.name) + "</b> ×" + p.n + ' <span style="color:var(--ink-soft);font-size:11px">first visit ' + esc(p.first) + "</span></div>").join("")
+      + manualParks.map(p => '<div class="recrow"><b>' + esc(p.name) + '</b> <span style="color:var(--ink-soft);font-size:11px">visited (no game logged)</span> <button class="addrow" data-pdel="' + esc(p.name) + '" style="float:right">✕</button></div>').join("");
+    parksHtml += '<div class="lsetup-row" style="margin-top:8px"><input id="parkName" placeholder="Add a ballpark you have visited"><button class="addrow" id="parkAdd" style="white-space:nowrap">+ Add</button></div>';
+    html += '<div class="card"><div class="disp" style="font-size:16px;font-weight:700;border-bottom:2px solid var(--ink);padding-bottom:4px">🏟 Ballparks visited</div>' + parksHtml + "</div>";
+  }
+  // ── streaks (witnessed, chronological) ──
+  const chron = games.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const hitS = {};
+  for (const e of chron) {
+    const seen = {};
+    for (const r of (e.box || [])) {
+      if (r.group !== "batting" || !r.player.trim()) continue;
+      const k = r.player.trim().toLowerCase();
+      const cur = seen[k] = seen[k] || { h: 0, ab: 0, name: r.player.trim() };
+      cur.h += num(r.stats.H);
+      cur.ab += num(r.stats.AB);
+    }
+    for (const k in seen) {
+      const o2 = hitS[k] = hitS[k] || { name: seen[k].name, cur: 0, best: 0 };
+      if (seen[k].h >= 1) { o2.cur++; if (o2.cur > o2.best) o2.best = o2.cur; }
+      else if (seen[k].ab >= 1) o2.cur = 0;
+    }
+  }
+  const hitRows = Object.values(hitS).filter(x => x.best >= 2).sort((a, b) => b.best - a.best).slice(0, 5);
+  const winS = {};
+  for (const e of chron) {
+    if (!filled(e.awayScore) || !filled(e.homeScore)) continue;
+    for (const side of ["away", "home"]) {
+      const tn = (side === "away" ? e.away : e.home).trim();
+      if (!tn) continue;
+      const my = side === "away" ? num(e.awayScore) : num(e.homeScore);
+      const opp2 = side === "away" ? num(e.homeScore) : num(e.awayScore);
+      const o2 = winS[tn.toLowerCase()] = winS[tn.toLowerCase()] || { name: tn, cur: 0, best: 0 };
+      if (my > opp2) { o2.cur++; if (o2.cur > o2.best) o2.best = o2.cur; } else o2.cur = 0;
+    }
+  }
+  const winRows = Object.values(winS).filter(x => x.best >= 2).sort((a, b) => b.best - a.best).slice(0, 5);
+  const innS = inningStreaks(chron);
+  const topN = (m, n2) => Object.values(m).filter(x => x.best >= 1).sort((a, b) => b.best - a.best).slice(0, n2);
+  const innSection = (q, label) => {
+    const ps = topN(innS[q].pit, 3), ts = topN(innS[q].team, 3), both = innS[q].both.best;
+    if (!ps.length && !ts.length && !both) return "";
+    let h2 = '<div class="grouplabel disp">' + label + "</div>";
+    h2 += ps.map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + '.</span> <b>' + r.best + "</b> straight — " + esc(r.name) + " (pitcher)</div>").join("");
+    h2 += ts.map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + '.</span> <b>' + r.best + "</b> straight — " + esc(r.name) + " (team defense)</div>").join("");
+    if (both) h2 += '<div class="recrow"><b>' + both + "</b> straight full innings — both teams</div>";
+    return h2;
+  };
+  let streakHtml = "";
+  if (hitRows.length) streakHtml += '<div class="grouplabel disp">Hitting streaks (games with a hit)</div>'
+    + hitRows.map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + '.</span> <b>' + r.best + "</b> straight games — " + esc(r.name) + "</div>").join("");
+  if (winRows.length) streakHtml += '<div class="grouplabel disp">Team win streaks (games you watched)</div>'
+    + winRows.map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + '.</span> <b>' + r.best + "</b> straight wins — " + esc(r.name) + "</div>").join("");
+  const innAll = innSection("scoreless", "Consecutive scoreless innings") + innSection("nohit", "Consecutive no-hit innings") + innSection("perfect", "Consecutive perfect innings");
+  streakHtml += innAll || '<div style="font-size:11px;color:var(--ink-soft);font-style:italic;margin-top:8px">Inning streaks build from games live-scored on this version onward.</div>';
+  if (streakHtml) html += '<div class="card"><div class="disp" style="font-size:16px;font-weight:700;border-bottom:2px solid var(--ink);padding-bottom:4px">🔥 Streaks witnessed</div>' + streakHtml + "</div>";
+  // ── firsts ──
+  const firstOf = (pred) => chron.find(pred);
+  const firstLine = (label, e2, extra) => e2 ? '<div class="recrow"><b>' + label + "</b>" + (extra ? " — " + esc(extra) : "")
+    + '<div style="font-size:11px;color:var(--ink-soft);padding-left:4px">' + esc(gameTag(e2)) + "</div></div>" : "";
+  const fHRg = firstOf(e2 => (e2.box || []).some(r => r.group === "batting" && num(r.stats.HR) >= 1));
+  const fHRp = fHRg ? (fHRg.box.find(r => r.group === "batting" && num(r.stats.HR) >= 1) || {}).player : "";
+  const stampV = appMode === "video" ? "played" : "in-person";
+  let firstsHtml = firstLine("First game logged", chron[0])
+    + firstLine(appMode === "video" ? "First game you played" : "First game in person", firstOf(e2 => e2.venue === stampV))
+    + firstLine("First home run witnessed", fHRg, fHRp)
+    + firstLine("First extra-innings game", firstOf(e2 => e2.live && e2.live.line && Math.max(e2.live.line.a.length, e2.live.line.h.length) > 9))
+    + firstLine("First shutout", firstOf(e2 => filled(e2.awayScore) && filled(e2.homeScore) && (num(e2.awayScore) === 0 || num(e2.homeScore) === 0)));
+  if (firstsHtml) html += '<div class="card"><div class="disp" style="font-size:16px;font-weight:700;border-bottom:2px solid var(--ink);padding-bottom:4px">🎬 Firsts</div>' + firstsHtml + "</div>";
+  const gr = gameTop("total", "Highest-scoring games") + gameTop("diff", "Biggest blowouts");
+  if (gr) html += '<div class="card"><div class="disp" style="font-size:16px;font-weight:700;border-bottom:2px solid var(--ink);padding-bottom:4px">📅 Game records</div>' + gr + "</div>";
+  out.innerHTML = html || '<div class="empty">Your record book writes itself as you log games. Score one and check back.</div>';
+  const parkAdd = out.querySelector("#parkAdd");
+  if (parkAdd) parkAdd.addEventListener("click", () => {
+    const inp = out.querySelector("#parkName");
+    const nm = (inp.value || "").trim();
+    if (!nm) return;
+    if (!parksDB.some(p => (p.name || "").trim().toLowerCase() === nm.toLowerCase())) {
+      parksDB.push({ name: nm });
+      persistParks();
+    }
+    renderRecordsContent();
+  });
+  out.querySelectorAll("[data-pdel]").forEach(b => b.addEventListener("click", () => {
+    parksDB = parksDB.filter(p => (p.name || "").trim().toLowerCase() !== b.dataset.pdel.trim().toLowerCase());
+    persistParks();
+    renderRecordsContent();
+  }));
+}
+
+// ── Shareable scorecard image ─────────────────────────────────────────
+function shareScorecard(e) {
+  const W = 760, pad = 26;
+  const NAVY = "#1E3A5F", SOFT = "#5A7089", RED = "#C0392B", LINE = "#C2D2BC", MINT = "#EAF0E6", CARD = "#F8FBF5";
+  const canvas = document.createElement("canvas");
+  let ctx = canvas.getContext("2d");
+  const MONO = "13px Menlo, Consolas, monospace";
+  const MONO_S = "11px Menlo, Consolas, monospace";
+
+  const wrap = (t, maxW) => {
+    const words = String(t).split(" "), lines = [];
+    let cur = "";
+    for (const w of words) {
+      const next = cur ? cur + " " + w : w;
+      if (ctx.measureText(next).width > maxW && cur) { lines.push(cur); cur = w; }
+      else cur = next;
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  };
+
+  const layout = (draw) => {
+    let y = pad + 8;
+    const t = (txt, font, color, x, align) => {
+      ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align || "left";
+      if (draw) ctx.fillText(txt, x, y);
+    };
+    const hline = (style, w) => {
+      if (draw) { ctx.strokeStyle = style; ctx.lineWidth = w || 1; ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke(); }
+    };
+    // header
+    const hasScore = filled(e.awayScore) && filled(e.homeScore);
+    y += 18;
+    t((e.away || "Away").toUpperCase() + (hasScore ? " " + e.awayScore : "") + "  @  " + (e.home || "Home").toUpperCase() + (hasScore ? " " + e.homeScore : ""), "bold 26px 'Arial Narrow', Arial, sans-serif", NAVY, W / 2, "center");
+    y += 20;
+    t(e.date + (e.place ? " · " + e.place : (venueDef(e).meta || "")) + (venueDef(e).stamp ? " · " + venueDef(e).stamp.toUpperCase() : ""), "italic 13px Georgia, serif", SOFT, W / 2, "center");
+    y += 10; hline(NAVY, 2); y += 3; hline(NAVY, 1); y += 16;
+
+    // line score
+    const line = e.live && e.live.line;
+    if (line && (line.a.length || line.h.length)) {
+      const n = Math.max(line.a.length, line.h.length);
+      const colW = Math.min(34, (W - 2 * pad - 150 - 110) / n);
+      const x0 = pad + 150;
+      ctx.font = MONO_S;
+      const pr2 = line.prior || { a: 0, h: 0 };
+      const tot = arr => arr.reduce((a, b) => a + (b || 0), 0);
+      // header numbers
+      for (let i = 0; i < n; i++) t(String(i + 1), MONO_S, SOFT, x0 + i * colW + colW / 2, "center");
+      t("R", "bold " + MONO_S, NAVY, x0 + n * colW + 22, "center");
+      t("H", "bold " + MONO_S, NAVY, x0 + n * colW + 52, "center");
+      t("E", "bold " + MONO_S, NAVY, x0 + n * colW + 82, "center");
+      y += 16;
+      for (const [nm, arr, h2, er, pv] of [[e.away || "Away", line.a, line.hits.away, line.errs.away, pr2.a], [e.home || "Home", line.h, line.hits.home, line.errs.home, pr2.h]]) {
+        t(String(nm).slice(0, 18), "bold " + MONO, NAVY, pad, "left");
+        for (let i = 0; i < n; i++) t(String(arr[i] != null ? arr[i] : "·"), MONO, NAVY, x0 + i * colW + colW / 2, "center");
+        t(String(tot(arr) + (pv || 0)), "bold " + MONO, NAVY, x0 + n * colW + 22, "center");
+        t(String(h2), MONO, NAVY, x0 + n * colW + 52, "center");
+        t(String(er), MONO, NAVY, x0 + n * colW + 82, "center");
+        y += 16;
+      }
+      y += 10;
+    }
+
+    // box scores per team
+    const groups = [["batting", ["AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"]], ["pitching", ["IP", "H", "R", "ER", "BB", "K", "PC"]]];
+    for (const team of ["away", "home"]) {
+      const rows = (e.box || []).filter(r => r.team === team && r.player.trim());
+      if (!rows.length) continue;
+      t((team === "away" ? e.away || "Away" : e.home || "Home"), "bold 16px 'Arial Narrow', Arial, sans-serif", NAVY, pad, "left");
+      y += 4; hline(NAVY, 1.5); y += 14;
+      for (const [gid, allCols] of groups) {
+        const gRows = rows.filter(r => r.group === gid);
+        if (!gRows.length) continue;
+        const cols = allCols.filter(c => gRows.some(r => filled(r.stats[c])));
+        if (!cols.length && gid === "batting") continue;
+        const nameW = 190, colW = (W - 2 * pad - nameW) / Math.max(cols.length, 1);
+        t(gid === "batting" ? "BATTING" : "PITCHING", "bold " + MONO_S, RED, pad, "left");
+        for (let i = 0; i < cols.length; i++) t(cols[i], "bold " + MONO_S, SOFT, pad + nameW + i * colW + colW / 2, "center");
+        y += 14;
+        for (const r of gRows) {
+          t(r.player.slice(0, 24), MONO, NAVY, pad, "left");
+          for (let i = 0; i < cols.length; i++) t(r.stats[cols[i]] || "·", MONO, NAVY, pad + nameW + i * colW + colW / 2, "center");
+          y += 15;
+        }
+        y += 8;
+      }
+      y += 4;
+    }
+
+    // play-by-play
+    if (e.pbp && e.pbp.length) {
+      t("PLAY-BY-PLAY", "bold 14px 'Arial Narrow', Arial, sans-serif", NAVY, pad, "left");
+      y += 6; hline(LINE, 1); y += 14;
+      let lastKey = "";
+      ctx.font = "12px Georgia, serif";
+      for (const p of e.pbp) {
+        const key = p.h + "-" + p.i;
+        if (key !== lastKey) {
+          t((p.h === "top" ? "▲ TOP " : "▼ BOTTOM ") + p.i, "bold 11px 'Arial Narrow', Arial, sans-serif", RED, pad, "left");
+          y += 14; lastKey = key;
+        }
+        ctx.font = "12px Georgia, serif";
+        for (const ln of wrap(p.t, W - 2 * pad - 14)) {
+          t(ln, "12px Georgia, serif", NAVY, pad + 14, "left");
+          y += 14;
+        }
+        y += 2;
+      }
+      y += 6;
+    }
+    if (e.notes) {
+      for (const ln of wrap("“" + e.notes + "”", W - 2 * pad)) {
+        t(ln, "italic 12px Georgia, serif", SOFT, pad, "left");
+        y += 14;
+      }
+    }
+    y += 10;
+    t("Scored with My Scorebook ⚾", "11px Georgia, serif", SOFT, W - pad, "right");
+    y += 8;
+    return y;
+  };
+
+  // pass 1: measure
+  canvas.width = W; canvas.height = 4000;
+  ctx = canvas.getContext("2d");
+  const H = layout(false) + pad;
+  // pass 2: draw at 2x
+  canvas.width = W * 2; canvas.height = H * 2;
+  ctx = canvas.getContext("2d");
+  ctx.scale(2, 2);
+  ctx.fillStyle = MINT; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = CARD; ctx.fillRect(10, 10, W - 20, H - 20);
+  ctx.strokeStyle = NAVY; ctx.lineWidth = 2; ctx.strokeRect(10, 10, W - 20, H - 20);
+  layout(true);
+
+  canvas.toBlob(async (blob) => {
+    if (!blob) return;
+    const fname = "scorecard-" + (e.date || "game") + ".png";
+    const file = new File([blob], fname, { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: (e.away || "?") + " @ " + (e.home || "?") }); return; }
+      catch (err) { if (err && err.name === "AbortError") return; }
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+}
+
+// ── Backup & restore ──────────────────────────────────────────────────
+document.getElementById("exportBtn").addEventListener("click", async () => {
+  try { localStorage.setItem("sports-stat-lastbackup", String(Date.now())); } catch (e) {}
+  const fname = "scorebook-backup-" + today() + ".json";
+  const payload = JSON.stringify({ version: 2, games: entries, teams: teamsDB, parks: parksDB }, null, 2);
+  const blob = new Blob([payload], { type: "application/json" });
+  try {
+    const file = new File([blob], fname, { type: "application/json" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: "My Scorebook backup" });
+      return;
+    }
+  } catch (err) {
+    if (err && err.name === "AbortError") return;
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  alert("Backup downloaded as " + fname + " — it's in your Downloads folder.");
+});
+document.getElementById("importBtn").addEventListener("click", () => document.getElementById("importFile").click());
+document.getElementById("importFile").addEventListener("change", ev => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      const games = Array.isArray(data) ? data : (data.games || []);
+      const tms = Array.isArray(data) ? [] : (data.teams || []);
+      const pks = Array.isArray(data) ? [] : (data.parks || []);
+      if (!Array.isArray(games)) throw new Error("bad format");
+      const existing = new Set(entries.map(e => e.id));
+      let added = 0;
+      for (const e of games) {
+        if (e && e.id && !existing.has(e.id)) { entries.push(e); existing.add(e.id); added++; }
+      }
+      entries.sort((a, b) => a.date < b.date ? 1 : -1);
+      const tExisting = new Set(teamsDB.map(t => t.id));
+      let tAdded = 0;
+      for (const t of tms) {
+        if (t && t.id && !tExisting.has(t.id)) { teamsDB.push(t); tExisting.add(t.id); tAdded++; }
+      }
+      const pExisting = new Set(parksDB.map(p => (p.name || "").trim().toLowerCase()));
+      for (const p of pks) {
+        if (p && p.name && !pExisting.has(p.name.trim().toLowerCase())) { parksDB.push(p); pExisting.add(p.name.trim().toLowerCase()); }
+      }
+      persist(); persistTeams(); persistParks(); renderTally(); renderList();
+      alert(added + " game" + (added === 1 ? "" : "s") + (tAdded ? " and " + tAdded + " team" + (tAdded === 1 ? "" : "s") : "") + " restored.");
+    } catch (e2) {
+      alert("That file doesn't look like a scorebook backup.");
+    }
+    ev.target.value = "";
+  };
+  reader.readAsText(file);
+});
+</script>
+</body>
+</html>
