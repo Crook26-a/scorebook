@@ -1,2 +1,2 @@
 # scorebook
-Keep a box score for baseball, basketball, and football
+Keep a box score for baseball
