@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v171";
+const APP_VERSION = "v173";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1466,6 +1466,17 @@ function openCareerEditor(name, pid) {
 }
 // Editor prefill: derived stats (SHO/CG) show only what was typed by hand, never the game-computed
 // total — otherwise saving would bake the games' count into the base and double it.
+// SHO/CG boxes hold only what you type; shutouts found in your logged games are added on top. Say so,
+// and show the running auto-count, otherwise an empty box looks like nothing is being tracked.
+function derivedHint(grp, sk) {
+  if (grp !== "pit") return "";
+  let d = { SHO: 0, CG: 0 };
+  try { d = derivedFeats(mcEdit.key, sk); } catch (e) {}
+  const auto = (d.SHO || d.CG)
+    ? "Counted automatically from your logged games: <b>" + d.SHO + "</b> SHO, <b>" + d.CG + "</b> CG. "
+    : "";
+  return '<div class="hint" style="font-size:10px;margin-top:3px">' + auto + "Type SHO/CG here only for ones that aren\u2019t logged as games — the two are added together.</div>";
+}
 function editPrefill(obj, key, grp, sk) {
   if (grp !== "pit") return obj;
   const o = Object.assign({}, obj), mc = manualCareer[key];
@@ -1500,11 +1511,12 @@ function renderCareerEditor() {
         + AWARD_FIELDS.map(([id, lbl]) => '<label style="font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" data-maseason="' + esc(yr) + '" data-maward="' + id + '"' + (won.indexOf(id) >= 0 ? " checked" : "") + ">" + esc(lbl) + "</label>").join("") + "</div>";
       return '<details class="mcseason" data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + ' <button class="lbtn soft" data-mcdelseason="' + grp + "|" + esc(yr) + '" style="float:right;font-size:10px;padding:1px 6px">remove</button></summary>'
         + '<div class="hint" style="font-size:10px;margin:2px 0">Shows this season\u2019s current total (typed + games logged since). Editing sets the total; games you log afterward add on top.</div>'
-        + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + awChecks + "</details>";
+        + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + awChecks + "</details>";
     }).join("");
     return '<div style="margin-top:10px"><div class="disp" style="font-weight:700;font-size:14px;border-bottom:2px solid var(--ink);padding-bottom:3px">' + gLabel + "</div>"
       + '<div class="sclabel" style="margin-top:6px">Career total <span style="font-weight:400;color:var(--ink-soft)">(auto-filled from seasons — edit any to set a baseline)</span></div>'
       + lumpInputs(fields, editPrefill(careerResolvedStats(mcEdit.key, grp), mcEdit.key, grp, null), seasonSumStats(mcEdit.key, grp), grp)
+      + derivedHint(grp, null)
       + '<div class="sclabel" style="margin-top:8px">By season</div>' + (seasonRows || '<div class="hint">No seasons yet.</div>')
       + '<div style="display:flex;gap:6px;margin-top:6px"><input id="mcNewSeason_' + grp + '" placeholder="Season e.g. AA, AAA, 2027" style="flex:1"><button class="lbtn soft" data-mcaddseason="' + grp + '">+ Add</button></div>'
       + (cur ? '<button class="lbtn soft" data-mcaddcurrent="' + grp + '" style="margin-top:4px;font-size:11px">+ Current season (' + esc(cur) + ')</button>' : '<div class="hint" style="margin-top:4px">Set a current season in the season bar to enable one-tap add.</div>') + "</div>";
@@ -6480,11 +6492,21 @@ function playerPool(mode) {
       addAgg(o[gk], r.stats, r.group);
     }
   }
+  if (mode === "video") {   // players who exist only as a typed career (no logged games yet) are still comparable
+    for (const k in manualCareer) {
+      const mc = manualCareer[k] || {};
+      const nm = (mc.name || k.replace(/^nm:/, "")).trim(); if (!nm) continue;
+      const pid = k.indexOf("id:") === 0 ? k.slice(3) : null;
+      const key = pid ? "id:" + pid : "nm:" + nm.toLowerCase();
+      if (!P[key]) P[key] = { key, name: nm, pid: pid, bat: {}, pit: {}, fld: {}, games: {}, gPit: {} };
+    }
+  }
   return Object.values(P).sort((a, b) => lastNameKey(a.name).localeCompare(lastNameKey(b.name)) || a.name.localeCompare(b.name));
 }
 function playerSeasonsList(pid, name, mode) {
   const s = {};
   for (const e of entries) { if (e.sport !== "baseball" || modeOf(e) !== mode) continue; for (const r of (e.box || [])) { if (pid ? r.pid === pid : (r.player || "").trim().toLowerCase() === name) { const y = seasonOf(e); if (y) s[y] = 1; break; } } }
+  if (mode === "video") { try { for (const y of playerSeasonKeys(mcKeyOf(name, pid || null))) if (y) s[y] = 1; } catch (e) {} }   // seasons typed in the career editor too
   return Object.keys(s).sort((a, b) => (a < b ? 1 : -1));
 }
 function aggPlayerSeason(pid, name, season, mode) {
@@ -6508,6 +6530,19 @@ function lineOf(A) {
     batM: mapOf(BOX.baseball[0].calc(batO)), pitM: mapOf(BOX.baseball[1].calc(pitO)),
     g: Object.keys(A.games).length, gPit: Object.keys(A.gPit).length };
 }
+// For video players the Compare tab reads their career/season totals (typed baselines + logged games
+// + derived feats like shutouts) rather than only what happens to sit in the game logs. Real-game
+// players keep aggregating from logged box scores, which is the only source they have.
+function cmpLineFor(p, mode, season) {
+  const A = aggPlayerSeason(p.pid || null, (p.name || "").trim().toLowerCase(), season, mode);
+  if (mode !== "video") return lineOf(A);
+  const key = mcKeyOf((p.name || "").trim(), p.pid || null);
+  const batO = season === "all" ? careerResolvedStats(key, "bat") : seasonResolvedStats(key, season, "bat");
+  const pitO = season === "all" ? careerResolvedStats(key, "pit") : seasonResolvedStats(key, season, "pit");
+  return { hasBat: Object.keys(batO).length > 0, hasPit: Object.keys(pitO).length > 0, batO, pitO,
+    batM: mapOf(BOX.baseball[0].calc(batO)), pitM: mapOf(BOX.baseball[1].calc(pitO)),
+    g: num(batO.G) || Object.keys(A.games).length, gPit: num(pitO.G) || Object.keys(A.gPit).length };
+}
 // [label, group, kind(count/rate/g/gpit), key, dir(+1 higher better / -1 lower better)]
 const CMP_BAT = [["G", "bat", "g", "", 1], ["AVG", "bat", "rate", "AVG", 1], ["OBP", "bat", "rate", "OBP", 1], ["SLG", "bat", "rate", "SLG", 1], ["OPS", "bat", "rate", "OPS", 1], ["HR", "bat", "count", "HR", 1], ["XBH", "bat", "xbh", "", 1], ["RBI", "bat", "count", "RBI", 1], ["R", "bat", "count", "R", 1], ["H", "bat", "count", "H", 1], ["SB", "bat", "count", "SB", 1], ["BB", "bat", "count", "BB", 1], ["SO", "bat", "count", "SO", -1]];
 const CMP_PIT = [["G", "pit", "gpit", "", 1], ["IP", "pit", "count", "IP", 1], ["ERA", "pit", "rate", "ERA", -1], ["WHIP", "pit", "rate", "WHIP", -1], ["K", "pit", "count", "K", 0], ["K/9", "pit", "rate", "K/9", 1], ["H/9", "pit", "rate", "H/9", -1], ["BB/9", "pit", "rate", "BB/9", -1], ["HR/9", "pit", "rate", "HR/9", -1]];
@@ -6523,7 +6558,7 @@ function cmpVal(line, row) {
 function poolMeans(rows, fieldMode) {
   const pool = playerPool(fieldMode); const acc = {};
   for (const p of pool) {
-    const line = lineOf({ bat: p.bat, pit: p.pit, games: p.games, gPit: p.gPit });
+    const line = cmpLineFor(p, fieldMode, "all");
     for (const row of rows) { if (row[2] === "g" || row[2] === "gpit") continue; if (row[1] === "bat" && !line.hasBat) continue; if (row[1] === "pit" && !line.hasPit) continue; const v = cmpVal(line, row); if (v.n != null) { const a = acc[row[0]] = acc[row[0]] || { s: 0, n: 0 }; a.s += v.n; a.n++; } }
   }
   const out = {}; for (const k in acc) out[k] = acc[k].s / acc[k].n; return out;
@@ -6560,8 +6595,8 @@ function compareTabHtml() {
   const controls = sideCtl("a", cmpA) + sideCtl("b", cmpB);
   const pa = playerPool(cmpA.mode).find(p => p.key === cmpA.key) || { name: "" };
   const pb = playerPool(cmpB.mode).find(p => p.key === cmpB.key) || { name: "" };
-  const la = lineOf(aggPlayerSeason(pa.pid || null, (pa.name || "").trim().toLowerCase(), cmpA.season, cmpA.mode));
-  const lb = lineOf(aggPlayerSeason(pb.pid || null, (pb.name || "").trim().toLowerCase(), cmpB.season, cmpB.mode));
+  const la = cmpLineFor(pa, cmpA.mode, cmpA.season);
+  const lb = cmpLineFor(pb, cmpB.mode, cmpB.season);
   const mixed = cmpA.mode !== cmpB.mode;
   const tag = (p, c) => esc(p.name || "?") + (mixed ? " " + (c.mode === "video" ? "🎮" : "📺") : "") + (c.season === "all" ? "" : " '" + String(c.season).slice(-2));
   const buildTable = (rows, hasA, hasB) => {
