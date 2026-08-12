@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v173";
+const APP_VERSION = "v174";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1331,7 +1331,7 @@ let manualCareer = {};
 try { manualCareer = JSON.parse(localStorage.getItem(MCKEY) || "{}") || {}; } catch (e) { manualCareer = {}; }
 function persistManualCareer() { try { localStorage.setItem(MCKEY, JSON.stringify(manualCareer)); } catch (e) { if (isQuotaErr(e)) { freeLookupCaches(); try { localStorage.setItem(MCKEY, JSON.stringify(manualCareer)); } catch (e2) {} } } }
 function mcKeyOf(name, pid) { return pid ? "id:" + pid : "nm:" + canonName(name); }
-function emptyMC() { return { name: "", bat: { lump: null, seasons: {} }, pit: { lump: null, seasons: {} }, awards: {} }; }
+function emptyMC() { return { name: "", bat: { lump: null, seasons: {} }, pit: { lump: null, seasons: {} }, awards: {}, noCareer: {} }; }
 // Career award count = number of seasons the player won it (new per-season shape {seasonKey:[ids]}),
 // with a fallback to the older career-count shape {awardId:count}.
 function awardCount(key, awardId) {
@@ -1383,6 +1383,7 @@ function derivedFeats(key, seasonKey) {
   for (const e of entries) {
     if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
     if (seasonKey != null && String(seasonOf(e)) !== String(seasonKey)) continue;
+    if (seasonKey == null && seasonExcluded(key, seasonOf(e))) continue;   // exhibition/playoff seasons stay out of career
     for (const r of (e.box || [])) {
       if (playerRowGrp(r, key) !== "pit") continue;
       const f = rowFeats(e, r); if (!f) continue;
@@ -1392,10 +1393,17 @@ function derivedFeats(key, seasonKey) {
   return out;
 }
 // What the user typed by hand for a derived stat (career bucket + every season base).
+// Seasons the player marked as not counting toward career totals — All-Star games, spring
+// training, playoffs. Stored per player (not per group) so batting and pitching agree.
+function seasonExcluded(key, sk) {
+  const mc = manualCareer[key];
+  return !!(mc && mc.noCareer && mc.noCareer[String(sk)]);
+}
+function careerSeasonKeys(key) { return playerSeasonKeys(key).filter(sk => !seasonExcluded(key, sk)); }
 function typedFeat(key, k) {
   const mc = manualCareer[key]; if (!mc || !mc.pit) return 0;
   let t = mc.pit.lump && filled(mc.pit.lump[k]) ? num(mc.pit.lump[k]) : 0;
-  for (const sk in mc.pit.seasons) { const b = seasonBaseStats(mc.pit.seasons[sk]); if (b && filled(b[k])) t += num(b[k]); }
+  for (const sk in mc.pit.seasons) { if (seasonExcluded(key, sk)) continue; const b = seasonBaseStats(mc.pit.seasons[sk]); if (b && filled(b[k])) t += num(b[k]); }
   return t;
 }
 function liveSeasonAgg(key, seasonKey, grp, since, bakedIds) {
@@ -1426,13 +1434,14 @@ function playerSeasonKeys(key) {
   for (const e of entries) { if (e.sport !== "baseball" || modeOf(e) !== "video") continue; if ((e.box || []).some(r => { const nm = (r.player || "").trim(); return nm && mcKeyOf(nm, r.pid || null) === key; })) set.add(String(seasonOf(e))); }
   return [...set].filter(x => x !== "");
 }
-function seasonSumStats(key, grp) { return sumStatObjs(playerSeasonKeys(key).map(sk => seasonResolvedStats(key, sk, grp))); }
+function seasonSumStats(key, grp) { return sumStatObjs(careerSeasonKeys(key).map(sk => seasonResolvedStats(key, sk, grp))); }
 // all of a player's video games (any season) logged after the cutoff — used so a career override keeps climbing
 function liveAllAgg(key, grp, since) {
   const acc = {}, cut = Math.max(liveSince || 0, since || 0);
   for (const e of entries) {
     if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
     if (cut && idMs(e.id) <= cut) continue;
+    if (seasonExcluded(key, seasonOf(e))) continue;   // exhibition/playoff seasons stay out of career
     for (const r of (e.box || [])) if (playerRowGrp(r, key) === grp) addAgg(acc, r.stats, r.group);
   }
   return acc;
@@ -1509,9 +1518,11 @@ function renderCareerEditor() {
       const won = (mc.awards && Array.isArray(mc.awards[yr])) ? mc.awards[yr] : [];
       const awChecks = '<div class="sclabel" style="margin-top:6px;font-size:10px">🏅 Awards this season</div><div style="display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:2px">'
         + AWARD_FIELDS.map(([id, lbl]) => '<label style="font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" data-maseason="' + esc(yr) + '" data-maward="' + id + '"' + (won.indexOf(id) >= 0 ? " checked" : "") + ">" + esc(lbl) + "</label>").join("") + "</div>";
-      return '<details class="mcseason" data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + ' <button class="lbtn soft" data-mcdelseason="' + grp + "|" + esc(yr) + '" style="float:right;font-size:10px;padding:1px 6px">remove</button></summary>'
+      const excl = seasonExcluded(mcEdit.key, yr);
+      const exclBox = '<label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-top:6px"><input type="checkbox" data-mcnocareer="' + esc(yr) + '"' + (excl ? " checked" : "") + ">Don\u2019t count toward career totals <span style=\"color:var(--ink-soft)\">(All-Star, spring training, playoffs)</span></label>";
+      return '<details class="mcseason" data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + ' <button class="lbtn soft" data-mcdelseason="' + grp + "|" + esc(yr) + '" style="float:right;font-size:10px;padding:1px 6px">remove</button></summary>'
         + '<div class="hint" style="font-size:10px;margin:2px 0">Shows this season\u2019s current total (typed + games logged since). Editing sets the total; games you log afterward add on top.</div>'
-        + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + awChecks + "</details>";
+        + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + exclBox + awChecks + "</details>";
     }).join("");
     return '<div style="margin-top:10px"><div class="disp" style="font-weight:700;font-size:14px;border-bottom:2px solid var(--ink);padding-bottom:3px">' + gLabel + "</div>"
       + '<div class="sclabel" style="margin-top:6px">Career total <span style="font-weight:400;color:var(--ink-soft)">(auto-filled from seasons — edit any to set a baseline)</span></div>'
@@ -1535,7 +1546,7 @@ function renderCareerEditor() {
     + "</div>"
     + seasonBlock("bat", "Batting", MC_BAT_FIELDS)
     + seasonBlock("pit", "Pitching", MC_PIT_FIELDS)
-    + '<div style="display:flex;gap:8px;margin-top:14px"><button class="cancelbtn" data-mcclear="1" style="flex:1">Clear all</button><button class="savebtn" data-mcsave="1" style="background:var(--red)">Save</button></div></div>';
+    + '<div style="display:flex;gap:8px;margin-top:14px"><button class="savebtn" data-mcsave="1" style="flex:1;background:var(--red)">Save</button></div></div>';
   wireCareerEditor(wrap);
 }
 function saveCareerEditor(wrap) {
@@ -1555,17 +1566,19 @@ function saveCareerEditor(wrap) {
   });
   const aw = {}; wrap.querySelectorAll("[data-maward]:checked").forEach(cb => { const s = cb.getAttribute("data-maseason"), id = cb.getAttribute("data-maward"); (aw[s] = aw[s] || []); if (aw[s].indexOf(id) < 0) aw[s].push(id); });
   mc.awards = aw;
+  const nc = {}; wrap.querySelectorAll("[data-mcnocareer]:checked").forEach(cb => { nc[cb.getAttribute("data-mcnocareer")] = true; });
+  mc.noCareer = nc;
   mc.since = Date.now();   // totals are complete "as of now"; only games logged after this add on top
   persistManualCareer();
 }
 function wireCareerEditor(wrap) {
   const close = () => wrap.remove();
+  wrap.querySelectorAll("[data-mcnocareer]").forEach(cb => cb.addEventListener("change", () => { saveCareerEditor(wrap); renderCareerEditor(); }));   // same season shows in both blocks — resync
   wrap.querySelector("[data-mcclose]").addEventListener("click", () => { saveCareerEditor(wrap); close(); try { renderStatsContent(); } catch (e) {} });
   const bnow = wrap.querySelector("[data-mclivenow]"); if (bnow) bnow.addEventListener("click", () => { saveCareerEditor(wrap); liveSince = Date.now(); persistLiveSince(); renderCareerEditor(); });
   const ball = wrap.querySelector("[data-mcliveall]"); if (ball) ball.addEventListener("click", () => { liveSince = 0; persistLiveSince(); renderCareerEditor(); });
   wrap.querySelectorAll("[data-mchand]").forEach(b => b.addEventListener("click", () => { setHand(mcEdit.name, handOf(mcEdit.name) === b.dataset.mchand ? "" : b.dataset.mchand); renderCareerEditor(); }));
   wrap.querySelector("[data-mcsave]").addEventListener("click", () => { saveCareerEditor(wrap); renderCareerEditor(); });
-  wrap.querySelector("[data-mcclear]").addEventListener("click", () => { appConfirm("Clear all manually-entered career stats for " + mcEdit.name + "?", () => { delete manualCareer[mcEdit.key]; persistManualCareer(); close(); try { renderStatsContent(); } catch (e) {} }); });
   wrap.querySelectorAll("[data-mcaddseason]").forEach(b => b.addEventListener("click", () => {
     saveCareerEditor(wrap);
     const grp = b.dataset.mcaddseason; const yr = (document.getElementById("mcNewSeason_" + grp).value || "").trim();
@@ -6381,7 +6394,7 @@ function careerCardHtml(p) {
     const inner = seasonLine("bat", "batting", ["G", "AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"]) + seasonLine("pit", "pitching", ["G", "W", "L", "SV", "IP", "H", "ER", "BB", "K", "HR"]);
     const wonIds = (mc && mc.awards && Array.isArray(mc.awards[sk])) ? mc.awards[sk] : [];
     const awBits = wonIds.length ? '<div style="font-size:11px;margin-top:3px">🏅 ' + wonIds.map(id => esc((AWARD_FIELDS.find(f => f[0] === id) || [id, id])[1])).join(", ") + "</div>" : "";
-    return '<details style="border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-top:5px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(sk) + (sk === cur ? " \ud83d\udd34" : "") + "</summary>" + (inner || '<div class="hint" style="font-size:10px">No stats yet.</div>') + awBits + "</details>";
+    return '<details style="border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-top:5px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(sk) + (sk === cur ? " \ud83d\udd34" : "") + (seasonExcluded(key, sk) ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>" + (inner || '<div class="hint" style="font-size:10px">No stats yet.</div>') + awBits + "</details>";
   }).join("");
   return header
     + '<div class="hint" style="margin:2px 0 4px">Career = the sum of your seasons. Games you log flow into their season live' + (cur ? " (current: " + esc(cur) + " \ud83d\udd34)" : "") + "; edit a season to set its total by hand.</div>"
