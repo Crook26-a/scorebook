@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v174";
+const APP_VERSION = "v176";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1368,7 +1368,7 @@ function gameIdsFor(key, seasonKey, grp) { const ids = []; for (const e of entri
 // They're *computed* from the game logs with the same rule the record book uses — and deliberately
 // NOT subject to the live-counting cutoff, because there's no typed total they could be baked into.
 // The editor fields for them stay blank and are additive, for shutouts thrown before you used the app.
-const DERIVED_PIT = { SHO: 1, CG: 1 };
+const DERIVED_PIT = { SHO: 1, CG: 1, QS: 1 };
 function rowFeats(e, row) {
   const o3 = ipOutsOf(row.stats.IP); if (!o3) return null;
   const side = row.team, opp = side === "away" ? "home" : "away";
@@ -1376,10 +1376,12 @@ function rowFeats(e, row) {
   let live = 0;
   for (const r of (e.box || [])) if (r.group === "pitching" && (r.player || "").trim() && r.team === side && ipOutsOf(r.stats.IP) > 0) live++;
   const blanked = filled(oppRuns) ? num(oppRuns) === 0 : num(row.stats.R) === 0;
-  return { SHO: (!filled(row.stats.SHO) && o3 >= 27 && blanked) ? 1 : 0, CG: (!filled(row.stats.CG) && live === 1 && o3 >= 24) ? 1 : 0 };
+  const er = filled(row.stats.ER) ? num(row.stats.ER) : num(row.stats.R);   // blank ER = none allowed
+  return { SHO: (!filled(row.stats.SHO) && o3 >= 27 && blanked) ? 1 : 0, CG: (!filled(row.stats.CG) && live === 1 && o3 >= 24) ? 1 : 0,
+    QS: (!filled(row.stats.QS) && o3 >= 18 && er <= 3) ? 1 : 0 };
 }
 function derivedFeats(key, seasonKey) {
-  const out = { SHO: 0, CG: 0 };
+  const out = { SHO: 0, CG: 0, QS: 0 };
   for (const e of entries) {
     if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
     if (seasonKey != null && String(seasonOf(e)) !== String(seasonKey)) continue;
@@ -1387,7 +1389,7 @@ function derivedFeats(key, seasonKey) {
     for (const r of (e.box || [])) {
       if (playerRowGrp(r, key) !== "pit") continue;
       const f = rowFeats(e, r); if (!f) continue;
-      out.SHO += f.SHO; out.CG += f.CG;
+      out.SHO += f.SHO; out.CG += f.CG; out.QS += f.QS;
     }
   }
   return out;
@@ -1465,7 +1467,7 @@ function careerResolvedStats(key, grp) {
 }
 // Fields collected in the career editor (box-style keys + WAR carried from the game).
 const MC_BAT_FIELDS = [["G", "G"], ["AB", "AB"], ["R", "R"], ["H", "H"], ["2B", "2B"], ["3B", "3B"], ["HR", "HR"], ["RBI", "RBI"], ["BB", "BB"], ["IBB", "IBB"], ["HBP", "HBP"], ["SO", "SO"], ["SB", "SB"], ["SF", "SF"], ["bWAR", "bWAR"]];
-const MC_PIT_FIELDS = [["G", "G"], ["W", "W"], ["L", "L"], ["SV", "SV"], ["IP", "IP"], ["H", "H"], ["R", "R"], ["ER", "ER"], ["BB", "BB"], ["K", "K"], ["HR", "HR"], ["CG", "CG"], ["SHO", "SHO"], ["pWAR", "pWAR"]];
+const MC_PIT_FIELDS = [["G", "G"], ["W", "W"], ["L", "L"], ["SV", "SV"], ["IP", "IP"], ["H", "H"], ["R", "R"], ["ER", "ER"], ["BB", "BB"], ["K", "K"], ["HR", "HR"], ["CG", "CG"], ["SHO", "SHO"], ["QS", "QS"], ["pWAR", "pWAR"]];
 let mcEdit = null;   // { key, name }
 function openCareerEditor(name, pid) {
   mcEdit = { key: mcKeyOf(name, pid), name: name };
@@ -1481,10 +1483,10 @@ function derivedHint(grp, sk) {
   if (grp !== "pit") return "";
   let d = { SHO: 0, CG: 0 };
   try { d = derivedFeats(mcEdit.key, sk); } catch (e) {}
-  const auto = (d.SHO || d.CG)
-    ? "Counted automatically from your logged games: <b>" + d.SHO + "</b> SHO, <b>" + d.CG + "</b> CG. "
+  const auto = (d.SHO || d.CG || d.QS)
+    ? "Counted automatically from your logged games: <b>" + d.SHO + "</b> SHO, <b>" + d.CG + "</b> CG, <b>" + d.QS + "</b> QS. "
     : "";
-  return '<div class="hint" style="font-size:10px;margin-top:3px">' + auto + "Type SHO/CG here only for ones that aren\u2019t logged as games — the two are added together.</div>";
+  return '<div class="hint" style="font-size:10px;margin-top:3px">' + auto + "Type SHO/CG/QS here only for ones that aren\u2019t logged as games — the two are added together.</div>";
 }
 function editPrefill(obj, key, grp, sk) {
   if (grp !== "pit") return obj;
@@ -1503,10 +1505,11 @@ function fieldInputs(fields, obj, attr) {
 }
 // Career-total inputs: value prefilled from the resolved career (season sum, or override+live), plus data-ssum
 // carrying the pure season sum so save can tell which stats you actually changed into an override.
-function lumpInputs(fields, prefill, ssum, grp) {
+function lumpInputs(fields, prefill, ssum, grp, lump) {
   const show = v => (v != null && String(v) !== "" && num(v) !== 0) ? v : "";
+  const isOv = k => !!(lump && filled(lump[k]));
   return '<div style="display:flex;flex-wrap:wrap;gap:6px 8px">' + fields.map(([k, lbl]) =>
-    '<div style="display:flex;flex-direction:column;width:calc((100% - 24px)/4);min-width:52px"><label style="font-size:9px;letter-spacing:.04em;color:var(--ink-soft);text-transform:uppercase">' + esc(lbl) + '</label><input class="mono" data-mclump-' + grp + '="' + esc(k) + '" data-ssum="' + esc(show(ssum && ssum[k])) + '" inputmode="decimal" value="' + esc(show(prefill && prefill[k])) + '" style="text-align:center;padding:5px 2px"></div>').join("") + "</div>";
+    '<div style="display:flex;flex-direction:column;width:calc((100% - 24px)/4);min-width:52px"><label style="font-size:9px;letter-spacing:.04em;color:var(--ink-soft);text-transform:uppercase">' + esc(lbl) + (isOv(k) ? ' <span style="color:var(--red)">\u25cf</span>' : "") + '</label><input class="mono" data-mclump-' + grp + '="' + esc(k) + '" data-ssum="' + esc(show(ssum && ssum[k])) + '" inputmode="decimal" value="' + esc(show(prefill && prefill[k])) + '" style="text-align:center;padding:5px 2px' + (isOv(k) ? ";border-color:var(--red)" : "") + '"></div>').join("") + "</div>";
 }
 function renderCareerEditor() {
   const mc = manualCareer[mcEdit.key];
@@ -1526,7 +1529,15 @@ function renderCareerEditor() {
     }).join("");
     return '<div style="margin-top:10px"><div class="disp" style="font-weight:700;font-size:14px;border-bottom:2px solid var(--ink);padding-bottom:3px">' + gLabel + "</div>"
       + '<div class="sclabel" style="margin-top:6px">Career total <span style="font-weight:400;color:var(--ink-soft)">(auto-filled from seasons — edit any to set a baseline)</span></div>'
-      + lumpInputs(fields, editPrefill(careerResolvedStats(mcEdit.key, grp), mcEdit.key, grp, null), seasonSumStats(mcEdit.key, grp), grp)
+      + lumpInputs(fields, editPrefill(careerResolvedStats(mcEdit.key, grp), mcEdit.key, grp, null), seasonSumStats(mcEdit.key, grp), grp, g.lump)
+      + (function () {   // a stale baseline silently outranks the seasons forever — surface it and offer a way out
+          const lump = g.lump; if (!lump) return "";
+          const ss = seasonSumStats(mcEdit.key, grp);
+          const bits = Object.keys(lump).filter(k => filled(lump[k])).map(k => "<b>" + esc(k) + " " + esc(lump[k]) + "</b> (seasons add to " + num(ss[k]) + ")");
+          if (!bits.length) return "";
+          return '<div class="hint" style="color:var(--red);margin-top:4px">\u25cf Overriding the season sum for: ' + bits.join(", ")
+            + '. <button class="lbtn soft" data-mcunlump="' + grp + '" style="font-size:10px;padding:1px 6px">\u21ba Use season sums</button></div>';
+        })()
       + derivedHint(grp, null)
       + '<div class="sclabel" style="margin-top:8px">By season</div>' + (seasonRows || '<div class="hint">No seasons yet.</div>')
       + '<div style="display:flex;gap:6px;margin-top:6px"><input id="mcNewSeason_' + grp + '" placeholder="Season e.g. AA, AAA, 2027" style="flex:1"><button class="lbtn soft" data-mcaddseason="' + grp + '">+ Add</button></div>'
@@ -1574,6 +1585,11 @@ function saveCareerEditor(wrap) {
 function wireCareerEditor(wrap) {
   const close = () => wrap.remove();
   wrap.querySelectorAll("[data-mcnocareer]").forEach(cb => cb.addEventListener("change", () => { saveCareerEditor(wrap); renderCareerEditor(); }));   // same season shows in both blocks — resync
+  wrap.querySelectorAll("[data-mcunlump]").forEach(b => b.addEventListener("click", () => {
+    saveCareerEditor(wrap);                                   // save first, then drop the baseline so it can't be rewritten
+    manualCareer[mcEdit.key][b.getAttribute("data-mcunlump")].lump = null;
+    persistManualCareer(); renderCareerEditor();
+  }));
   wrap.querySelector("[data-mcclose]").addEventListener("click", () => { saveCareerEditor(wrap); close(); try { renderStatsContent(); } catch (e) {} });
   const bnow = wrap.querySelector("[data-mclivenow]"); if (bnow) bnow.addEventListener("click", () => { saveCareerEditor(wrap); liveSince = Date.now(); persistLiveSince(); renderCareerEditor(); });
   const ball = wrap.querySelector("[data-mcliveall]"); if (ball) ball.addEventListener("click", () => { liveSince = 0; persistLiveSince(); renderCareerEditor(); });
@@ -6371,7 +6387,7 @@ function careerCardHtml(p) {
     return '<div style="margin-top:4px"><div style="font-size:11px;font-weight:700;color:var(--ink-soft)">' + (grp === "bat" ? "Batting" : "Pitching") + (rateLine.trim() ? " \u2014 " + esc(rateLine) : "") + "</div>"
       + (cells.length ? '<div class="sgrid">' + cells.join("") + "</div>" : "") + "</div>";
   };
-  const body = render("bat", "batting", ["G", "AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"]) + render("pit", "pitching", ["G", "W", "L", "SV", "IP", "H", "ER", "BB", "K", "HR"]);
+  const body = render("bat", "batting", ["G", "AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"]) + render("pit", "pitching", ["G", "W", "L", "SV", "IP", "H", "ER", "BB", "K", "HR", "QS", "CG", "SHO"]);
   if (!body) return header + '<div class="hint" style="margin-top:2px">No seasons yet — tap to add seasons (there\u2019s a one-tap button for your current season, ' + esc(currentSeason() || "\u2014") + '). Games you log flow into the matching season automatically.</div>';
   // awards line (read-only, summed across seasons)
   const awT = awardTotals(key);
@@ -6391,7 +6407,7 @@ function careerCardHtml(p) {
       const rate = grp === "bat" ? [mm("AVG"), mm("OBP"), mm("SLG")].filter(Boolean).join("/") + (mm("OPS") ? " OPS " + mm("OPS") : "") : (mm("ERA") ? "ERA " + mm("ERA") : "");
       return '<div style="font-size:11px;font-weight:700;color:var(--ink-soft);margin-top:4px">' + (grp === "bat" ? "Batting" : "Pitching") + (rate.trim() ? " \u2014 " + esc(rate) : "") + '</div><div class="sgrid">' + cells.join("") + "</div>";
     };
-    const inner = seasonLine("bat", "batting", ["G", "AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"]) + seasonLine("pit", "pitching", ["G", "W", "L", "SV", "IP", "H", "ER", "BB", "K", "HR"]);
+    const inner = seasonLine("bat", "batting", ["G", "AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"]) + seasonLine("pit", "pitching", ["G", "W", "L", "SV", "IP", "H", "ER", "BB", "K", "HR", "QS", "CG", "SHO"]);
     const wonIds = (mc && mc.awards && Array.isArray(mc.awards[sk])) ? mc.awards[sk] : [];
     const awBits = wonIds.length ? '<div style="font-size:11px;margin-top:3px">🏅 ' + wonIds.map(id => esc((AWARD_FIELDS.find(f => f[0] === id) || [id, id])[1])).join(", ") + "</div>" : "";
     return '<details style="border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-top:5px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(sk) + (sk === cur ? " \ud83d\udd34" : "") + (seasonExcluded(key, sk) ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>" + (inner || '<div class="hint" style="font-size:10px">No stats yet.</div>') + awBits + "</details>";
@@ -7736,7 +7752,7 @@ function renderRecordsContent() {
         if (!o3) continue;
         const k3 = r.player.trim().toLowerCase();
         const F = feats[k3] = feats[k3] || { name: r.player.trim(), qs: 0, cg: 0, sho: 0, noh: 0, perf: 0 };
-        if (o3 >= 18 && filled(r.stats.ER) && num(r.stats.ER) <= 3) F.qs++;
+        if (o3 >= 18 && (filled(r.stats.ER) ? num(r.stats.ER) : num(r.stats.R)) <= 3) F.qs++;
         // Shutout: the other team never scored and he went the full nine (or more). Reads the game
         // score when it's there and falls back to the pitcher's own R column when it isn't.
         const blanked = filled(oppRuns) ? num(oppRuns) === 0 : num(r.stats.R) === 0;
