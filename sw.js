@@ -1,5 +1,5 @@
 // Service worker: caches the whole app so it opens instantly, even offline.
-const CACHE = "scorebook-v176";
+const CACHE = "scorebook-v177";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-512-maskable.png"];
 
 self.addEventListener("install", e => {

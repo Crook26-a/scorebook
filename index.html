@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v176";
+const APP_VERSION = "v177";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -6366,6 +6366,31 @@ function recordBookHtml(p) {
     + '<div class="hint" style="margin:2px 0 4px">Where this player\u2019s career (entered baseline + games logged here) ranks against the leaderboards you\u2019ve imported (only boards with data are shown).</div>'
     + rows.join("") + "</details>";
 }
+// Pitch mix is stored in namespaced keys on the box row (px:/pst:/psk:/psw:/pwh:/rv:/po:) plus the
+// legacy FB/CB/SL/CH/OT columns. You never type an arsenal by hand, so it always comes straight from
+// the logged games — no baseline to double-count, and no live cutoff to respect.
+const ARS_PREFIX = ["px:", "pst:", "psk:", "psw:", "pwh:", "rv:", "po:"];
+const ARS_LEGACY = { FB: 1, CB: 1, SL: 1, CH: 1, OT: 1 };
+function isArsenalKey(k) { return !!ARS_LEGACY[k] || ARS_PREFIX.some(p => k.slice(0, p.length) === p); }
+function arsenalAgg(key, seasonKey) {
+  const acc = {};
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    if (seasonKey != null && String(seasonOf(e)) !== String(seasonKey)) continue;
+    if (seasonKey == null && seasonExcluded(key, seasonOf(e))) continue;   // exhibition seasons stay out of the career mix
+    for (const r of (e.box || [])) {
+      if (playerRowGrp(r, key) !== "pit") continue;
+      const st = r.stats || {};
+      for (const k in st) if (filled(st[k]) && isArsenalKey(k)) acc[k] = (acc[k] || 0) + num(st[k]);
+    }
+  }
+  return acc;
+}
+function arsenalBlockHtml(key, seasonKey, pname, label) {
+  const card = arsenalCardHtml(arsenalAgg(key, seasonKey), pname);
+  if (!card) return "";
+  return '<details style="margin-top:6px"><summary class="disp" style="cursor:pointer;font-size:11px;color:var(--ink)">\u26be ' + esc(label) + "</summary>" + card + "</details>";
+}
 function careerCardHtml(p) {
   const key = mcKeyOf(p.name, p.pid);
   const mc = manualCareer[key];
@@ -6410,11 +6435,12 @@ function careerCardHtml(p) {
     const inner = seasonLine("bat", "batting", ["G", "AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"]) + seasonLine("pit", "pitching", ["G", "W", "L", "SV", "IP", "H", "ER", "BB", "K", "HR", "QS", "CG", "SHO"]);
     const wonIds = (mc && mc.awards && Array.isArray(mc.awards[sk])) ? mc.awards[sk] : [];
     const awBits = wonIds.length ? '<div style="font-size:11px;margin-top:3px">🏅 ' + wonIds.map(id => esc((AWARD_FIELDS.find(f => f[0] === id) || [id, id])[1])).join(", ") + "</div>" : "";
-    return '<details style="border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-top:5px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(sk) + (sk === cur ? " \ud83d\udd34" : "") + (seasonExcluded(key, sk) ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>" + (inner || '<div class="hint" style="font-size:10px">No stats yet.</div>') + awBits + "</details>";
+    return '<details style="border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-top:5px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(sk) + (sk === cur ? " \ud83d\udd34" : "") + (seasonExcluded(key, sk) ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>" + (inner || '<div class="hint" style="font-size:10px">No stats yet.</div>') + awBits + arsenalBlockHtml(key, sk, p.name, "Arsenal \u2014 " + sk) + "</details>";
   }).join("");
   return header
     + '<div class="hint" style="margin:2px 0 4px">Career = the sum of your seasons. Games you log flow into their season live' + (cur ? " (current: " + esc(cur) + " \ud83d\udd34)" : "") + "; edit a season to set its total by hand.</div>"
     + body + awLine
+    + arsenalBlockHtml(key, null, p.name, "Arsenal \u2014 career")
     + (seasonRows ? '<div class="sclabel" style="margin-top:8px">Seasons (tap to expand)</div>' + seasonRows : "");
 }
 function groupDetailHtml(acc, gkey, gp, pname, gGrp) {
