@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v181";
+const APP_VERSION = "v183";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1982,15 +1982,6 @@ const PRED_PICKS = [
 const BUCKET_LABEL = { S: "strikeout", B: "walk", H: "hit", HR: "home run", O: "out in play" };
 function predPickLabel(k) { const d = PRED_PICKS.find(p => p.k === k); return d ? d.label : k; }
 // The control shown in the live scorer: a "call it" button, or a strip showing the live call.
-function predControlHtml() {
-  const L = form.live;
-  if (!L) return "";
-  if (L.pred) {
-    return '<div class="predstrip"><span>🔮 Your call: <b>' + esc(predPickLabel(L.pred.p)) + '</b>'
-      + '</span><button class="predclear" id="predClear">clear</button></div>';
-  }
-  return '<div style="text-align:center;margin-bottom:8px"><button class="predcall" id="predCall">🔮 Call this at-bat</button></div>';
-}
 // Grade a pending call when the batter's at-bat ends. Voids (no grade) on non-decisions like IBB.
 function resolvePrediction(o, entry) {
   const L = form.live;
@@ -2423,10 +2414,9 @@ function oneTeamOppRun(delta) {
 function liveUndo() {
   const e = form.live.log.pop();
   if (!e) return;
-  if (e.pred && form.preds) {
+  if (e.pred && form.preds) {          // legacy at-bat call on an older game: just drop it, don't re-arm
     const pi = form.preds.lastIndexOf(e.pred);
     if (pi >= 0) form.preds.splice(pi, 1);
-    form.live.pred = { p: e.pred.p };   // put the call back in play
   }
   for (const b of e.bats) revertColsG(b.player, b.team, "batting", b.cols);
   if (e.pit) revertPit(e.pit.player, e.pit.team, e.pit.cols, e.pit.outs);
@@ -2859,10 +2849,9 @@ function soloExtra(kind) {
 function soloUndo() {
   const e = form.live.log.pop();
   if (!e) return;
-  if (e.pred && form.preds) {
+  if (e.pred && form.preds) {          // legacy at-bat call on an older game: just drop it, don't re-arm
     const pi = form.preds.lastIndexOf(e.pred);
     if (pi >= 0) form.preds.splice(pi, 1);
-    form.live.pred = { p: e.pred.p };   // put the call back in play
   }
   for (const b of e.bats) revertColsG(b.player, b.team, "batting", b.cols);
   if (e.pit) revertPit(e.pit.player, e.pit.team, e.pit.cols, e.pit.outs);
@@ -3206,28 +3195,10 @@ function renderBankPicker() {
   wireBankPicker(ov);
 }
 
-function renderSoloPredPicker(name) {
-  const ov = document.getElementById("overlay");
-  ov.innerHTML = '<div class="sheet" style="max-width:480px">'
-    + '<div class="sheet-head"><div class="disp" style="font-size:20px;font-weight:700">🔮 Call this at-bat</div><button class="xbtn" id="lClose">✕</button></div>'
-    + '<div class="hint" style="text-align:center">Call how <b>' + esc(name) + '</b>\u2019s at-bat ends.</div>'
-    + '<div class="llist">'
-    + PRED_PICKS.map(p => '<button data-ppick="' + p.k + '"><b>' + p.label + '</b> <span style="color:var(--ink-soft);font-size:12px">' + p.hint + '</span></button>').join("")
-    + '</div><div class="lgrid"><button class="lbtn soft full" id="predBack">Cancel</button></div></div>';
-  ov.querySelector("#lClose").addEventListener("click", closeLive);
-  ov.querySelector("#predBack").addEventListener("click", () => { liveView = { s: "main" }; renderLive(); });
-  ov.querySelectorAll("[data-ppick]").forEach(b => b.addEventListener("click", () => {
-    form.live.pred = { p: b.dataset.ppick };
-    liveView = { s: "main", flash: "🔮 " + predPickLabel(b.dataset.ppick) + " — called" };
-    renderLive();
-  }));
-}
-
 function renderSolo() {
   const L = form.live, S = L.solo;
   if (liveView.s === "opts") { renderTrackersView(); return; }
   if (liveView.s === "bank") { renderBankPicker(); return; }
-  if (liveView.s === "pred") { renderSoloPredPicker(S.type === "batter" ? S.player : "this batter"); return; }
   const isB = S.type === "batter";
   const row = form.box.find(r => r.group === (isB ? "batting" : "pitching") && r.team === S.team && r.player.trim().toLowerCase() === S.player.trim().toLowerCase());
   const lineCols = isB ? ["AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"] : ["IP", "H", "R", "ER", "BB", "K", "PC"];
@@ -3241,7 +3212,7 @@ function renderSolo() {
     ? '<button class="lbtn big redb" data-sp="strike-sw">Strike<br><span style="font-size:11px">swinging</span></button><button class="lbtn big redb" data-sp="strike-lk">Strike<br><span style="font-size:11px">looking</span></button>'
     : '<button class="lbtn big redb" data-sp="strike">Strike</button>';
 
-  let mid = predControlHtml() + chips
+  let mid = chips
     + '<div class="lgrid ' + (L.opts.strikeType ? "lg3" : "lg2") + '"><button class="lbtn big" data-sp="ball">Ball</button>' + strikeBtns + "</div>";
   if (isB) {
     mid += '<div class="lgrid lg4"><button class="lbtn soft" data-sp="foul">Foul</button><button class="lbtn soft" data-so="hbp">HBP</button><button class="lbtn soft" data-so="out">Out (in play)</button><button class="lbtn soft" data-sx="sb">SB</button></div>'
@@ -3303,8 +3274,6 @@ function renderSolo() {
   });
   const undoBtn = ov.querySelector("#lUndo");
   if (undoBtn) undoBtn.addEventListener("click", soloUndo);
-  const predCallB = ov.querySelector("#predCall");
-  if (predCallB) predCallB.addEventListener("click", () => { liveView = { s: "pred" }; renderLive(); });
   const predClearB = ov.querySelector("#predClear");
   if (predClearB) predClearB.addEventListener("click", () => { form.live.pred = null; liveView = { s: "main", flash: "Call cleared" }; renderLive(); });
   ov.querySelectorAll("[data-base]").forEach(g => g.addEventListener("click", () => boardBase(g.dataset.base)));
@@ -4136,11 +4105,6 @@ function renderLive() {
     mid = '<div class="hint" style="text-align:center">New pitcher for ' + esc(teamLabel(ft)) + "</div>" + subChips
       + '<input id="subName" list="nameList" placeholder="Pitcher name" style="margin-bottom:10px">'
       + '<div class="lgrid lg2"><button class="lbtn" id="subGo">Bring him in</button><button class="lbtn soft" data-lv="main">Cancel</button></div>';
-  } else if (liveView.s === "pred") {
-    mid = '<div class="hint" style="text-align:center">Call how <b>' + esc(cur) + '</b>\u2019s at-bat ends.</div>'
-      + '<div class="llist">'
-      + PRED_PICKS.map(p => '<button data-ppick="' + p.k + '"><b>' + p.label + '</b> <span style="color:var(--ink-soft);font-size:12px">' + p.hint + '</span></button>').join("")
-      + '</div><div class="lgrid"><button class="lbtn soft full" data-lv="main">Cancel</button></div>';
   } else if (liveView.s === "jump") {
     mid = '<div class="hint" style="text-align:center">Who\u2019s actually up for ' + esc(teamLabel(bt)) + '?</div><div class="llist">'
       + L.teams[bt].order.map((p, i) => '<button class="' + (i === L.teams[bt].idx ? "cur" : "") + '" data-jump="' + i + '">' + (i + 1) + ". " + esc(p) + "</button>").join("")
@@ -4164,7 +4128,7 @@ function renderLive() {
       ? '<button class="lbtn big redb" data-pitch="strike-sw">Strike<br><span style="font-size:11px">swinging</span></button><button class="lbtn big redb" data-pitch="strike-lk">Strike<br><span style="font-size:11px">looking</span></button>'
       : '<button class="lbtn big redb" data-pitch="strike">Strike</button>';
     const chips = L.opts.pitchType ? baseballRow() : "";
-    mid = predControlHtml() + chips
+    mid = chips
       + '<div class="lgrid ' + (L.opts.strikeType ? "lg3" : "lg2") + '">'
       + '<button class="lbtn big" data-pitch="ball">Ball</button>' + strikeBtns + "</div>"
       + '<div class="lgrid lg4"><button class="lbtn soft" data-pitch="foul">Foul</button>'
@@ -4291,15 +4255,8 @@ function renderLive() {
   ov.querySelectorAll("[data-subpick]").forEach(b => b.addEventListener("click", () => livePitchSub(b.dataset.subpick)));
   ov.querySelectorAll("[data-pitch]").forEach(b => b.addEventListener("click", () => liveCount(b.dataset.pitch)));
   ov.querySelectorAll("[data-out]").forEach(b => b.addEventListener("click", () => liveOutcome(b.dataset.out)));
-  const predCallB = ov.querySelector("#predCall");
-  if (predCallB) predCallB.addEventListener("click", () => { liveView = { s: "pred" }; renderLive(); });
   const predClearB = ov.querySelector("#predClear");
   if (predClearB) predClearB.addEventListener("click", () => { form.live.pred = null; liveView = { s: "main", flash: "Call cleared" }; renderLive(); });
-  ov.querySelectorAll("[data-ppick]").forEach(b => b.addEventListener("click", () => {
-    form.live.pred = { p: b.dataset.ppick };
-    liveView = { s: "main", flash: "🔮 " + predPickLabel(b.dataset.ppick) + " — called" };
-    renderLive();
-  }));
   ov.querySelectorAll("[data-lv]").forEach(b => b.addEventListener("click", () => { liveView = { s: b.dataset.lv }; renderLive(); }));
   ov.querySelectorAll("[data-jump]").forEach(b => b.addEventListener("click", () => liveJump(parseInt(b.dataset.jump))));
   wireBaseballRow(ov); wireBankPicker(ov);
@@ -6449,6 +6406,103 @@ function arsenalBlockHtml(key, seasonKey, pname, label) {
   if (!card) return "";
   return '<details style="margin-top:6px"><summary class="disp" style="cursor:pointer;font-size:11px;color:var(--ink)">\u26be ' + esc(label) + "</summary>" + card + "</details>";
 }
+// ── Projections ──────────────────────────────────────────────────────
+// "If this pace holds": scale a partial season up to a full slate, and roll a per-season pace
+// forward to see where a career lands. Pace can come from the whole career or from one season.
+const PROJ_BAT = [["H", "H"], ["HR", "HR"], ["RBI", "RBI"], ["R", "R"], ["2B", "2B"], ["SB", "SB"], ["bWAR", "bWAR"]];
+const PROJ_PIT = [["W", "W"], ["K", "K"], ["IP", "IP"], ["SV", "SV"], ["SHO", "SHO"], ["pWAR", "pWAR"]];
+const PROJ_TARGET = { bat: 162, pit: 32 };
+function projValue(stats, k) { if (!stats) return 0; return k === "IP" ? ipOutsOf(stats.IP) / 3 : num(stats[k]); }
+function fmtProj(k, v) { return (k === "IP" || k === "bWAR" || k === "pWAR") ? Number(v).toFixed(1) : String(Math.round(v)); }
+// Full-season projection for the season currently being played.
+function projectSeason(key, grp) {
+  const cur = currentSeason(); if (!cur) return null;
+  const s = seasonResolvedStats(key, cur, grp);
+  const g = num(s.G), tg = PROJ_TARGET[grp];
+  if (!g || g >= tg) return null;                              // nothing logged yet, or already a full slate
+  const rows = [];
+  for (const [k, lbl] of (grp === "bat" ? PROJ_BAT : PROJ_PIT)) {
+    const v = projValue(s, k); if (!v) continue;
+    rows.push({ k: k, label: lbl, now: v, proj: v / g * tg });
+  }
+  return rows.length ? { season: cur, g: g, target: tg, rows: rows } : null;
+}
+// Production per season, either averaged over the career or taken from one season.
+// Seasons where the player actually appeared in this role — a pitcher who pitched one year out of
+// three shouldn't have his per-season pace divided by three.
+function grpSeasonKeys(key, grp) {
+  const defs = grp === "bat" ? PROJ_BAT : PROJ_PIT;
+  return careerSeasonKeys(key).filter(sk => {
+    const s = seasonResolvedStats(key, sk, grp);
+    if (num(s.G) > 0) return true;
+    return defs.some(([k]) => projValue(s, k) > 0);
+  });
+}
+function paceMap(key, grp, basisSeason) {
+  const defs = grp === "bat" ? PROJ_BAT : PROJ_PIT, out = {};
+  if (basisSeason) { const s = seasonResolvedStats(key, basisSeason, grp); for (const [k] of defs) out[k] = projValue(s, k); }
+  else {
+    const ks = grpSeasonKeys(key, grp); if (!ks.length) return null;
+    const tot = careerResolvedStats(key, grp);
+    for (const [k] of defs) out[k] = projValue(tot, k) / ks.length;
+  }
+  let any = false; for (const k in out) if (out[k]) any = true;
+  return any ? out : null;
+}
+function careerAfter(key, grp, pace, n) {
+  const tot = careerResolvedStats(key, grp), out = {};
+  for (const k in pace) out[k] = projValue(tot, k) + pace[k] * n;
+  return out;
+}
+// How many more seasons at this pace until each career milestone falls.
+function milestoneEta(key, grp, pace) {
+  const tot = careerResolvedStats(key, grp), out = [];
+  for (const d of (grp === "bat" ? VMILE_CAREER_BAT : VMILE_CAREER_PIT)) {
+    const v = projValue(tot, d.key), p = pace[d.key] || 0;
+    if (!v || p <= 0) continue;
+    const target = nextMile(v, d.step, d.min), need = Math.ceil((target - v) / p);
+    if (need > 0 && need <= 20) out.push({ label: d.label, target: target, seasons: need });
+  }
+  return out.sort((a, b) => a.seasons - b.seasons).slice(0, 4);
+}
+// Most recent completed season, used as the "one season" pace basis.
+function lastCompletedSeason(key) {
+  const cur = currentSeason();
+  const ks = trendSeasons(key).filter(s => s !== cur);
+  return ks.length ? ks[ks.length - 1] : null;
+}
+function projectionBlockHtml(p) {
+  const key = mcKeyOf(p.name, p.pid);
+  const last = lastCompletedSeason(key);
+  let inner = "";
+  for (const grp of ["bat", "pit"]) {
+    const gLabel = grp === "bat" ? "Batting" : "Pitching";
+    const ps = projectSeason(key, grp);
+    const pace = paceMap(key, grp, null);
+    if (!ps && !pace) continue;
+    let sec = "";
+    if (ps) sec += '<div class="hint" style="font-size:10px;margin-top:2px">Rest of ' + esc(ps.season) + " (" + ps.g + " of " + ps.target + " G): "
+      + ps.rows.map(r => esc(r.label) + " " + fmtProj(r.k, r.now) + " \u2192 <b>" + fmtProj(r.k, r.proj) + "</b>").join(" \u00b7 ") + "</div>";
+    if (pace) {
+      const p5 = careerAfter(key, grp, pace, 5);
+      sec += '<div class="hint" style="font-size:10px;margin-top:2px">5 more seasons at career pace: '
+        + Object.keys(pace).filter(k => pace[k]).map(k => esc(k) + " <b>" + fmtProj(k, p5[k]) + "</b>").join(" \u00b7 ") + "</div>";
+      const eta = milestoneEta(key, grp, pace);
+      if (eta.length) sec += '<div class="hint" style="font-size:10px;margin-top:2px">\ud83c\udfaf '
+        + eta.map(e => "<b>" + e.target + " " + esc(e.label) + "</b> in ~" + e.seasons + (e.seasons === 1 ? " season" : " seasons")).join(" \u00b7 ") + "</div>";
+      if (last) {
+        const lp = paceMap(key, grp, last);
+        if (lp) { const l5 = careerAfter(key, grp, lp, 5);
+          sec += '<div class="hint" style="font-size:10px;margin-top:2px">5 more at ' + esc(last) + " pace: "
+            + Object.keys(lp).filter(k => lp[k]).map(k => esc(k) + " <b>" + fmtProj(k, l5[k]) + "</b>").join(" \u00b7 ") + "</div>"; }
+      }
+    }
+    if (sec) inner += '<div style="margin-top:5px"><div style="font-size:11px;font-weight:700">' + gLabel + "</div>" + sec + "</div>";
+  }
+  if (!inner) return "";
+  return '<details style="margin-top:6px"><summary class="disp" style="cursor:pointer;font-size:11px;color:var(--ink)">\ud83d\udd2e Projections</summary>'
+    + '<div class="hint" style="font-size:10px;margin-top:2px">Straight-line math on the pace shown \u2014 no aging or injury guesswork.</div>' + inner + "</details>";
+}
 function careerCardHtml(p) {
   const key = mcKeyOf(p.name, p.pid);
   const mc = manualCareer[key];
@@ -6498,6 +6552,7 @@ function careerCardHtml(p) {
   return header
     + '<div class="hint" style="margin:2px 0 4px">Career = the sum of your seasons. Games you log flow into their season live' + (cur ? " (current: " + esc(cur) + " \ud83d\udd34)" : "") + "; edit a season to set its total by hand.</div>"
     + body + awLine
+    + projectionBlockHtml(p)
     + arsenalBlockHtml(key, null, p.name, "Arsenal \u2014 career")
     + (seasonRows ? '<div class="sclabel" style="margin-top:8px">Seasons (tap to expand)</div>' + seasonRows : "");
 }
@@ -6690,7 +6745,8 @@ function fmtMean(row, mean) {
 // seasons (⊘ not in career) are left out so All-Star and playoff lines don't dent the arc.
 const TREND_BAT = [["HR", "HR"], ["H", "H"], ["RBI", "RBI"], ["R", "R"], ["SB", "SB"], ["AVG", "AVG"], ["OPS", "OPS"], ["bWAR", "bWAR"]];
 const TREND_PIT = [["W", "W"], ["K", "K"], ["SV", "SV"], ["IP", "IP"], ["ERA", "ERA"], ["SHO", "SHO"], ["QS", "QS"], ["pWAR", "pWAR"]];
-let trendGrp = "bat", trendStat = "HR", trendOpen = false;
+let trendGrp = "bat", trendStat = "HR", trendOpen = false, trendRate = false;
+const TREND_RATE_STATS = { AVG: 1, OPS: 1, ERA: 1 };   // already rates — per-game would be meaningless
 function trendVal(stats, grp, key) {
   if (!stats) return null;
   if (key === "IP") { const o = ipOutsOf(stats.IP); return o ? o / 3 : null; }
@@ -6709,7 +6765,12 @@ function trendSeries(p, grp, key) {
   const mk = mcKeyOf((p.name || "").trim(), p.pid || null);
   const pts = [];
   for (const sk of trendSeasons(mk)) {
-    const v = trendVal(seasonResolvedStats(mk, sk, grp), grp, key);
+    const st = seasonResolvedStats(mk, sk, grp);
+    let v = trendVal(st, grp, key);
+    if (v != null && trendRate && !TREND_RATE_STATS[key]) {   // per game, so a 16-game year compares to a 162-game year
+      const g = num(st.G);
+      v = g ? v / g : null;
+    }
     if (v != null) pts.push({ season: sk, v: v });
   }
   return pts.length ? { name: p.name, pts: pts } : null;
@@ -6727,7 +6788,9 @@ function trendChartSvg(series, key) {
   const pad = (hi - lo) * 0.08; hi += pad;
   const x = i => L + (seasons.length === 1 ? iw / 2 : iw * i / (seasons.length - 1));
   const y = v => T + ih - ih * (v - lo) / (hi - lo);
-  const fmt = v => (key === "AVG" || key === "OPS") ? b3(v) : (key === "ERA" || key === "IP" || key === "bWAR" || key === "pWAR") ? Number(v).toFixed(key === "ERA" ? 2 : 1) : String(Math.round(v));
+  const perG = trendRate && !TREND_RATE_STATS[key];
+  const fmt = v => (key === "AVG" || key === "OPS") ? b3(v) : perG ? Number(v).toFixed(2)
+    : (key === "ERA" || key === "IP" || key === "bWAR" || key === "pWAR") ? Number(v).toFixed(key === "ERA" ? 2 : 1) : String(Math.round(v));
   const colors = ["var(--red)", "var(--ink)"];
   let g = "";
   for (let t = 0; t <= 2; t++) {   // light gridlines with value labels
@@ -6753,13 +6816,16 @@ function trendBlockHtml(pa, pb) {
   if (!defs.some(d => d[0] === trendStat)) trendStat = defs[0][0];
   const grpChips = ["bat", "pit"].map(gk => '<button class="chip disp' + (trendGrp === gk ? " active" : "") + '" data-tgrp="' + gk + '">' + (gk === "bat" ? "Batting" : "Pitching") + "</button>").join("");
   const statChips = defs.map(([k, lbl]) => '<button class="chip disp' + (trendStat === k ? " active" : "") + '" data-tstat="' + k + '">' + esc(lbl) + "</button>").join("");
+  const rateChips = TREND_RATE_STATS[trendStat] ? '<span class="hint" style="font-size:10px">' + esc(trendStat) + " is already a rate</span>"
+    : [["0", "Totals"], ["1", "Per game"]].map(([v, lbl]) => '<button class="chip disp' + ((trendRate ? "1" : "0") === v ? " active" : "") + '" data-trate="' + v + '">' + lbl + "</button>").join("");
   const series = [trendSeries(pa, trendGrp, trendStat), trendSeries(pb, trendGrp, trendStat)].filter(Boolean);
   const chart = series.length ? trendChartSvg(series, trendStat)
     : '<div class="hint" style="padding:8px">No season data for this stat yet. Seasons come from your career editor and the games you log.</div>';
   return '<details data-tdetails="1"' + (trendOpen ? " open" : "") + ' style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83d\udcc8 Season-by-season trend</summary>'
     + '<div class="hint" style="font-size:10px;margin:4px 0">One dot per season, earliest to latest. Pick the same player on both sides to see just his own arc; exhibition seasons marked \u2298 are left out.</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">' + grpChips + "</div>"
-    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">' + statChips + "</div>"
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">' + statChips + "</div>"
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">' + rateChips + "</div>"
     + chart + "</details>";
 }
 function compareTabHtml() {
@@ -7093,6 +7159,7 @@ function wireCompare(out) {
   out.querySelectorAll("[data-tdetails]").forEach(d => d.addEventListener("toggle", () => { trendOpen = d.open; }));   // survive the re-render a chip tap causes
   out.querySelectorAll("[data-tgrp]").forEach(b => b.addEventListener("click", () => { trendGrp = b.dataset.tgrp; renderStatsContent(); }));
   out.querySelectorAll("[data-tstat]").forEach(b => b.addEventListener("click", () => { trendStat = b.dataset.tstat; renderStatsContent(); }));
+  out.querySelectorAll("[data-trate]").forEach(b => b.addEventListener("click", () => { trendRate = b.dataset.trate === "1"; renderStatsContent(); }));
   out.querySelectorAll("select[data-cmp]").forEach(sel => sel.addEventListener("change", () => {
     const which = sel.dataset.cmp;
     if (which === "field") { cmpField = sel.value; renderStatsContent(); return; }
@@ -7355,27 +7422,6 @@ function inningStreaks(chron) {
   return out;
 }
 // Roll up every graded at-bat call across the given games into accuracy and streaks.
-function predStats(games) {
-  const all = [];
-  for (const e of games) for (const p of (e.preds || [])) all.push({ ...p, _e: e });
-  all.sort((a, b) => (a.t || 0) - (b.t || 0));
-  const n = all.length, hit = all.filter(p => p.ok).length;
-  let best = 0, run = 0, cur = 0;
-  for (const p of all) { if (p.ok) { run++; if (run > best) best = run; } else run = 0; }
-  for (let i = all.length - 1; i >= 0; i--) { if (all[i].ok) cur++; else break; }
-  const byPick = {};
-  for (const def of PRED_PICKS) byPick[def.k] = { n: 0, ok: 0 };
-  for (const p of all) { if (byPick[p.p]) { byPick[p.p].n++; if (p.ok) byPick[p.p].ok++; } }
-  const byLevel = { mlb: { n: 0, ok: 0 }, milb: { n: 0, ok: 0 }, other: { n: 0, ok: 0 } };
-  const byBat = {};
-  for (const p of all) {
-    const lv = levelOf(p._e); if (byLevel[lv]) { byLevel[lv].n++; if (p.ok) byLevel[lv].ok++; }
-    const b = (p.batter || "").trim(); if (b) { const o = byBat[b] = byBat[b] || { name: b, n: 0, ok: 0 }; o.n++; if (p.ok) o.ok++; }
-  }
-  const recent = all.slice(-24).map(p => p.ok);
-  const log = all.slice().reverse().map(p => ({ ok: p.ok, p: p.p, actual: p.actual, batter: p.batter, pitcher: p.pitcher, date: (p._e && p._e.date) || "" }));
-  return { n, hit, best, cur, byPick, byLevel, byBat, recent, log };
-}
 // ── "I was there" — presence-focused records (ballparks, anniversaries, attendance) ──
 let iwasScope = "inperson";
 try { iwasScope = localStorage.getItem("sports-stat-iwas-scope") || "inperson"; } catch (e) {}
@@ -7667,72 +7713,12 @@ function challengesTabHtml(games) {
     : (!all.length ? '<div class="hint" style="margin-top:8px">Totals come from your box scores. The who/ball-strike breakdown starts filling in as you log new challenges.</div>' : "");
   return '<div class="card"><div class="disp" style="font-size:16px;font-weight:700;border-bottom:2px solid var(--ink);padding-bottom:4px">\u2696 Challenges</div>' + hero + "</div>" + whoCard + callCard + bestCard + logCard + note;
 }
-function callsCardHtml(games) {
-  const s = predStats(games);
-  if (!s.n) {
-    return '<div class="card"><div class="disp" style="font-size:16px;font-weight:700;border-bottom:2px solid var(--ink);padding-bottom:4px">🔮 Your calls</div>'
-      + '<div style="font-size:13px;color:var(--ink-soft);padding:10px 2px;line-height:1.5">No calls yet. Open the <b>Live Scorer</b> on a game, tap <b>🔮 Call this at-bat</b>, and predict how it ends — strikeout, hit, walk, out, or the bold home-run call. Each one is graded automatically when the at-bat finishes, and your accuracy builds here.</div></div>';
-  }
-  const pct = v => Math.round(v) + "%";
-  const acc = s.hit / s.n * 100;
-  const hero = '<div class="calhero"><div class="big">' + pct(acc) + '</div>'
-    + '<div style="font-size:12px;color:var(--ink-soft);letter-spacing:.08em;text-transform:uppercase">' + s.hit + ' of ' + s.n + ' calls right</div></div>'
-    + '<div class="recrow"><b>' + s.cur + '</b> in a row right now <span style="color:var(--ink-soft);font-size:11px">· best streak ' + s.best + '</span></div>';
-  // recent form — dots, oldest to newest
-  const dots = s.recent.map(ok => '<span style="color:' + (ok ? "#2e7d32" : "var(--red)") + '">' + (ok ? "\u25cf" : "\u25cb") + "</span>").join("");
-  const form = '<div class="recrow" style="margin-top:4px"><span style="color:var(--ink-soft);font-size:11px">Recent form (last ' + s.recent.length + ")</span><div style=\"letter-spacing:2px;font-size:14px;margin-top:2px\">" + dots + "</div></div>";
-  // by outcome
-  let byOut = '<div class="grouplabel disp">By the call you made</div>';
-  for (const def of PRED_PICKS) {
-    const b = s.byPick[def.k];
-    if (!b.n) continue;
-    byOut += '<div class="recrow">' + esc(def.label) + ' <span style="color:var(--ink-soft);font-size:11px">'
-      + b.ok + '/' + b.n + '</span> <b style="float:right">' + pct(b.ok / b.n * 100) + '</b></div>';
-  }
-  // by level (only levels with data; skip if just one to avoid a lonely row)
-  const LVL = [["mlb", "MLB"], ["milb", "Minor league"], ["other", "Other"]].filter(([k]) => s.byLevel[k].n);
-  let byLvl = "";
-  if (LVL.length > 1) {
-    byLvl = '<div class="grouplabel disp">By level</div>' + LVL.map(([k, lbl]) => {
-      const b = s.byLevel[k];
-      return '<div class="recrow">' + lbl + ' <span style="color:var(--ink-soft);font-size:11px">' + b.ok + "/" + b.n + '</span> <b style="float:right">' + pct(b.ok / b.n * 100) + "</b></div>";
-    }).join("");
-  }
-  // matchups — batters you've called 3+ times
-  const rated = Object.values(s.byBat).filter(b => b.n >= 3);
-  let match = "";
-  if (rated.length) {
-    const byAcc = rated.slice().sort((a, b) => (b.ok / b.n) - (a.ok / a.n) || b.n - a.n);
-    const line = b => '<div class="recrow"><b>' + esc(b.name) + '</b> <span style="color:var(--ink-soft);font-size:11px">' + b.ok + "/" + b.n + '</span> <b style="float:right">' + pct(b.ok / b.n * 100) + "</b></div>";
-    match = '<div class="grouplabel disp">Batters you read best</div>' + byAcc.slice(0, 3).map(line).join("");
-    const cold = byAcc.filter(b => b.ok / b.n < 1).slice(-3).reverse();
-    if (cold.length && cold[0] !== byAcc[0]) match += '<div class="grouplabel disp">Toughest to call</div>' + cold.map(line).join("");
-  }
-  // scrollable log
-  const CAP = 80;
-  const rows = s.log.slice(0, CAP).map(r => {
-    const mark = r.ok ? '<span style="color:#2e7d32;font-weight:700">\u2713</span>' : '<span style="color:var(--red);font-weight:700">\u2717</span>';
-    const said = predPickLabel(r.p);
-    const tail = r.ok ? "called " + said : said + " \u2014 was a " + (BUCKET_LABEL[r.actual] || r.actual);
-    const who = (r.batter || "").trim();
-    return '<div class="recrow" style="display:flex;gap:8px;align-items:baseline">' + mark
-      + '<span style="flex:1">' + esc(tail) + (who ? ' <span style="color:var(--ink-soft);font-size:11px">\u00b7 ' + esc(who) + "</span>" : "")
-      + "</span><span style=\"color:var(--ink-soft);font-size:11px\">" + esc(r.date) + "</span></div>";
-  }).join("");
-  const more = s.log.length > CAP ? '<div class="recrow" style="color:var(--ink-soft);font-size:11px;text-align:center">+ ' + (s.log.length - CAP) + " older</div>" : "";
-  const logCard = '<div class="grouplabel disp">Every call</div><div style="max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:2px 8px">' + rows + more + "</div>";
-
-  return '<div class="card"><div class="disp" style="font-size:16px;font-weight:700;border-bottom:2px solid var(--ink);padding-bottom:4px">🔮 Your calls</div>'
-    + hero + form + byOut + byLvl + match + logCard + '</div>';
-}
-
 function renderRecordsView() {
   const v = document.getElementById("view-records");
   v.innerHTML = '<div class="controls" style="margin-bottom:12px">'
     + '<button class="chip disp' + (recordsTab === "pitchers" ? " active" : "") + '" data-rtab="pitchers">Pitchers</button>'
     + '<button class="chip disp' + (recordsTab === "hitters" ? " active" : "") + '" data-rtab="hitters">Hitters</button>'
     + '<button class="chip disp' + (recordsTab === "teams" ? " active" : "") + '" data-rtab="teams">Teams</button>'
-    + '<button class="chip disp' + (recordsTab === "calls" ? " active" : "") + '" data-rtab="calls">🔮 Calls</button>'
     + '<button class="chip disp' + (recordsTab === "challenges" ? " active" : "") + '" data-rtab="challenges">⚖ Challenges</button>'
     + '<button class="chip disp' + (recordsTab === "iwas" ? " active" : "") + '" data-rtab="iwas">📍 I was there</button>'
     + '<button class="chip disp' + (recordsTab === "prospects" ? " active" : "") + '" data-rtab="prospects">🌱 Prospects</button>'
@@ -8107,9 +8093,8 @@ function renderRecordsContent() {
   const htmlHit = cardCycles + cardSingleHit + cardCareerHit + cardHitStreak + firstHRcard;
   const htmlPit = cardNoHit + cardSinglePit + cardCareerPit + cardDec + cardFeats + cardPitInn + (!cardPitInn && games.length ? innHint : "");
   const htmlTeam = teamSelect + (recordsTeam ? teamDrill : (cardTeamLead + cardWinStreak + cardTeamInn + cardGameRec + cardParks + cardFirsts));
-  const htmlCalls = callsCardHtml(games);
   const pick = recordsTab === "hitters" ? htmlHit : recordsTab === "teams" ? htmlTeam
-    : recordsTab === "calls" ? htmlCalls : recordsTab === "challenges" ? challengesTabHtml(games) : recordsTab === "trophies" ? badgesTabHtml(games) : recordsTab === "firsts" ? firstsTabHtml() : recordsTab === "iwas" ? iwasTabHtml(yearF) : recordsTab === "prospects" ? prospectsTabHtml(yearF) : recordsTab === "milestones" ? milestonesTabHtml() : htmlPit;
+    : recordsTab === "challenges" ? challengesTabHtml(games) : recordsTab === "trophies" ? badgesTabHtml(games) : recordsTab === "firsts" ? firstsTabHtml() : recordsTab === "iwas" ? iwasTabHtml(yearF) : recordsTab === "prospects" ? prospectsTabHtml(yearF) : recordsTab === "milestones" ? milestonesTabHtml() : htmlPit;
   out.innerHTML = pick || '<div class="empty">Nothing here yet. Your record book writes itself as you log games — score one and check back.</div>';
   const teamSel = out.querySelector("#rTeam");
   if (teamSel) teamSel.addEventListener("change", () => { recordsTeam = teamSel.value; renderRecordsContent(); });
