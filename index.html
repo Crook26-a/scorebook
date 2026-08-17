@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v177";
+const APP_VERSION = "v181";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1380,6 +1380,34 @@ function rowFeats(e, row) {
   return { SHO: (!filled(row.stats.SHO) && o3 >= 27 && blanked) ? 1 : 0, CG: (!filled(row.stats.CG) && live === 1 && o3 >= 24) ? 1 : 0,
     QS: (!filled(row.stats.QS) && o3 >= 18 && er <= 3) ? 1 : 0 };
 }
+// G is a count of games, not a box-score column, so nothing ever accumulated it. Credit a game
+// whenever the player actually did something in that group: an at-bat (or walk, run, anything) for
+// batting, a pitch thrown or batter faced for pitching.
+function rowActive(r) {
+  const st = r.stats || {};
+  for (const k in st) if (filled(st[k]) && num(st[k]) > 0) return true;
+  return false;
+}
+function derivedGames(key, seasonKey, grp) {
+  let n = 0;
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    if (seasonKey != null && String(seasonOf(e)) !== String(seasonKey)) continue;
+    if (seasonKey == null && seasonExcluded(key, seasonOf(e))) continue;
+    for (const r of (e.box || [])) {
+      if (playerRowGrp(r, key) !== grp || !rowActive(r)) continue;
+      n++; break;                                            // one game credit per game, however many rows
+    }
+  }
+  return n;
+}
+// What the user typed by hand for a stat we also derive (career bucket + every counting season).
+function typedStat(key, grp, k) {
+  const mc = manualCareer[key]; if (!mc || !mc[grp]) return 0;
+  let t = mc[grp].lump && filled(mc[grp].lump[k]) ? num(mc[grp].lump[k]) : 0;
+  for (const sk in mc[grp].seasons) { if (seasonExcluded(key, sk)) continue; const b = seasonBaseStats(mc[grp].seasons[sk]); if (b && filled(b[k])) t += num(b[k]); }
+  return t;
+}
 function derivedFeats(key, seasonKey) {
   const out = { SHO: 0, CG: 0, QS: 0 };
   for (const e of entries) {
@@ -1428,6 +1456,8 @@ function seasonResolvedStats(key, seasonKey, grp) {
     const d = derivedFeats(key, seasonKey);
     for (const k in DERIVED_PIT) { const t = num(out[k]) + d[k]; if (t) out[k] = String(t); }
   }
+  const dg = derivedGames(key, seasonKey, grp);               // games played, likewise counted from the log
+  if (dg) out.G = String(num(out.G) + dg);
   return out;
 }
 function playerSeasonKeys(key) {
@@ -1480,23 +1510,29 @@ function openCareerEditor(name, pid) {
 // SHO/CG boxes hold only what you type; shutouts found in your logged games are added on top. Say so,
 // and show the running auto-count, otherwise an empty box looks like nothing is being tracked.
 function derivedHint(grp, sk) {
-  if (grp !== "pit") return "";
-  let d = { SHO: 0, CG: 0 };
-  try { d = derivedFeats(mcEdit.key, sk); } catch (e) {}
-  const auto = (d.SHO || d.CG || d.QS)
-    ? "Counted automatically from your logged games: <b>" + d.SHO + "</b> SHO, <b>" + d.CG + "</b> CG, <b>" + d.QS + "</b> QS. "
-    : "";
-  return '<div class="hint" style="font-size:10px;margin-top:3px">' + auto + "Type SHO/CG/QS here only for ones that aren\u2019t logged as games — the two are added together.</div>";
+  const bits = [];
+  let dg = 0; try { dg = derivedGames(mcEdit.key, sk, grp); } catch (e) {}
+  if (dg) bits.push("<b>" + dg + "</b> G");
+  if (grp === "pit") {
+    let d = { SHO: 0, CG: 0, QS: 0 };
+    try { d = derivedFeats(mcEdit.key, sk); } catch (e) {}
+    if (d.SHO) bits.push("<b>" + d.SHO + "</b> SHO");
+    if (d.CG) bits.push("<b>" + d.CG + "</b> CG");
+    if (d.QS) bits.push("<b>" + d.QS + "</b> QS");
+  }
+  const which = grp === "pit" ? "G/SHO/CG/QS" : "G";
+  const auto = bits.length ? "Counted automatically from your logged games: " + bits.join(", ") + ". " : "";
+  return '<div class="hint" style="font-size:10px;margin-top:3px">' + auto + "Type " + which + " here only for ones that aren\u2019t logged as games \u2014 the two are added together.</div>";
 }
 function editPrefill(obj, key, grp, sk) {
-  if (grp !== "pit") return obj;
   const o = Object.assign({}, obj), mc = manualCareer[key];
-  for (const k in DERIVED_PIT) {
-    let typed = "";
-    if (sk == null) { if (mc && mc.pit && mc.pit.lump && filled(mc.pit.lump[k])) typed = mc.pit.lump[k]; }
-    else { const b = seasonBaseStats(mc && mc.pit && mc.pit.seasons[sk]); if (b && filled(b[k])) typed = b[k]; }
-    o[k] = typed;
-  }
+  const typedOf = k => {
+    if (sk == null) { const L = mc && mc[grp] && mc[grp].lump; return (L && filled(L[k])) ? L[k] : ""; }
+    const b = seasonBaseStats(mc && mc[grp] && mc[grp].seasons[sk]);
+    return (b && filled(b[k])) ? b[k] : "";
+  };
+  o.G = typedOf("G");                                          // derived from the log, so show only what was typed
+  if (grp === "pit") for (const k in DERIVED_PIT) o[k] = typedOf(k);
   return o;
 }
 function fieldInputs(fields, obj, attr) {
@@ -1523,9 +1559,10 @@ function renderCareerEditor() {
         + AWARD_FIELDS.map(([id, lbl]) => '<label style="font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" data-maseason="' + esc(yr) + '" data-maward="' + id + '"' + (won.indexOf(id) >= 0 ? " checked" : "") + ">" + esc(lbl) + "</label>").join("") + "</div>";
       const excl = seasonExcluded(mcEdit.key, yr);
       const exclBox = '<label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-top:6px"><input type="checkbox" data-mcnocareer="' + esc(yr) + '"' + (excl ? " checked" : "") + ">Don\u2019t count toward career totals <span style=\"color:var(--ink-soft)\">(All-Star, spring training, playoffs)</span></label>";
-      return '<details class="mcseason" data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + ' <button class="lbtn soft" data-mcdelseason="' + grp + "|" + esc(yr) + '" style="float:right;font-size:10px;padding:1px 6px">remove</button></summary>'
+      return '<details class="mcseason" data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>"
         + '<div class="hint" style="font-size:10px;margin:2px 0">Shows this season\u2019s current total (typed + games logged since). Editing sets the total; games you log afterward add on top.</div>'
-        + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + exclBox + awChecks + "</details>";
+        + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + exclBox + awChecks
+        + '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);text-align:right"><button class="lbtn soft" data-mcdelseason="' + grp + "|" + esc(yr) + '" style="font-size:10px;padding:2px 8px;color:var(--red)">\ud83d\uddd1 Remove this season</button></div></details>';
     }).join("");
     return '<div style="margin-top:10px"><div class="disp" style="font-weight:700;font-size:14px;border-bottom:2px solid var(--ink);padding-bottom:3px">' + gLabel + "</div>"
       + '<div class="sclabel" style="margin-top:6px">Career total <span style="font-weight:400;color:var(--ink-soft)">(auto-filled from seasons — edit any to set a baseline)</span></div>'
@@ -1551,9 +1588,17 @@ function renderCareerEditor() {
     + '<div class="hint" style="margin-top:4px">Enter a <b>starting baseline</b> — the totals this player had <b>before</b> you began logging games here. Games you log then add on top automatically (updating the leaderboards live), so enter the baseline once and don\u2019t re-add logged games to it. A career total takes priority; seasons feed the per-season boards.</div>'
     + '<div style="margin-top:8px;padding:8px;border:1px dashed var(--line);border-radius:6px">'
     + '<div style="font-size:12px;font-weight:700">⏱ Live counting line</div>'
-    + '<div class="hint" style="font-size:10px;margin:2px 0 6px">' + (liveSince ? "Only games logged after <b>" + esc(new Date(liveSince).toLocaleString()) + "</b> affect totals. Everything before is treated as already inside your typed numbers." : "All logged games currently affect totals. If your typed totals already include games you\u2019ve logged, set the line to now so they\u2019re not counted twice.") + "</div>"
-    + '<button class="lbtn soft" data-mclivenow="1" style="font-size:11px">Count live games from now on</button>'
-    + (liveSince ? ' <button class="lbtn soft" data-mcliveall="1" style="font-size:11px">Count all logged games</button>' : "")
+    + (function () {
+        const pcut = (mc && mc.since) || 0, gcut = liveSince || 0;
+        const eff = Math.max(gcut, pcut);
+        const who = pcut > gcut ? "this player\u2019s last save" : "the global line you set";
+        const status = eff
+          ? "Only games logged after <b>" + esc(new Date(eff).toLocaleString()) + "</b> add to totals (set by " + who + "). Games before it are treated as already inside your typed numbers."
+          : "Every logged game adds to totals. If your typed totals already include games you\u2019ve logged, set the line to now so nothing is counted twice.";
+        return '<div class="hint" style="font-size:10px;margin:2px 0 6px">' + status + "</div>"
+          + '<button class="lbtn soft" data-mclivenow="1" style="font-size:11px">Count live games from now on</button>'
+          + (eff ? ' <button class="lbtn soft" data-mcliveall="1" style="font-size:11px">Count all logged games</button>' : "");
+      })()
     + "</div>"
     + seasonBlock("bat", "Batting", MC_BAT_FIELDS)
     + seasonBlock("pit", "Pitching", MC_PIT_FIELDS)
@@ -1592,7 +1637,16 @@ function wireCareerEditor(wrap) {
   }));
   wrap.querySelector("[data-mcclose]").addEventListener("click", () => { saveCareerEditor(wrap); close(); try { renderStatsContent(); } catch (e) {} });
   const bnow = wrap.querySelector("[data-mclivenow]"); if (bnow) bnow.addEventListener("click", () => { saveCareerEditor(wrap); liveSince = Date.now(); persistLiveSince(); renderCareerEditor(); });
-  const ball = wrap.querySelector("[data-mcliveall]"); if (ball) ball.addEventListener("click", () => { liveSince = 0; persistLiveSince(); renderCareerEditor(); });
+  const ball = wrap.querySelector("[data-mcliveall]");
+  if (ball) ball.addEventListener("click", () => {
+    saveCareerEditor(wrap);                                    // save first — it stamps a fresh cutoff we then clear
+    appConfirm("Count every logged game toward " + mcEdit.name + "\u2019s totals? Games logged before the cutoff will start adding again \u2014 so if the season totals you typed already include those games, they\u2019ll now be counted twice. Clear any typed numbers you don\u2019t want doubled.", () => {
+      liveSince = 0; persistLiveSince();
+      const m = manualCareer[mcEdit.key]; if (m) m.since = 0;   // the per-player cutoff is what actually blocked it
+      persistManualCareer();
+      renderCareerEditor();
+    });
+  });
   wrap.querySelectorAll("[data-mchand]").forEach(b => b.addEventListener("click", () => { setHand(mcEdit.name, handOf(mcEdit.name) === b.dataset.mchand ? "" : b.dataset.mchand); renderCareerEditor(); }));
   wrap.querySelector("[data-mcsave]").addEventListener("click", () => { saveCareerEditor(wrap); renderCareerEditor(); });
   wrap.querySelectorAll("[data-mcaddseason]").forEach(b => b.addEventListener("click", () => {
@@ -1609,8 +1663,12 @@ function wireCareerEditor(wrap) {
   }));
   wrap.querySelectorAll("[data-mcdelseason]").forEach(b => b.addEventListener("click", () => {
     saveCareerEditor(wrap);
-    const [grp, yr] = b.dataset.mcdelseason.split("|"); delete manualCareer[mcEdit.key][grp].seasons[yr];
-    renderCareerEditor();
+    const [grp, yr] = b.dataset.mcdelseason.split("|");
+    appConfirm("Remove the " + yr + " " + (grp === "bat" ? "batting" : "pitching") + " season for " + mcEdit.name + "? The stats you typed for it are deleted. Games you logged stay in your game log.", () => {
+      delete manualCareer[mcEdit.key][grp].seasons[yr];
+      persistManualCareer();
+      renderCareerEditor();
+    });
   }));
 }
 
@@ -6627,6 +6685,83 @@ function fmtMean(row, mean) {
   }
   return mean.toFixed(mean % 1 ? 1 : 0);
 }
+// ── Season-by-season trend (Compare tab) ─────────────────────────────
+// Plots one stat across a video player's seasons so you can see the shape of a career. Exhibition
+// seasons (⊘ not in career) are left out so All-Star and playoff lines don't dent the arc.
+const TREND_BAT = [["HR", "HR"], ["H", "H"], ["RBI", "RBI"], ["R", "R"], ["SB", "SB"], ["AVG", "AVG"], ["OPS", "OPS"], ["bWAR", "bWAR"]];
+const TREND_PIT = [["W", "W"], ["K", "K"], ["SV", "SV"], ["IP", "IP"], ["ERA", "ERA"], ["SHO", "SHO"], ["QS", "QS"], ["pWAR", "pWAR"]];
+let trendGrp = "bat", trendStat = "HR", trendOpen = false;
+function trendVal(stats, grp, key) {
+  if (!stats) return null;
+  if (key === "IP") { const o = ipOutsOf(stats.IP); return o ? o / 3 : null; }
+  if (filled(stats[key])) return num(stats[key]);
+  const m = mapOf(BOX.baseball[grp === "bat" ? 0 : 1].calc(stats));   // rates (AVG/OPS/ERA) are computed, not stored
+  return (m && filled(m[key])) ? num(m[key]) : null;
+}
+// Seasons in career order: numeric years ascending, then anything named (AA, AAA…) alphabetically.
+function trendSeasons(key) {
+  const ks = careerSeasonKeys(key);
+  const nums = ks.filter(s => /^\d+$/.test(s)).sort((a, b) => +a - +b);
+  return nums.concat(ks.filter(s => !/^\d+$/.test(s)).sort());
+}
+function trendSeries(p, grp, key) {
+  if (!p) return null;
+  const mk = mcKeyOf((p.name || "").trim(), p.pid || null);
+  const pts = [];
+  for (const sk of trendSeasons(mk)) {
+    const v = trendVal(seasonResolvedStats(mk, sk, grp), grp, key);
+    if (v != null) pts.push({ season: sk, v: v });
+  }
+  return pts.length ? { name: p.name, pts: pts } : null;
+}
+function trendChartSvg(series, key) {
+  const seasons = [];
+  for (const s of series) for (const pt of s.pts) if (seasons.indexOf(pt.season) < 0) seasons.push(pt.season);
+  if (!seasons.length) return "";
+  const W = 320, H = 150, L = 30, R = 6, T = 10, B = 22;
+  const iw = W - L - R, ih = H - T - B;
+  let hi = -Infinity, lo = Infinity;
+  for (const s of series) for (const pt of s.pts) { if (pt.v > hi) hi = pt.v; if (pt.v < lo) lo = pt.v; }
+  if (lo > 0) lo = 0;                                        // anchor counting stats at zero
+  if (hi === lo) hi = lo + 1;
+  const pad = (hi - lo) * 0.08; hi += pad;
+  const x = i => L + (seasons.length === 1 ? iw / 2 : iw * i / (seasons.length - 1));
+  const y = v => T + ih - ih * (v - lo) / (hi - lo);
+  const fmt = v => (key === "AVG" || key === "OPS") ? b3(v) : (key === "ERA" || key === "IP" || key === "bWAR" || key === "pWAR") ? Number(v).toFixed(key === "ERA" ? 2 : 1) : String(Math.round(v));
+  const colors = ["var(--red)", "var(--ink)"];
+  let g = "";
+  for (let t = 0; t <= 2; t++) {   // light gridlines with value labels
+    const v = lo + (hi - lo) * t / 2, yy = y(v);
+    g += '<line x1="' + L + '" y1="' + yy.toFixed(1) + '" x2="' + (W - R) + '" y2="' + yy.toFixed(1) + '" stroke="var(--line)" stroke-width="1"/>'
+       + '<text x="' + (L - 4) + '" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" font-size="7" fill="var(--ink-soft)">' + esc(fmt(v)) + "</text>";
+  }
+  seasons.forEach((s, i) => { g += '<text x="' + x(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="7" fill="var(--ink-soft)">' + esc(s) + "</text>"; });
+  series.forEach((s, si) => {
+    const col = colors[si % colors.length];
+    const pts = s.pts.map(pt => ({ i: seasons.indexOf(pt.season), v: pt.v })).sort((a, b) => a.i - b.i);
+    if (pts.length > 1) g += '<polyline fill="none" stroke="' + col + '" stroke-width="2" points="' + pts.map(pt => x(pt.i).toFixed(1) + "," + y(pt.v).toFixed(1)).join(" ") + '"/>';
+    for (const pt of pts) g += '<circle cx="' + x(pt.i).toFixed(1) + '" cy="' + y(pt.v).toFixed(1) + '" r="2.5" fill="' + col + '"/>';
+    const best = pts.reduce((a, b) => (b.v > a.v ? b : a), pts[0]);
+    g += '<text x="' + x(best.i).toFixed(1) + '" y="' + (y(best.v) - 5).toFixed(1) + '" text-anchor="middle" font-size="7" font-weight="700" fill="' + col + '">' + esc(fmt(best.v)) + "</text>";
+  });
+  const legend = series.map((s, si) => '<span style="color:' + colors[si % colors.length] + ';font-weight:700">\u25cf ' + esc(s.name) + "</span>").join(' <span style="color:var(--ink-soft)">vs</span> ');
+  return '<div style="font-size:11px;margin:2px 0 4px">' + legend + "</div>"
+    + '<svg viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block">' + g + "</svg>";
+}
+function trendBlockHtml(pa, pb) {
+  const defs = trendGrp === "bat" ? TREND_BAT : TREND_PIT;
+  if (!defs.some(d => d[0] === trendStat)) trendStat = defs[0][0];
+  const grpChips = ["bat", "pit"].map(gk => '<button class="chip disp' + (trendGrp === gk ? " active" : "") + '" data-tgrp="' + gk + '">' + (gk === "bat" ? "Batting" : "Pitching") + "</button>").join("");
+  const statChips = defs.map(([k, lbl]) => '<button class="chip disp' + (trendStat === k ? " active" : "") + '" data-tstat="' + k + '">' + esc(lbl) + "</button>").join("");
+  const series = [trendSeries(pa, trendGrp, trendStat), trendSeries(pb, trendGrp, trendStat)].filter(Boolean);
+  const chart = series.length ? trendChartSvg(series, trendStat)
+    : '<div class="hint" style="padding:8px">No season data for this stat yet. Seasons come from your career editor and the games you log.</div>';
+  return '<details data-tdetails="1"' + (trendOpen ? " open" : "") + ' style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83d\udcc8 Season-by-season trend</summary>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">One dot per season, earliest to latest. Pick the same player on both sides to see just his own arc; exhibition seasons marked \u2298 are left out.</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">' + grpChips + "</div>"
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">' + statChips + "</div>"
+    + chart + "</details>";
+}
 function compareTabHtml() {
   const anyReal = playerPool("real").length, anyVideo = playerPool("video").length;
   if (anyReal + anyVideo < 1) return '<div class="empty">Log some players and you can compare them head-to-head here.</div>';
@@ -6674,7 +6809,7 @@ function compareTabHtml() {
   const fieldSel = '<div style="display:flex;align-items:center;gap:6px;margin-top:12px;font-size:12px;color:var(--ink-soft)">Field average from:'
     + '<select data-cmp="field" class="inline"><option value="real"' + (cmpField === "real" ? " selected" : "") + '>📺 Real games</option><option value="video"' + (cmpField === "video" ? " selected" : "") + '>🎮 Video games</option></select></div>';
   return '<div class="hint" style="margin-bottom:8px">Pick two players \u2014 each can be a real or video-game player, at career or a single season. <b style="color:var(--red)">Bold</b> = the better mark; Field = your logged-pool average.</div>'
-    + controls + body + (batT || pitT ? fieldSel : "");
+    + controls + body + (batT || pitT ? fieldSel : "") + trendBlockHtml(pa, pb);
 }
 let leaderStat = "HR", leaderScope = "career";
 function videoCareerPlayers() {
@@ -6955,6 +7090,9 @@ async function refreshLeaderFromMLB(scope, catId) {
   } catch (e) { if (st) st.textContent = "Couldn\u2019t reach MLB (" + e.message + "). Try paste from Baseball-Reference."; }
 }
 function wireCompare(out) {
+  out.querySelectorAll("[data-tdetails]").forEach(d => d.addEventListener("toggle", () => { trendOpen = d.open; }));   // survive the re-render a chip tap causes
+  out.querySelectorAll("[data-tgrp]").forEach(b => b.addEventListener("click", () => { trendGrp = b.dataset.tgrp; renderStatsContent(); }));
+  out.querySelectorAll("[data-tstat]").forEach(b => b.addEventListener("click", () => { trendStat = b.dataset.tstat; renderStatsContent(); }));
   out.querySelectorAll("select[data-cmp]").forEach(sel => sel.addEventListener("change", () => {
     const which = sel.dataset.cmp;
     if (which === "field") { cmpField = sel.value; renderStatsContent(); return; }
