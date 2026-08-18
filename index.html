@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v183";
+const APP_VERSION = "v186";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1389,11 +1389,17 @@ function rowActive(r) {
   return false;
 }
 function derivedGames(key, seasonKey, grp) {
+  // Unlike shutouts, G is something you type straight off the game's season screen (162 for a full
+  // year), so a typed figure already covers every game. Honour the cutoff — count only games logged
+  // since the totals were last baselined — or a typed 162 plus 68 logged games reads as 230.
+  const mc = manualCareer[key];
+  const cut = Math.max(liveSince || 0, (mc && mc.since) || 0);
   let n = 0;
   for (const e of entries) {
     if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
     if (seasonKey != null && String(seasonOf(e)) !== String(seasonKey)) continue;
     if (seasonKey == null && seasonExcluded(key, seasonOf(e))) continue;
+    if (cut && idMs(e.id) <= cut) continue;
     for (const r of (e.box || [])) {
       if (playerRowGrp(r, key) !== grp || !rowActive(r)) continue;
       n++; break;                                            // one game credit per game, however many rows
@@ -3452,6 +3458,10 @@ function renderDef() {
 
 // ── MLB career milestone alerts ──────────────────────────────────────
 function milestonesOn() { try { return localStorage.getItem("sports-stat-milestones") !== "0"; } catch (e) { return true; } }
+// Spoiler-free import: for a game you're still working through. Hides scores in the game list and
+// leaves the score field alone, so the final score can't give away an ending you haven't reached.
+function noSpoilers() { try { return localStorage.getItem("sports-stat-nospoil") === "1"; } catch (e) { return false; } }
+function setNoSpoilers(on) { try { localStorage.setItem("sports-stat-nospoil", on ? "1" : "0"); } catch (e) {} }
 function curBatterName() {
   const L = form.live; if (!L) return "";
   if (L.solo) return L.solo.type === "batter" ? (L.solo.player || "").trim() : "";
@@ -4812,10 +4822,13 @@ function openMlbImport() {
     + '<div class="hint">For real MLB or minor-league games you watched or listened to but couldn’t track. Pick the level and date, pick the game, and the full box score comes in — then choose how you caught it and save.</div>'
     + '<div class="lsetup-row"><label>Level</label><select id="miLevel">' + LINEUP_LEVELS.map(([id, lbl]) => '<option value="' + id + '">' + lbl + "</option>").join("") + "</select></div>"
     + '<div class="lsetup-row"><label>Game date</label><input type="date" id="miDate" value="' + today() + '"></div>'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:4px 0"><input type="checkbox" id="miNoSpoil"' + (noSpoilers() ? " checked" : "") + '>\ud83d\ude48 Spoiler-free <span style="color:var(--ink-soft);font-size:11px">(hide scores, don\u2019t import them)</span></label>'
     + '<button class="donebtn disp" id="miFind">Find games</button>'
     + '<div id="miList" style="margin-top:10px"></div></div>';
   ov.querySelector("#miClose").addEventListener("click", closeMlbImport);
   ov.querySelector("#miFind").addEventListener("click", mlbFindGames);
+  const nsB = ov.querySelector("#miNoSpoil");
+  if (nsB) nsB.addEventListener("change", () => { setNoSpoilers(nsB.checked); if (document.getElementById("miList").children.length) mlbFindGames(); });   // re-list so scores hide/show right away
 }
 function closeMlbImport() {
   document.getElementById("overlay").classList.add("hidden");
@@ -4836,7 +4849,7 @@ async function mlbFindGames() {
     if (!games.length) { list.innerHTML = '<div class="hint">No games at that level on that date.</div>'; return; }
     list.innerHTML = games.map(g => {
       const a = g.teams.away, h = g.teams.home;
-      const sc = a.score != null && h.score != null ? " — " + a.score + "\u2013" + h.score : "";
+      const sc = (!noSpoilers() && a.score != null && h.score != null) ? " — " + a.score + "\u2013" + h.score : "";
       const st = (g.status && g.status.detailedState) || "";
       const isFin = !!(g.status && (g.status.abstractGameState === "Final" || g.status.codedGameState === "F"));
       return '<button class="lbtn soft" style="width:100%;margin-bottom:6px;text-align:left" data-gpk="' + g.gamePk + '" data-final="' + (isFin ? "1" : "") + '" data-vn="' + esc((g.venue && g.venue.name) || "") + '" data-an="' + esc(a.team.name) + '" data-hn="' + esc(h.team.name) + '">'
@@ -5253,9 +5266,10 @@ async function mlbPullPart(gamePk, venueName, innSet, innLabel, an, hn) {
         rows.push(row);
       }
     }
-    const lastPlay = all[all.length - 1];
-    const finA = lastPlay.result && lastPlay.result.awayScore != null ? String(lastPlay.result.awayScore) : "";
-    const finH = lastPlay.result && lastPlay.result.homeScore != null ? String(lastPlay.result.homeScore) : "";
+    // Score as of the last play you actually took — not the end of the game, which you may not have reached.
+    const lastPlay = plays.length ? plays[plays.length - 1] : all[all.length - 1];
+    const finA = (!noSpoilers() && lastPlay.result && lastPlay.result.awayScore != null) ? String(lastPlay.result.awayScore) : "";
+    const finH = (!noSpoilers() && lastPlay.result && lastPlay.result.homeScore != null) ? String(lastPlay.result.homeScore) : "";
     const entry = { ...emptyForm(), date: document.getElementById("miDate").value, mode: "real", lvl: mlvl,
       away: an || "Away",
       home: hn || "Home",
@@ -5351,7 +5365,7 @@ async function mlbPullFull(gamePk, venueName) {
     const entry = { ...emptyForm(), date: d, mode: "real", lvl: mlvl,
       away: (bx.teams.away.team && bx.teams.away.team.name) || "Away",
       home: (bx.teams.home.team && bx.teams.home.team.name) || "Home",
-      awayScore: aScore, homeScore: hScore, place: "", venue: "tv", imported: true, gamePk: String(gamePk), final: miPickedFinal, box: rows };
+      awayScore: noSpoilers() ? "" : aScore, homeScore: noSpoilers() ? "" : hScore, place: "", venue: "tv", imported: true, gamePk: String(gamePk), final: miPickedFinal, box: rows };
     if (live) entry.live = live;
     miFinish(entry);
   } catch (err) {
@@ -6674,7 +6688,11 @@ function playerPool(mode) {
 function playerSeasonsList(pid, name, mode) {
   const s = {};
   for (const e of entries) { if (e.sport !== "baseball" || modeOf(e) !== mode) continue; for (const r of (e.box || [])) { if (pid ? r.pid === pid : (r.player || "").trim().toLowerCase() === name) { const y = seasonOf(e); if (y) s[y] = 1; break; } } }
-  if (mode === "video") { try { for (const y of playerSeasonKeys(mcKeyOf(name, pid || null))) if (y) s[y] = 1; } catch (e) {} }   // seasons typed in the career editor too
+  if (mode === "video") {
+    const mk = mcKeyOf(name, pid || null);
+    try { for (const y of playerSeasonKeys(mk)) if (y) s[y] = 1; } catch (e) {}   // seasons typed in the career editor too
+    for (const y in s) if (seasonExcluded(mk, y)) delete s[y];                    // ⊘ seasons are out of career, so out of comparisons
+  }
   return Object.keys(s).sort((a, b) => (a < b ? 1 : -1));
 }
 function aggPlayerSeason(pid, name, season, mode) {
@@ -6709,7 +6727,8 @@ function cmpLineFor(p, mode, season) {
   const pitO = season === "all" ? careerResolvedStats(key, "pit") : seasonResolvedStats(key, season, "pit");
   return { hasBat: Object.keys(batO).length > 0, hasPit: Object.keys(pitO).length > 0, batO, pitO,
     batM: mapOf(BOX.baseball[0].calc(batO)), pitM: mapOf(BOX.baseball[1].calc(pitO)),
-    g: num(batO.G) || Object.keys(A.games).length, gPit: num(pitO.G) || Object.keys(A.gPit).length };
+    g: num(batO.G) || derivedGames(key, season === "all" ? null : season, "bat"),
+    gPit: num(pitO.G) || derivedGames(key, season === "all" ? null : season, "pit") };
 }
 // [label, group, kind(count/rate/g/gpit), key, dir(+1 higher better / -1 lower better)]
 const CMP_BAT = [["G", "bat", "g", "", 1], ["AVG", "bat", "rate", "AVG", 1], ["OBP", "bat", "rate", "OBP", 1], ["SLG", "bat", "rate", "SLG", 1], ["OPS", "bat", "rate", "OPS", 1], ["HR", "bat", "count", "HR", 1], ["XBH", "bat", "xbh", "", 1], ["RBI", "bat", "count", "RBI", 1], ["R", "bat", "count", "R", 1], ["H", "bat", "count", "H", 1], ["SB", "bat", "count", "SB", 1], ["BB", "bat", "count", "BB", 1], ["SO", "bat", "count", "SO", -1]];
@@ -6841,6 +6860,7 @@ function compareTabHtml() {
     if (!pool.find(p => p.key === cur.key)) { cur.key = (pool[0] || {}).key || ""; cur.season = "all"; }
     const P = pool.find(p => p.key === cur.key) || {};
     const seasons = P.pid || P.name ? playerSeasonsList(P.pid || null, (P.name || "").trim().toLowerCase(), cur.mode) : [];
+    if (cur.season !== "all" && seasons.indexOf(cur.season) < 0) cur.season = "all";   // e.g. the season was just flagged ⊘
     const modeSel = '<select data-cmp="' + side + '-mode" style="flex:1">'
       + ['<option value="real"' + (cur.mode === "real" ? " selected" : "") + ">📺 Real</option>", '<option value="video"' + (cur.mode === "video" ? " selected" : "") + ">🎮 Video</option>"].join("") + "</select>";
     const opts = pool.map(p => '<div class="cmpopt" data-key="' + esc(p.key) + '" data-nm="' + esc(canonName(p.name)) + '"' + (p.key === cur.key ? ' data-cur="1"' : "") + ">" + esc(p.name) + "</div>").join("");
