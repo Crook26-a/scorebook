@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v199";
+const APP_VERSION = "v200";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1651,7 +1651,14 @@ function renderCareerEditor() {
       return '<details class="mcseason" data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>"
         + '<div class="hint" style="font-size:10px;margin:2px 0">Shows this season\u2019s current total (typed + games logged since). Editing sets the total; games you log afterward add on top.</div>'
         + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + exclBox + awChecks
-        + (g.seasons[yr] ? '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);text-align:right"><button class="lbtn soft" data-mcdelseason="' + grp + "|" + esc(yr) + '" style="font-size:10px;padding:2px 8px;color:var(--red)">\ud83d\uddd1 Remove this season</button></div>' : '<div class="hint" style="font-size:10px;margin-top:6px">Comes from your logged games \u2014 nothing typed to remove.</div>') + "</details>";
+        + '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);display:flex;gap:6px;justify-content:space-between;align-items:center">'
+        + (hasLoggedGrp(mcEdit.key, yr, grp)
+            ? '<button class="lbtn soft" data-mcrecount="' + grp + "|" + esc(yr) + '" style="font-size:10px;padding:2px 8px">\u21ba Count from logged games</button>'
+            : '<span class="hint" style="font-size:10px">No logged games this season.</span>')
+        + (g.seasons[yr]
+            ? '<button class="lbtn soft" data-mcdelseason="' + grp + "|" + esc(yr) + '" style="font-size:10px;padding:2px 8px;color:var(--red)">\ud83d\uddd1 Remove</button>'
+            : '<span class="hint" style="font-size:10px">Nothing typed.</span>')
+        + "</div></details>";
     }).join("");
     return '<div style="margin-top:10px"><div class="disp" style="font-weight:700;font-size:14px;border-bottom:2px solid var(--ink);padding-bottom:3px">' + gLabel + "</div>"
       + '<div class="sclabel" style="margin-top:6px">Career total <span style="font-weight:400;color:var(--ink-soft)">(auto-filled from seasons — edit any to set a baseline)</span></div>'
@@ -1758,6 +1765,16 @@ function wireCareerEditor(wrap) {
     const grp = b.dataset.mcaddcurrent; const yr = currentSeason();
     if (!yr) return; if (!manualCareer[mcEdit.key][grp].seasons[yr]) manualCareer[mcEdit.key][grp].seasons[yr] = { base: {}, baked: [] };
     renderCareerEditor();
+  }));
+  wrap.querySelectorAll("[data-mcrecount]").forEach(b => b.addEventListener("click", () => {
+    saveCareerEditor(wrap);                                  // save first — it stamps fresh cutoffs we then drop
+    const [grp, yr] = b.dataset.mcrecount.split("|");
+    const n = loggedGrpGames(mcEdit.key, yr, grp);
+    appConfirm("Recount " + yr + " " + (grp === "bat" ? "batting" : "pitching") + " for " + mcEdit.name + " straight from the " + n + " logged game" + (n === 1 ? "" : "s") + "? Anything typed for that season is discarded and the totals come purely from your game log.", () => {
+      manualCareer[mcEdit.key][grp].seasons[yr] = { base: {}, at: {} };   // nothing typed → every logged game counts
+      persistManualCareer();
+      renderCareerEditor();
+    });
   }));
   wrap.querySelectorAll("[data-mcdelseason]").forEach(b => b.addEventListener("click", () => {
     saveCareerEditor(wrap);
