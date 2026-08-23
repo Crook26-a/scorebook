@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v193";
+const APP_VERSION = "v194";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -6254,7 +6254,7 @@ const GROUP_VIEW = {
   },
   pit: {
     normal: [["", ["IP", "H", "R", "ER", "BB", "K", "HR", "IBB"]]],
-    adv: [["Pitches", ["PC", "STR", "BAL", "SwS", "LkS"]], ["Efficiency", ["PH", "PBB", "PK", "PIO", "IPO"]], ["Challenges", ["CHL", "CHW"]]],
+    adv: [["Feats", ["CG", "SHO", "QS", "NH", "PG"]], ["Pitches", ["PC", "STR", "BAL", "SwS", "LkS"]], ["Efficiency", ["PH", "PBB", "PK", "PIO", "IPO"]], ["Challenges", ["CHL", "CHW"]]],
     headMetrics: ["ERA", "WHIP"], headCounts: ["IP", "K"]
   },
   fld: {
@@ -6643,6 +6643,26 @@ function careerCardHtml(p) {
     + projectionBlockHtml(p)
     + arsenalBlockHtml(key, null, p.name, "Arsenal \u2014 career")
     + (seasonRows ? '<div class="sclabel" style="margin-top:8px">Seasons (tap to expand)</div>' + seasonRows : "");
+}
+// The Players tab card sums raw box-score columns, so CG/SHO/QS/NH/PG never appear — they aren't
+// columns. Derive them from exactly the games this card is already counting (p.gGames.pit), using
+// the same rowFeats rule as everywhere else, so the card can't disagree with itself.
+function pitAccWithFeats(p) {
+  const ids = p.gGames && p.gGames.pit;
+  if (!ids || !Object.keys(ids).length) return p.pit;
+  const key = mcKeyOf((p.name || "").trim(), p.pid || null);
+  const f = { CG: 0, SHO: 0, QS: 0, NH: 0, PG: 0 };
+  for (const e of entries) {
+    if (!ids[e.id]) continue;
+    for (const r of (e.box || [])) {
+      if (playerRowGrp(r, key) !== "pit") continue;
+      const x = rowFeats(e, r); if (!x) continue;
+      for (const k in f) f[k] += x[k];
+    }
+  }
+  const acc = Object.assign({}, p.pit);
+  for (const k in f) if (f[k]) acc[k] = f[k];
+  return acc;
 }
 function groupDetailHtml(acc, gkey, gp, pname, gGrp) {
   if (!Object.keys(acc).length) return "";
@@ -7410,7 +7430,7 @@ function renderStatsContent() {
         + '<span class="mono" style="font-size:11px;color:var(--ink-soft)"> &nbsp;' + gp + " GP" + (quick ? " · " + quick : "") + "</span>"
         + (teamNames ? '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">' + esc(teamNames) + "</div>" : "")
         + "</summary>"
-        + groupDetailHtml(p.bat, "bat", gp, p.name) + groupDetailHtml(p.pit, "pit", gp, p.name, p.gGames ? Object.keys(p.gGames.pit).length : 0) + groupDetailHtml(p.fld, "fld", gp, p.name)
+        + groupDetailHtml(p.bat, "bat", gp, p.name) + groupDetailHtml(pitAccWithFeats(p), "pit", gp, p.name, p.gGames ? Object.keys(p.gGames.pit).length : 0) + groupDetailHtml(p.fld, "fld", gp, p.name)
         + (appMode === "video" ? careerCardHtml(p) + recordBookHtml(p) : "")
         + (yearF === "all" ? playerExtrasHtml(p.name.trim().toLowerCase(), venueF, p.pid) : "")
         + ((!p.pid && Object.keys(p.teams).length > 1) ? '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)"><div style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">This line spans ' + Object.keys(p.teams).length + " teams (" + esc(Object.keys(p.teams).join(", ")) + "). If those are different people who happen to share a name, split them so their stats stop combining.</div><button class=\"lbtn soft\" data-splitp=\"" + esc(p.name.trim().toLowerCase()) + "\" style=\"width:100%\">\u2934 Different people \u2014 split by team</button></div>" : "")
