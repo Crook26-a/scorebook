@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v196";
+const APP_VERSION = "v199";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1515,19 +1515,24 @@ function seasonTypedAt(key, grp, seasonKey) {
 function liveSeasonAgg(key, seasonKey, grp, since, bakedIds) {
   const acc = {}, baked = new Set(bakedIds || []);
   const cut = Math.max(liveSince || 0, since || 0);   // global "count from now" line, or per-player save cutoff
-  const at = seasonTypedAt(key, grp, seasonKey);      // per-stat: counts from the moment that stat was typed
-  const anyAt = Object.keys(at).length > 0;
+  const mc = manualCareer[key];
+  const base = seasonBaseStats(mc && mc[grp] && mc[grp].seasons[seasonKey]) || {};
+  const at = seasonTypedAt(key, grp, seasonKey);
+  // Same rule as the derived stats: the cutoff only protects a number you typed. A stat you never
+  // typed has nothing to double against, so every logged game counts — otherwise a season like AA,
+  // which has 19 logged games but no typed line, reads as all zeroes.
+  const cutFor = c => (at[c] != null) ? at[c] : (filled(base[c]) ? cut : 0);
   for (const e of entries) {
     if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
     if (String(seasonOf(e)) !== String(seasonKey)) continue;
     const ms = idMs(e.id);
-    const skipAll = cut ? ms <= cut : baked.has(e.id);
-    if (skipAll && !anyAt) continue;                  // no per-stat stamps: old whole-game behaviour
     for (const r of (e.box || [])) {
       if (playerRowGrp(r, key) !== grp) continue;
-      if (!anyAt) { addAgg(acc, r.stats, r.group); continue; }
-      const st = {};                                  // keep only the stats whose own cutoff this game is past
-      for (const c in r.stats) { const c0 = at[c] != null ? at[c] : cut; if (!c0 || ms > c0) st[c] = r.stats[c]; }
+      const st = {};
+      for (const c in r.stats) {
+        const c0 = cutFor(c);
+        if (c0 ? ms > c0 : !baked.has(e.id)) st[c] = r.stats[c];
+      }
       addAgg(acc, st, r.group);
     }
   }
@@ -1709,7 +1714,13 @@ function saveCareerEditor(wrap) {
   });
   const aw = {}; wrap.querySelectorAll("[data-maward]:checked").forEach(cb => { const s = cb.getAttribute("data-maseason"), id = cb.getAttribute("data-maward"); (aw[s] = aw[s] || []); if (aw[s].indexOf(id) < 0) aw[s].push(id); });
   mc.awards = aw;
-  const nc = {}; wrap.querySelectorAll("[data-mcnocareer]:checked").forEach(cb => { nc[cb.getAttribute("data-mcnocareer")] = true; });
+  // Only touch the seasons actually on screen. Assigning a fresh object here would silently drop the
+  // flag for any season whose checkbox wasn't rendered in this pass.
+  const nc = Object.assign({}, mc.noCareer || {});
+  wrap.querySelectorAll("[data-mcnocareer]").forEach(cb => {
+    const k = cb.getAttribute("data-mcnocareer");
+    if (cb.checked) nc[k] = true; else delete nc[k];
+  });
   mc.noCareer = nc;
   mc.since = Date.now();   // totals are complete "as of now"; only games logged after this add on top
   persistManualCareer();
@@ -6997,9 +7008,14 @@ function trendChartSvg(series, key) {
     const pts = s.pts.map(pt => ({ i: seasons.indexOf(pt.season), v: pt.v })).sort((a, b) => a.i - b.i);
     if (pts.length > 1) g += '<polyline fill="none" stroke="' + col + '" stroke-width="2" points="' + pts.map(pt => x(pt.i).toFixed(1) + "," + y(pt.v).toFixed(1)).join(" ") + '"/>';
     for (const pt of pts) g += '<circle cx="' + x(pt.i).toFixed(1) + '" cy="' + y(pt.v).toFixed(1) + '" r="2.5" fill="' + col + '"/>';
-    const best = pts.reduce((a, b) => (b.v > a.v ? b : a), pts[0]);
-    const bx = Math.min(Math.max(x(best.i), L + 8), W - R - 8), by = Math.max(y(best.v) - 5, T + 6);
-    g += '<text x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) + '" text-anchor="middle" font-size="7" font-weight="700" fill="' + col + '">' + esc(fmt(best.v)) + "</text>";
+    // Every point gets its value. With two players on the chart, the second series labels below its
+    // dots so the two don't sit on top of each other.
+    const above = si === 0;
+    for (const pt of pts) {
+      const lx = Math.min(Math.max(x(pt.i), L + 9), W - R - 9);
+      const ly = above ? Math.max(y(pt.v) - 5, T + 6) : Math.min(y(pt.v) + 9, H - B + 2);
+      g += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" text-anchor="middle" font-size="6.5" font-weight="700" fill="' + col + '">' + esc(fmt(pt.v)) + "</text>";
+    }
   });
   const legend = series.map((s, si) => '<span style="color:' + colors[si % colors.length] + ';font-weight:700">\u25cf ' + esc(s.name) + "</span>").join(' <span style="color:var(--ink-soft)">vs</span> ');
   return '<div style="font-size:11px;margin:2px 0 4px">' + legend + "</div>"
