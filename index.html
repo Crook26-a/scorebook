@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v194";
+const APP_VERSION = "v196";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1468,6 +1468,16 @@ function derivedFeats(key, seasonKey) {
 // training, playoffs. Stored per player (not per group) so batting and pitching agree.
 // Does this player have logged games in that season for that group? (Ignores the live cutoff — we
 // only want to know the season exists, not whether it still adds.)
+function loggedGrpGames(key, sk, grp) {
+  let n = 0;
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    if (sk != null && String(seasonOf(e)) !== String(sk)) continue;
+    if (sk == null && seasonExcluded(key, seasonOf(e))) continue;
+    for (const r of (e.box || [])) if (playerRowGrp(r, key) === grp) { n++; break; }
+  }
+  return n;
+}
 function hasLoggedGrp(key, sk, grp) {
   for (const e of entries) {
     if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
@@ -6858,8 +6868,47 @@ function fmtMean(row, mean) {
 // seasons (⊘ not in career) are left out so All-Star and playoff lines don't dent the arc.
 const TREND_BAT = [["HR", "HR"], ["H", "H"], ["RBI", "RBI"], ["R", "R"], ["SB", "SB"], ["AVG", "AVG"], ["OPS", "OPS"], ["bWAR", "bWAR"]];
 const TREND_PIT = [["W", "W"], ["K", "K"], ["SV", "SV"], ["IP", "IP"], ["ERA", "ERA"], ["SHO", "SHO"], ["QS", "QS"], ["pWAR", "pWAR"]];
-let trendGrp = "bat", trendStat = "HR", trendOpen = false, trendRate = false;
+let trendGrp = "bat", trendStat = "HR", trendOpen = false, trendRate = false, trendPitch = "", trendWide = false;
 const TREND_RATE_STATS = { AVG: 1, OPS: 1, ERA: 1 };   // already rates — per-game would be meaningless
+// ── Arsenal over time ────────────────────────────────────────────────
+// Same maths as the arsenal card, but per season so a pitch can be tracked across a career.
+const ARS_LEGACY_NAME = { FB: "Fastball", CB: "Curve", SL: "Slider", CH: "Changeup", OT: "Other" };
+const TREND_ARS = [["usage", "Usage %"], ["thrown", "Thrown"], ["str", "Str %"], ["whiff", "Whiff %"], ["baa", "BAA"], ["rv100", "RV/100"], ["rvtot", "RV total"], ["rvpg", "RV/game"]];
+function arsenalBreakdown(o) {
+  const pitches = {};
+  const ensure = n => pitches[n] = pitches[n] || { thrown: 0, strkThrown: 0, K: 0, BB: 0, HBP: 0, H: 0, O: 0, strikes: 0, swings: 0, whiffs: 0, rv: 0 };
+  for (const k in o) {
+    if (!filled(o[k])) continue;
+    if (k.slice(0, 3) === "px:") ensure(k.slice(3)).thrown += num(o[k]);
+    else if (k.slice(0, 4) === "pst:") ensure(k.slice(4)).strkThrown += num(o[k]);
+    else if (k.slice(0, 4) === "psk:") ensure(k.slice(4)).strikes += num(o[k]);
+    else if (k.slice(0, 4) === "psw:") ensure(k.slice(4)).swings += num(o[k]);
+    else if (k.slice(0, 4) === "pwh:") ensure(k.slice(4)).whiffs += num(o[k]);
+    else if (k.slice(0, 3) === "rv:") ensure(k.slice(3)).rv += num(o[k]);
+    else if (k.slice(0, 3) === "po:") { const [, nm, oc] = k.split(":"); if (nm && oc && oc in ensure(nm)) ensure(nm)[oc] += num(o[k]); }
+    else if (ARS_LEGACY_NAME[k]) ensure(ARS_LEGACY_NAME[k]).thrown += num(o[k]);
+  }
+  return pitches;
+}
+// Every pitch this player has ever thrown, most-used first — the choices for the picker.
+function arsenalPitchNames(key) {
+  const p = arsenalBreakdown(arsenalAgg(key, null));
+  return Object.keys(p).sort((a, b) => p[b].thrown - p[a].thrown);
+}
+function arsenalMetric(o, pitch, metric, games) {
+  const pitches = arsenalBreakdown(o), p = pitches[pitch];
+  if (!p || !p.thrown) return null;
+  const total = Object.keys(pitches).reduce((a, n) => a + pitches[n].thrown, 0);
+  if (metric === "thrown") return p.thrown;
+  if (metric === "usage") return total ? p.thrown / total * 100 : null;
+  if (metric === "str") return p.strkThrown > 0 ? p.strikes / p.strkThrown * 100 : null;
+  if (metric === "whiff") return p.swings > 0 ? p.whiffs / p.swings * 100 : null;
+  if (metric === "baa") { const ab = p.K + p.H + p.O; return ab > 0 ? p.H / ab : null; }
+  if (metric === "rv100") return p.rv !== 0 ? (p.rv / 1000) / p.thrown * 100 : null;
+  if (metric === "rvtot") return p.rv !== 0 ? p.rv / 1000 : null;
+  if (metric === "rvpg") return (p.rv !== 0 && games > 0) ? (p.rv / 1000) / games : null;
+  return null;
+}
 function trendVal(stats, grp, key) {
   if (!stats) return null;
   if (key === "IP") { const o = ipOutsOf(stats.IP); return o ? o / 3 : null; }
@@ -6873,14 +6922,33 @@ function trendSeasons(key) {
   const nums = ks.filter(s => /^\d+$/.test(s)).sort((a, b) => +a - +b);
   return nums.concat(ks.filter(s => !/^\d+$/.test(s)).sort());
 }
+// Did he appear in this role that season at all? Distinguishes "zero shutouts" from "never pitched".
+function seasonHasGrp(key, sk, grp) {
+  if (hasLoggedGrp(key, sk, grp)) return true;
+  const mc = manualCareer[key];
+  const b = seasonBaseStats(mc && mc[grp] && mc[grp].seasons[sk]);
+  for (const k in (b || {})) if (filled(b[k]) && num(b[k]) !== 0) return true;
+  return false;
+}
 function trendSeries(p, grp, key) {
   if (!p) return null;
   const mk = mcKeyOf((p.name || "").trim(), p.pid || null);
   const pts = [];
+  const isRate = !!TREND_RATE_STATS[key] || (grp === "ars" && ["str", "whiff", "baa", "rv100", "rvtot", "rvpg"].indexOf(key) >= 0);
   for (const sk of trendSeasons(mk)) {
+    // A season he played but didn't record the stat in is a real zero — plot it, don't drop it, or a
+    // shutout chart silently skips the years he had none and the arc looks like it never happened.
+    const played = grp === "ars" ? hasLoggedGrp(mk, sk, "pit") : seasonHasGrp(mk, sk, grp);
+    if (grp === "ars") {
+      const v = arsenalMetric(arsenalAgg(mk, sk), trendPitch, key, loggedGrpGames(mk, sk, "pit"));
+      if (v != null) pts.push({ season: sk, v: v });
+      else if (played && !isRate) pts.push({ season: sk, v: 0 });
+      continue;
+    }
     const st = seasonResolvedStats(mk, sk, grp);
     let v = trendVal(st, grp, key);
-    if (v != null && trendRate && !TREND_RATE_STATS[key]) {   // per game, so a 16-game year compares to a 162-game year
+    if (v == null && played && !isRate) v = 0;
+    if (v != null && trendRate && !isRate) {                  // per game, so a 16-game year compares to a 162-game year
       const g = num(st.G);
       v = g ? v / g : null;
     }
@@ -6892,7 +6960,9 @@ function trendChartSvg(series, key) {
   const seasons = [];
   for (const s of series) for (const pt of s.pts) if (seasons.indexOf(pt.season) < 0) seasons.push(pt.season);
   if (!seasons.length) return "";
-  const W = 320, H = 150, L = 30, R = 6, T = 10, B = 22;
+  const wide = trendWide && seasons.length > 1;
+  const W = wide ? Math.max(340, 44 + seasons.length * 46) : 340;
+  const H = 152, L = 30, R = 14, T = 12, B = 22;
   const iw = W - L - R, ih = H - T - B;
   let hi = -Infinity, lo = Infinity;
   for (const s of series) for (const pt of s.pts) { if (pt.v > hi) hi = pt.v; if (pt.v < lo) lo = pt.v; }
@@ -6901,8 +6971,10 @@ function trendChartSvg(series, key) {
   const pad = (hi - lo) * 0.08; hi += pad;
   const x = i => L + (seasons.length === 1 ? iw / 2 : iw * i / (seasons.length - 1));
   const y = v => T + ih - ih * (v - lo) / (hi - lo);
-  const perG = trendRate && !TREND_RATE_STATS[key];
-  const fmt = v => (key === "AVG" || key === "OPS") ? b3(v) : perG ? Number(v).toFixed(2)
+  const perG = trendRate && !TREND_RATE_STATS[key] && trendGrp !== "ars";
+  const fmt = v => (trendGrp === "ars")
+      ? (key === "baa" ? b3(v) : key === "thrown" ? String(Math.round(v)) : key === "rvpg" ? Number(v).toFixed(2) : (key === "rv100" || key === "rvtot") ? Number(v).toFixed(1) : Math.round(v) + "%")
+    : (key === "AVG" || key === "OPS") ? b3(v) : perG ? Number(v).toFixed(2)
     : (key === "ERA" || key === "IP" || key === "bWAR" || key === "pWAR") ? Number(v).toFixed(key === "ERA" ? 2 : 1) : String(Math.round(v));
   const colors = ["var(--red)", "var(--ink)"];
   let g = "";
@@ -6912,11 +6984,13 @@ function trendChartSvg(series, key) {
        + '<text x="' + (L - 4) + '" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" font-size="7" fill="var(--ink-soft)">' + esc(fmt(v)) + "</text>";
   }
   // With a long career the season labels collide, so show at most ~6 — always the first and last.
-  const lblStep = Math.ceil(seasons.length / 6);
+  const lblStep = wide ? 1 : Math.ceil(seasons.length / 6);   // scrolling gives every season room for its own label
   seasons.forEach((s, i) => {
     if (lblStep > 1 && i % lblStep !== 0 && i !== seasons.length - 1) return;
     if (lblStep > 1 && i !== seasons.length - 1 && seasons.length - 1 - i < lblStep / 2) return;   // don't crowd the last one
-    g += '<text x="' + x(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="7" fill="var(--ink-soft)">' + esc(s) + "</text>";
+    const anc = i === 0 ? "start" : (i === seasons.length - 1 ? "end" : "middle");
+    const lx = i === 0 ? x(i) - 6 : (i === seasons.length - 1 ? x(i) + 6 : x(i));
+    g += '<text x="' + lx.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + anc + '" font-size="7" fill="var(--ink-soft)">' + esc(s) + "</text>";
   });
   series.forEach((s, si) => {
     const col = colors[si % colors.length];
@@ -6924,27 +6998,40 @@ function trendChartSvg(series, key) {
     if (pts.length > 1) g += '<polyline fill="none" stroke="' + col + '" stroke-width="2" points="' + pts.map(pt => x(pt.i).toFixed(1) + "," + y(pt.v).toFixed(1)).join(" ") + '"/>';
     for (const pt of pts) g += '<circle cx="' + x(pt.i).toFixed(1) + '" cy="' + y(pt.v).toFixed(1) + '" r="2.5" fill="' + col + '"/>';
     const best = pts.reduce((a, b) => (b.v > a.v ? b : a), pts[0]);
-    g += '<text x="' + x(best.i).toFixed(1) + '" y="' + (y(best.v) - 5).toFixed(1) + '" text-anchor="middle" font-size="7" font-weight="700" fill="' + col + '">' + esc(fmt(best.v)) + "</text>";
+    const bx = Math.min(Math.max(x(best.i), L + 8), W - R - 8), by = Math.max(y(best.v) - 5, T + 6);
+    g += '<text x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) + '" text-anchor="middle" font-size="7" font-weight="700" fill="' + col + '">' + esc(fmt(best.v)) + "</text>";
   });
   const legend = series.map((s, si) => '<span style="color:' + colors[si % colors.length] + ';font-weight:700">\u25cf ' + esc(s.name) + "</span>").join(' <span style="color:var(--ink-soft)">vs</span> ');
   return '<div style="font-size:11px;margin:2px 0 4px">' + legend + "</div>"
-    + '<svg viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block">' + g + "</svg>";
+    + (wide
+        ? '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><svg viewBox="0 0 ' + W + " " + H + '" style="width:' + Math.round(W * 1.7) + "px;height:" + Math.round(H * 1.7) + 'px;display:block">' + g + "</svg></div>"
+        : '<svg viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block">' + g + "</svg>");
 }
 function trendBlockHtml(pa, pb) {
-  const defs = trendGrp === "bat" ? TREND_BAT : TREND_PIT;
+  // Arsenal mode needs a pitch as well as a metric, and the pitch list comes from whoever is on the left.
+  const arsKey = pa ? mcKeyOf((pa.name || "").trim(), pa.pid || null) : null;
+  const pitchNames = (trendGrp === "ars" && arsKey) ? arsenalPitchNames(arsKey) : [];
+  if (trendGrp === "ars" && pitchNames.length && pitchNames.indexOf(trendPitch) < 0) trendPitch = pitchNames[0];
+  const defs = trendGrp === "ars" ? TREND_ARS : trendGrp === "bat" ? TREND_BAT : TREND_PIT;
   if (!defs.some(d => d[0] === trendStat)) trendStat = defs[0][0];
-  const grpChips = ["bat", "pit"].map(gk => '<button class="chip disp' + (trendGrp === gk ? " active" : "") + '" data-tgrp="' + gk + '">' + (gk === "bat" ? "Batting" : "Pitching") + "</button>").join("");
+  const grpChips = ["bat", "pit", "ars"].map(gk => '<button class="chip disp' + (trendGrp === gk ? " active" : "") + '" data-tgrp="' + gk + '">' + (gk === "bat" ? "Batting" : gk === "pit" ? "Pitching" : "\u26be Arsenal") + "</button>").join("");
+  const pitchChips = trendGrp !== "ars" ? ""
+    : (pitchNames.length
+        ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">' + pitchNames.map(p => '<button class="chip disp' + (trendPitch === p ? " active" : "") + '" data-tpitch="' + esc(p) + '">' + esc(p) + "</button>").join("") + "</div>"
+        : '<div class="hint" style="font-size:10px;margin-bottom:4px">No pitch-mix logged for this player yet.</div>');
   const statChips = defs.map(([k, lbl]) => '<button class="chip disp' + (trendStat === k ? " active" : "") + '" data-tstat="' + k + '">' + esc(lbl) + "</button>").join("");
-  const rateChips = TREND_RATE_STATS[trendStat] ? '<span class="hint" style="font-size:10px">' + esc(trendStat) + " is already a rate</span>"
+  const fitChips = [["0", "Fit"], ["1", "Scroll"]].map(([v, lbl]) => '<button class="chip disp' + ((trendWide ? "1" : "0") === v ? " active" : "") + '" data-twide="' + v + '">' + lbl + "</button>").join("");
+  const rateChips = trendGrp === "ars" ? "" : TREND_RATE_STATS[trendStat] ? '<span class="hint" style="font-size:10px">' + esc(trendStat) + " is already a rate</span>"
     : [["0", "Totals"], ["1", "Per game"]].map(([v, lbl]) => '<button class="chip disp' + ((trendRate ? "1" : "0") === v ? " active" : "") + '" data-trate="' + v + '">' + lbl + "</button>").join("");
   const series = [trendSeries(pa, trendGrp, trendStat), trendSeries(pb, trendGrp, trendStat)].filter(Boolean);
   const chart = series.length ? trendChartSvg(series, trendStat)
-    : '<div class="hint" style="padding:8px">No season data for this stat yet. Seasons come from your career editor and the games you log.</div>';
+    : '<div class="hint" style="padding:8px">' + (trendGrp === "ars" ? "No seasons with this pitch logged yet." : "No season data for this stat yet. Seasons come from your career editor and the games you log.") + "</div>";
   return '<details data-tdetails="1"' + (trendOpen ? " open" : "") + ' style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83d\udcc8 Season-by-season trend</summary>'
     + '<div class="hint" style="font-size:10px;margin:4px 0">One dot per season, earliest to latest. Pick the same player on both sides to see just his own arc; exhibition seasons marked \u2298 are left out.</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">' + grpChips + "</div>"
+    + pitchChips
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">' + statChips + "</div>"
-    + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">' + rateChips + "</div>"
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">' + rateChips + (rateChips ? '<span style="width:8px"></span>' : "") + fitChips + "</div>"
     + chart + "</details>";
 }
 function compareTabHtml() {
@@ -7280,6 +7367,8 @@ function wireCompare(out) {
   out.querySelectorAll("[data-tgrp]").forEach(b => b.addEventListener("click", () => { trendGrp = b.dataset.tgrp; renderStatsContent(); }));
   out.querySelectorAll("[data-tstat]").forEach(b => b.addEventListener("click", () => { trendStat = b.dataset.tstat; renderStatsContent(); }));
   out.querySelectorAll("[data-trate]").forEach(b => b.addEventListener("click", () => { trendRate = b.dataset.trate === "1"; renderStatsContent(); }));
+  out.querySelectorAll("[data-tpitch]").forEach(b => b.addEventListener("click", () => { trendPitch = b.dataset.tpitch; renderStatsContent(); }));
+  out.querySelectorAll("[data-twide]").forEach(b => b.addEventListener("click", () => { trendWide = b.dataset.twide === "1"; renderStatsContent(); }));
   out.querySelectorAll("select[data-cmp]").forEach(sel => sel.addEventListener("change", () => {
     const which = sel.dataset.cmp;
     if (which === "field") { cmpField = sel.value; renderStatsContent(); return; }
