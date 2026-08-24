@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v200";
+const APP_VERSION = "v202";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1362,7 +1362,7 @@ function seasonBaseStats(s) { if (!s) return {}; if (s.base || s.baked) return s
 function seasonBakedIds(s) { return (s && Array.isArray(s.baked)) ? s.baked : []; }
 function idMs(id) { const n = parseInt(String(id || ""), 36); return isNaN(n) ? 0 : n; }   // game ids are Date.now().toString(36)
 function playerRowGrp(r, key) { const nm = (r.player || "").trim(); if (!nm || mcKeyOf(nm, r.pid || null) !== key) return null; return r.group === "batting" ? "bat" : r.group === "pitching" ? "pit" : null; }
-function gameIdsFor(key, seasonKey, grp) { const ids = []; for (const e of entries) { if (e.sport !== "baseball" || modeOf(e) !== "video") continue; if (String(seasonOf(e)) !== String(seasonKey)) continue; if ((e.box || []).some(r => playerRowGrp(r, key) === grp)) ids.push(e.id); } return ids; }
+function gameIdsFor(key, seasonKey, grp) { const ids = []; for (const e of entries) { if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue; if (String(seasonOf(e)) !== String(seasonKey)) continue; if ((e.box || []).some(r => playerRowGrp(r, key) === grp)) ids.push(e.id); } return ids; }
 // live games that count toward a season = logged AFTER the player's "as of" cutoff (or, for legacy data, not baked)
 // SHO and CG aren't box-score columns, so a logged shutout would never reach the leaderboards.
 // They're *computed* from the game logs with the same rule the record book uses — and deliberately
@@ -1404,7 +1404,7 @@ function derivedGames(key, seasonKey, grp) {
   const cut = derivedCutoff(key, grp, seasonKey, "G");   // same rule as every other derived stat
   let n = 0;
   for (const e of entries) {
-    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
     if (seasonKey != null && String(seasonOf(e)) !== String(seasonKey)) continue;
     if (seasonKey == null && seasonExcluded(key, seasonOf(e))) continue;
     if (cut && idMs(e.id) <= cut) continue;
@@ -1453,7 +1453,7 @@ function derivedFeats(key, seasonKey) {
   const out = { SHO: 0, CG: 0, QS: 0, NH: 0, PG: 0 }, cuts = {};
   for (const k in out) cuts[k] = derivedCutoff(key, "pit", seasonKey, k);
   for (const e of entries) {
-    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
     if (String(seasonOf(e)) !== String(seasonKey)) continue;
     for (const r of (e.box || [])) {
       if (playerRowGrp(r, key) !== "pit") continue;
@@ -1471,7 +1471,7 @@ function derivedFeats(key, seasonKey) {
 function loggedGrpGames(key, sk, grp) {
   let n = 0;
   for (const e of entries) {
-    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
     if (sk != null && String(seasonOf(e)) !== String(sk)) continue;
     if (sk == null && seasonExcluded(key, seasonOf(e))) continue;
     for (const r of (e.box || [])) if (playerRowGrp(r, key) === grp) { n++; break; }
@@ -1480,7 +1480,7 @@ function loggedGrpGames(key, sk, grp) {
 }
 function hasLoggedGrp(key, sk, grp) {
   for (const e of entries) {
-    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
     if (String(seasonOf(e)) !== String(sk)) continue;
     for (const r of (e.box || [])) if (playerRowGrp(r, key) === grp) return true;
   }
@@ -1523,7 +1523,7 @@ function liveSeasonAgg(key, seasonKey, grp, since, bakedIds) {
   // which has 19 logged games but no typed line, reads as all zeroes.
   const cutFor = c => (at[c] != null) ? at[c] : (filled(base[c]) ? cut : 0);
   for (const e of entries) {
-    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
     if (String(seasonOf(e)) !== String(seasonKey)) continue;
     const ms = idMs(e.id);
     for (const r of (e.box || [])) {
@@ -1554,7 +1554,7 @@ function seasonResolvedStats(key, seasonKey, grp) {
 function playerSeasonKeys(key) {
   const set = new Set(); const mc = manualCareer[key];
   if (mc) { for (const y in mc.bat.seasons) set.add(y); for (const y in mc.pit.seasons) set.add(y); }
-  for (const e of entries) { if (e.sport !== "baseball" || modeOf(e) !== "video") continue; if ((e.box || []).some(r => { const nm = (r.player || "").trim(); return nm && mcKeyOf(nm, r.pid || null) === key; })) set.add(String(seasonOf(e))); }
+  for (const e of entries) { if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue; if ((e.box || []).some(r => { const nm = (r.player || "").trim(); return nm && mcKeyOf(nm, r.pid || null) === key; })) set.add(String(seasonOf(e))); }
   return [...set].filter(x => x !== "");
 }
 function seasonSumStats(key, grp) { return sumStatObjs(careerSeasonKeys(key).map(sk => seasonResolvedStats(key, sk, grp))); }
@@ -1562,7 +1562,7 @@ function seasonSumStats(key, grp) { return sumStatObjs(careerSeasonKeys(key).map
 function liveAllAgg(key, grp, since) {
   const acc = {}, cut = Math.max(liveSince || 0, since || 0);
   for (const e of entries) {
-    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
     if (cut && idMs(e.id) <= cut) continue;
     if (seasonExcluded(key, seasonOf(e))) continue;   // exhibition/playoff seasons stay out of career
     for (const r of (e.box || [])) if (playerRowGrp(r, key) === grp) addAgg(acc, r.stats, r.group);
@@ -6019,6 +6019,9 @@ function renderTeamsView() {
 
 // ── Stats view ──
 let statsTab = "players";
+// Career/season aggregation follows whichever mode you're in, so the Analytics tab works for real
+// games as well. In video mode this is exactly the old hardcoded "video".
+function statsMode() { return appMode === "real" ? "real" : "video"; }
 let recordsTab = "pitchers";
 let recordsTeam = "";
 
@@ -6413,7 +6416,7 @@ for (const k in SEED_AWARDS) if (BBREF_AWARD[k]) BBREF_AWARD[k].list = SEED_AWAR
 function trackedSeasonAgg() {
   const out = {};
   for (const e of entries) {
-    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
     const yr = seasonOf(e); if (!yr) continue;
     for (const r of (e.box || [])) {
       const nm = (r.player || "").trim(); if (!nm) continue;
@@ -6516,7 +6519,7 @@ function isArsenalKey(k) { return !!ARS_LEGACY[k] || ARS_PREFIX.some(p => k.slic
 function arsenalAgg(key, seasonKey) {
   const acc = {};
   for (const e of entries) {
-    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
     if (seasonKey != null && String(seasonOf(e)) !== String(seasonKey)) continue;
     if (seasonKey == null && seasonExcluded(key, seasonOf(e))) continue;   // exhibition seasons stay out of the career mix
     for (const r of (e.box || [])) {
@@ -7040,6 +7043,158 @@ function trendChartSvg(series, key) {
         ? '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><svg viewBox="0 0 ' + W + " " + H + '" style="width:' + Math.round(W * 1.7) + "px;height:" + Math.round(H * 1.7) + 'px;display:block">' + g + "</svg></div>"
         : '<svg viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block">' + g + "</svg>");
 }
+// ── Relationship: one dot per game ───────────────────────────────────
+// Season totals can't answer "what happens to the 4-seam when he leans on the changeup" — that
+// needs game-level points. Pulls each game's pitch mix straight from its box row.
+let relOpen = false, relXS = "pit|IP", relYS = "pit|K";
+function gameArsenalRows(key) {
+  const out = [];
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
+    if (seasonExcluded(key, seasonOf(e))) continue;
+    let o = null;
+    for (const r of (e.box || [])) {
+      if (playerRowGrp(r, key) !== "pit") continue;
+      for (const c in r.stats) if (filled(r.stats[c]) && isArsenalKey(c)) { o = o || {}; o[c] = (o[c] || 0) + num(r.stats[c]); }
+    }
+    if (o) out.push({ e: e, o: o });
+  }
+  return out;
+}
+// An axis is either a compare stat ("bat|HR") or a pitch metric ("ars|Changeup|usage").
+function relAxisOptions(key) {
+  const out = [["Batting", CMP_BAT.filter(r => r[2] !== "g").map(r => ["bat|" + r[0], r[0]])],
+               ["Pitching", CMP_PIT.filter(r => r[2] !== "gpit").map(r => ["pit|" + r[0], r[0]])]];
+  for (const p of arsenalPitchNames(key)) out.push([p, TREND_ARS.filter(m => m[0] !== "rvpg").map(m => ["ars|" + p + "|" + m[0], m[1]])]);
+  return out;
+}
+function relAxisLabel(key, spec) {
+  for (const [grpLbl, opts] of relAxisOptions(key)) for (const [v, l] of opts) if (v === spec) return grpLbl === "Batting" || grpLbl === "Pitching" ? l : grpLbl + " " + l;
+  return spec;
+}
+function relAxisIsArs(spec) { return spec.slice(0, 4) === "ars|"; }
+function relAxisMetric(spec) { const p = spec.split("|"); return relAxisIsArs(spec) ? p[2] : p[1]; }
+function relAxisValue(spec, line, arsO) {
+  const p = spec.split("|");
+  if (p[0] === "ars") return arsenalMetric(arsO, p[1], p[2], 1);
+  const rows = p[0] === "bat" ? CMP_BAT : CMP_PIT;
+  const row = rows.find(r => r[0] === p[1]);
+  if (!row) return null;
+  if (p[0] === "bat" ? !line.hasBat : !line.hasPit) return null;
+  const v = cmpVal(line, row);
+  return v.n == null ? null : v.n;
+}
+// One game's worth of stats, shaped like the Compare tab's line so cmpVal can read it.
+function gameLine(e, key) {
+  const bat = {}, pit = {}; let hasB = false, hasP = false, ars = null;
+  for (const r of (e.box || [])) {
+    const g = playerRowGrp(r, key); if (!g) continue;
+    const acc = {}; addAgg(acc, r.stats, r.group);
+    const o = aggToStats(acc, g === "bat" ? "batting" : "pitching");
+    if (g === "bat") { Object.assign(bat, o); hasB = true; }
+    else { Object.assign(pit, o); hasP = true;
+      for (const c in r.stats) if (filled(r.stats[c]) && isArsenalKey(c)) { ars = ars || {}; ars[c] = (ars[c] || 0) + num(r.stats[c]); } }
+  }
+  if (!hasB && !hasP) return null;
+  return { hasBat: hasB, hasPit: hasP, batO: bat, pitO: pit, g: hasB ? 1 : 0, gPit: hasP ? 1 : 0, ars: ars || {},
+    batM: mapOf(BOX.baseball[0].calc(bat)), pitM: mapOf(BOX.baseball[1].calc(pit)) };
+}
+function relPoints(key) {
+  const pts = [];
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
+    if (seasonExcluded(key, seasonOf(e))) continue;
+    const line = gameLine(e, key); if (!line) continue;
+    const x = relAxisValue(relXS, line, line.ars), y = relAxisValue(relYS, line, line.ars);
+    if (x == null || y == null) continue;
+    pts.push({ x: x, y: y, season: seasonOf(e) });
+  }
+  return pts;
+}
+function pearson(pts) {
+  const n = pts.length; if (n < 3) return null;
+  let sx = 0, sy = 0; for (const p of pts) { sx += p.x; sy += p.y; }
+  const mx = sx / n, my = sy / n;
+  let num2 = 0, dx = 0, dy = 0;
+  for (const p of pts) { const a = p.x - mx, b = p.y - my; num2 += a * b; dx += a * a; dy += b * b; }
+  return (dx > 0 && dy > 0) ? num2 / Math.sqrt(dx * dy) : null;
+}
+function relFmt(spec, v) {
+  const m = relAxisMetric(spec);
+  if (relAxisIsArs(spec)) {
+    if (m === "baa") return b3(v);
+    if (m === "thrown") return String(Math.round(v));
+    if (m === "rv100" || m === "rvtot") return Number(v).toFixed(1);
+    return Math.round(v) + "%";
+  }
+  if (Math.abs(v) < 10 && !Number.isInteger(v)) return Number(v).toFixed(2);
+  return Number.isInteger(v) ? String(v) : Number(v).toFixed(1);
+}
+function scatterSvg(pts, xs, ys, xl, yl) {
+  if (pts.length < 2) return '<div class="hint" style="padding:8px">Not enough games with both of these logged yet.</div>';
+  const W = 340, H = 200, L = 34, R = 12, T = 12, B = 26, iw = W - L - R, ih = H - T - B;
+  const ax = pts.map(p => p.x), ay = pts.map(p => p.y);
+  let x0 = Math.min(...ax), x1 = Math.max(...ax), y0 = Math.min(...ay), y1 = Math.max(...ay);
+  const padx = (x1 - x0) * 0.08 || 1, pady = (y1 - y0) * 0.08 || 1;
+  x0 -= padx; x1 += padx; y0 -= pady; y1 += pady;
+  const X = v => L + iw * (v - x0) / (x1 - x0), Y = v => T + ih - ih * (v - y0) / (y1 - y0);
+  let g = "";
+  for (let t = 0; t <= 2; t++) {
+    const yv = y0 + (y1 - y0) * t / 2, yy = Y(yv);
+    g += '<line x1="' + L + '" y1="' + yy.toFixed(1) + '" x2="' + (W - R) + '" y2="' + yy.toFixed(1) + '" stroke="var(--line)" stroke-width="1"/>'
+       + '<text x="' + (L - 4) + '" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" font-size="7" fill="var(--ink-soft)">' + esc(relFmt(ys, yv)) + "</text>";
+    const xv = x0 + (x1 - x0) * t / 2;
+    g += '<text x="' + X(xv).toFixed(1) + '" y="' + (H - 14) + '" text-anchor="middle" font-size="7" fill="var(--ink-soft)">' + esc(relFmt(xs, xv)) + "</text>";
+  }
+  for (const p of pts) g += '<circle cx="' + X(p.x).toFixed(1) + '" cy="' + Y(p.y).toFixed(1) + '" r="2.2" fill="var(--red)" fill-opacity="0.55"/>';
+  const r = pearson(pts);
+  if (r != null) {
+    const n = pts.length; let sx = 0, sy = 0; for (const p of pts) { sx += p.x; sy += p.y; }
+    const mx = sx / n, my = sy / n;
+    let a = 0, b = 0; for (const p of pts) { a += (p.x - mx) * (p.y - my); b += (p.x - mx) * (p.x - mx); }
+    if (b > 0) { const m = a / b, f = v => my + m * (v - mx);
+      g += '<line x1="' + X(x0).toFixed(1) + '" y1="' + Y(f(x0)).toFixed(1) + '" x2="' + X(x1).toFixed(1) + '" y2="' + Y(f(x1)).toFixed(1) + '" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="4 3"/>'; }
+  }
+  g += '<text x="' + (W / 2) + '" y="' + (H - 3) + '" text-anchor="middle" font-size="7" fill="var(--ink-soft)">' + esc(xl) + "</text>";
+  const strength = r == null ? "" : (Math.abs(r) < 0.2 ? "essentially no relationship" : Math.abs(r) < 0.4 ? "a weak relationship" : Math.abs(r) < 0.6 ? "a moderate relationship" : "a strong relationship");
+  return '<div class="hint" style="font-size:10px;margin-bottom:2px"><b>' + esc(yl) + "</b> vs <b>" + esc(xl) + "</b> \u00b7 " + pts.length + " games"
+    + (r != null ? " \u00b7 r = <b>" + r.toFixed(2) + "</b> (" + strength + ")" : "") + "</div>"
+    + '<svg viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block">' + g + "</svg>";
+}
+function relBlockHtml(pa) {
+  const key = pa ? mcKeyOf((pa.name || "").trim(), pa.pid || null) : null;
+  if (!key) return "";
+  const opts = relAxisOptions(key);
+  const flat = []; for (const [, list] of opts) for (const [v] of list) flat.push(v);
+  if (flat.indexOf(relXS) < 0) relXS = flat[0] || "";
+  if (flat.indexOf(relYS) < 0) relYS = flat[1] || flat[0] || "";
+  const sel = (id, cur) => '<select id="' + id + '" class="inline" style="flex:1;min-width:0">'
+    + opts.map(([lbl, list]) => '<optgroup label="' + esc(lbl) + '">'
+        + list.map(([v, l]) => '<option value="' + esc(v) + '"' + (v === cur ? " selected" : "") + ">" + esc(l) + "</option>").join("") + "</optgroup>").join("")
+    + "</select>";
+  return '<details' + (relOpen ? " open" : "") + ' data-reldetails="1" style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83d\udd2c Relationships \u2014 one dot per game</summary>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">Reads the game log rather than season totals, so you can see how two things move together. The dashed line is the fit; r near 0 means no relationship.</div>'
+    + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px"><span class="hint" style="font-size:11px;min-width:12px">Y</span>' + sel("relYSel", relYS) + "</div>"
+    + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><span class="hint" style="font-size:11px;min-width:12px">X</span>' + sel("relXSel", relXS) + "</div>"
+    + scatterSvg(relPoints(key), relXS, relYS, relAxisLabel(key, relXS), relAxisLabel(key, relYS))
+    + "</details>";
+}
+function analyticsTabHtml() {
+  const pool = playerPool(statsMode());
+  if (!pool.length) return '<div class="hint" style="padding:10px">No players logged in this mode yet.</div>';
+  if (!pool.some(p => p.key === anaKey)) anaKey = (pinnedPlayers && pool.find(p => pinnedPlayers[p.key]) || pool[0]).key;
+  const p = pool.find(x => x.key === anaKey);
+  const sel = '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><label class="hint" style="font-size:11px">Player</label>'
+    + '<select id="anaSel" class="inline" style="flex:1">'
+    + pool.map(x => '<option value="' + esc(x.key) + '"' + (x.key === anaKey ? " selected" : "") + ">" + esc(x.name) + "</option>").join("")
+    + "</select></div>";
+  return sel + trendBlockHtml(p, null) + relBlockHtml(p);
+}
+function wireAnalytics(out) {
+  const s = out.querySelector("#anaSel");
+  if (s) s.addEventListener("change", () => { anaKey = s.value; renderStatsContent(); });
+  wireCompare(out);                                   // the trend and scatter chips share their handlers
+}
 function trendBlockHtml(pa, pb) {
   // Arsenal mode needs a pitch as well as a metric, and the pitch list comes from whoever is on the left.
   const arsKey = pa ? mcKeyOf((pa.name || "").trim(), pa.pid || null) : null;
@@ -7402,6 +7557,9 @@ function wireCompare(out) {
   out.querySelectorAll("[data-trate]").forEach(b => b.addEventListener("click", () => { trendRate = b.dataset.trate === "1"; renderStatsContent(); }));
   out.querySelectorAll("[data-tpitch]").forEach(b => b.addEventListener("click", () => { trendPitch = b.dataset.tpitch; renderStatsContent(); }));
   out.querySelectorAll("[data-twide]").forEach(b => b.addEventListener("click", () => { trendWide = b.dataset.twide === "1"; renderStatsContent(); }));
+  out.querySelectorAll("[data-reldetails]").forEach(d => d.addEventListener("toggle", () => { relOpen = d.open; }));
+  const rx = out.querySelector("#relXSel"); if (rx) rx.addEventListener("change", () => { relXS = rx.value; renderStatsContent(); });
+  const ry = out.querySelector("#relYSel"); if (ry) ry.addEventListener("change", () => { relYS = ry.value; renderStatsContent(); });
   out.querySelectorAll("select[data-cmp]").forEach(sel => sel.addEventListener("change", () => {
     const which = sel.dataset.cmp;
     if (which === "field") { cmpField = sel.value; renderStatsContent(); return; }
@@ -7450,10 +7608,11 @@ function renderStatsView() {
     + '<button class="chip disp' + (statsTab === "career" ? " active" : "") + '" data-stab="career">Career</button>'
     + '<button class="chip disp' + (statsTab === "compare" ? " active" : "") + '" data-stab="compare">🆚 Compare</button>'
     + (appMode === "video" ? '<button class="chip disp' + (statsTab === "leaders" ? " active" : "") + '" data-stab="leaders">🏆 Leaders</button>' : "")
-        + (statsTab === "compare" || statsTab === "leaders" ? "" : '<select id="sVenue" class="inline">' + venueFilterOptionsHtml() + "</select>"
+    + '<button class="chip disp' + (statsTab === "analytics" ? " active" : "") + '" data-stab="analytics">📈 Analytics</button>'
+        + (statsTab === "compare" || statsTab === "leaders" || statsTab === "analytics" ? "" : '<select id="sVenue" class="inline">' + venueFilterOptionsHtml() + "</select>"
     + '<select id="sYear" class="inline">' + yearOptionsHtml() + "</select>"
     + '<select id="sLevel" class="inline">' + levelOptionsHtml() + "</select>")
-    + (statsTab === "career" || statsTab === "compare" || statsTab === "leaders" ? "" : '<input id="sSearch" placeholder="Search names…" style="flex:1;min-width:140px">')
+    + (statsTab === "career" || statsTab === "compare" || statsTab === "leaders" || statsTab === "analytics" ? "" : '<input id="sSearch" placeholder="Search names…" style="flex:1;min-width:140px">')
     + '</div><div id="statsContent"></div>';
   v.querySelectorAll("[data-stab]").forEach(b => b.addEventListener("click", () => { statsTab = b.dataset.stab; renderStatsView(); }));
   const vv = v.querySelector("#sVenue"); if (vv) vv.addEventListener("change", renderStatsContent);
@@ -7474,6 +7633,7 @@ function renderStatsContent() {
   const out = v.querySelector("#statsContent");
   if (statsTab === "compare") { out.innerHTML = compareTabHtml(); wireCompare(out); return; }
   if (statsTab === "leaders") { out.innerHTML = leadersTabHtml(); wireLeaders(out); return; }
+  if (statsTab === "analytics") { out.innerHTML = analyticsTabHtml(); wireAnalytics(out); return; }
   const agg = aggregate(venueF, yearF);
   let html = "";
   if (statsTab === "career") {
