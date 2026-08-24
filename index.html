@@ -454,7 +454,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v202";
+const APP_VERSION = "v203";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -7047,6 +7047,7 @@ function trendChartSvg(series, key) {
 // Season totals can't answer "what happens to the 4-seam when he leans on the changeup" — that
 // needs game-level points. Pulls each game's pitch mix straight from its box row.
 let relOpen = false, relXS = "pit|IP", relYS = "pit|K";
+let anaKey = "";                                   // Analytics tab: which player is selected
 function gameArsenalRows(key) {
   const out = [];
   for (const e of entries) {
@@ -7182,7 +7183,16 @@ function relBlockHtml(pa) {
 function analyticsTabHtml() {
   const pool = playerPool(statsMode());
   if (!pool.length) return '<div class="hint" style="padding:10px">No players logged in this mode yet.</div>';
-  if (!pool.some(p => p.key === anaKey)) anaKey = (pinnedPlayers && pool.find(p => pinnedPlayers[p.key]) || pool[0]).key;
+  // Default to whoever you've actually logged the most, so the tab opens on something to look at
+  // rather than the first name in the list.
+  if (!pool.some(p => p.key === anaKey)) {
+    let best = pool[0], bestN = -1;
+    for (const p of pool) {
+      const n = Object.keys(p.games || {}).length + Object.keys(p.gPit || {}).length;
+      if (n > bestN) { bestN = n; best = p; }
+    }
+    anaKey = best.key;
+  }
   const p = pool.find(x => x.key === anaKey);
   const sel = '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><label class="hint" style="font-size:11px">Player</label>'
     + '<select id="anaSel" class="inline" style="flex:1">'
