@@ -429,6 +429,7 @@ const STAT_GLOSSARY = {
   "K-BB%": "Strikeout rate minus walk rate, per batter faced. The cleanest single pitching skill number",
   "AVGa": "Opponents' batting average against this pitcher",
   "QS": "Quality start: 6+ innings with 3 or fewer earned runs", "CG": "Complete game", "SHO": "Shutout: a complete game allowing no runs",
+  "IMM": "Immaculate inning: three strikeouts on exactly nine pitches in one inning",
   "NH": "No-hitter: a complete game without allowing a hit (still counts as a complete game, and as a shutout if no runs scored)",
   "PG": "Perfect game: no baserunners at all — no hits, walks, or hit batters. Also counts as a no-hitter, a complete game and a shutout",
   "CHL": "Pitch challenges used (ABS)", "CHW": "Challenges won \u2014 calls overturned", "CH%": "Challenge success rate", "XBT": "Extra bases taken: steals, advancing on a teammate's hit, and runs scored from the bases (solo tracking)",
@@ -454,7 +455,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v203";
+const APP_VERSION = "v204";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1368,7 +1369,23 @@ function gameIdsFor(key, seasonKey, grp) { const ids = []; for (const e of entri
 // They're *computed* from the game logs with the same rule the record book uses — and deliberately
 // NOT subject to the live-counting cutoff, because there's no typed total they could be baked into.
 // The editor fields for them stay blank and are additive, for shutouts thrown before you used the app.
-const DERIVED_PIT = { SHO: 1, CG: 1, QS: 1, NH: 1, PG: 1 };
+const DERIVED_PIT = { SHO: 1, CG: 1, QS: 1, NH: 1, PG: 1, IMM: 1 };
+// Immaculate inning: three strikeouts on nine pitches in one inning. A box score can't show that, so
+// it's replayed from the game's pitch-by-pitch log, grouping pitches by the inning they came in.
+function gameImmaculateFor(e, key) {
+  const log = e.live && e.live.log; if (!log || !log.length) return 0;
+  const byInn = {};
+  for (const le of log) {
+    const p = le.pit; if (!p || !(p.player || "").trim()) continue;
+    if (mcKeyOf(p.player.trim(), null) !== key) continue;
+    const inn = (le.snap && le.snap.inn) || 0; if (!inn) continue;
+    const b = byInn[inn] = byInn[inn] || { pc: 0, k: 0 };
+    for (const c of (p.cols || [])) { if (c[0] === "PC") b.pc += num(c[1]); else if (c[0] === "K") b.k += num(c[1]); }
+  }
+  let n = 0;
+  for (const i in byInn) if (byInn[i].pc === 9 && byInn[i].k === 3) n++;
+  return n;
+}
 function rowFeats(e, row) {
   const o3 = ipOutsOf(row.stats.IP); if (!o3) return null;
   const side = row.team, opp = side === "away" ? "home" : "away";
@@ -1385,7 +1402,7 @@ function rowFeats(e, row) {
   const perfect = noHit && blanked && num(row.stats.BB) === 0 && num(row.stats.IBB) === 0 && num(row.stats.HBP) === 0;
   return { SHO: (!filled(row.stats.SHO) && o3 >= 27 && blanked) ? 1 : 0, CG: (!filled(row.stats.CG) && cg) ? 1 : 0,
     QS: (!filled(row.stats.QS) && o3 >= 18 && er <= 3) ? 1 : 0,
-    NH: (!filled(row.stats.NH) && noHit) ? 1 : 0, PG: (!filled(row.stats.PG) && perfect) ? 1 : 0 };
+    NH: (!filled(row.stats.NH) && noHit) ? 1 : 0, PG: (!filled(row.stats.PG) && perfect) ? 1 : 0, IMM: 0 };
 }
 // G is a count of games, not a box-score column, so nothing ever accumulated it. Credit a game
 // whenever the player actually did something in that group: an at-bat (or walk, run, anything) for
@@ -1446,11 +1463,11 @@ function derivedFeats(key, seasonKey) {
   // protecting it. Judging the whole career at once meant one typed CG in 2027 suppressed every
   // logged shutout in every other season.
   if (seasonKey == null) {
-    const tot = { SHO: 0, CG: 0, QS: 0, NH: 0, PG: 0 };
+    const tot = { SHO: 0, CG: 0, QS: 0, NH: 0, PG: 0, IMM: 0 };
     for (const sk of careerSeasonKeys(key)) { const f = derivedFeats(key, sk); for (const k in tot) tot[k] += f[k]; }
     return tot;
   }
-  const out = { SHO: 0, CG: 0, QS: 0, NH: 0, PG: 0 }, cuts = {};
+  const out = { SHO: 0, CG: 0, QS: 0, NH: 0, PG: 0, IMM: 0 }, cuts = {};
   for (const k in out) cuts[k] = derivedCutoff(key, "pit", seasonKey, k);
   for (const e of entries) {
     if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
@@ -1460,6 +1477,7 @@ function derivedFeats(key, seasonKey) {
       const f = rowFeats(e, r); if (!f) continue;
       for (const k in out) if (!cuts[k] || idMs(e.id) > cuts[k]) out[k] += f[k];
     }
+    if (!cuts.IMM || idMs(e.id) > cuts.IMM) out.IMM += gameImmaculateFor(e, key);   // needs the log, not a row
   }
   return out;
 }
@@ -1588,7 +1606,7 @@ function careerResolvedStats(key, grp) {
 }
 // Fields collected in the career editor (box-style keys + WAR carried from the game).
 const MC_BAT_FIELDS = [["G", "G"], ["AB", "AB"], ["R", "R"], ["H", "H"], ["2B", "2B"], ["3B", "3B"], ["HR", "HR"], ["RBI", "RBI"], ["BB", "BB"], ["IBB", "IBB"], ["HBP", "HBP"], ["SO", "SO"], ["SB", "SB"], ["SF", "SF"], ["bWAR", "bWAR"]];
-const MC_PIT_FIELDS = [["G", "G"], ["W", "W"], ["L", "L"], ["SV", "SV"], ["IP", "IP"], ["H", "H"], ["R", "R"], ["ER", "ER"], ["BB", "BB"], ["K", "K"], ["HR", "HR"], ["CG", "CG"], ["SHO", "SHO"], ["QS", "QS"], ["NH", "NH"], ["PG", "PG"], ["pWAR", "pWAR"]];
+const MC_PIT_FIELDS = [["G", "G"], ["W", "W"], ["L", "L"], ["SV", "SV"], ["IP", "IP"], ["H", "H"], ["R", "R"], ["ER", "ER"], ["BB", "BB"], ["K", "K"], ["HR", "HR"], ["CG", "CG"], ["SHO", "SHO"], ["QS", "QS"], ["NH", "NH"], ["PG", "PG"], ["IMM", "IMM"], ["pWAR", "pWAR"]];
 let mcEdit = null;   // { key, name }
 function openCareerEditor(name, pid) {
   mcEdit = { key: mcKeyOf(name, pid), name: name };
@@ -1607,9 +1625,9 @@ function derivedHint(grp, sk) {
   if (grp === "pit") {
     let d = { SHO: 0, CG: 0, QS: 0, NH: 0, PG: 0 };
     try { d = derivedFeats(mcEdit.key, sk); } catch (e) {}
-    for (const k of ["SHO", "CG", "QS", "NH", "PG"]) if (d[k]) bits.push("<b>" + d[k] + "</b> " + k);
+    for (const k of ["SHO", "CG", "QS", "NH", "PG", "IMM"]) if (d[k]) bits.push("<b>" + d[k] + "</b> " + k);
   }
-  const which = grp === "pit" ? "G/SHO/CG/QS/NH/PG" : "G";
+  const which = grp === "pit" ? "G/SHO/CG/QS/NH/PG/IMM" : "G";
   const auto = bits.length ? "Counted automatically from your logged games: " + bits.join(", ") + ". " : "";
   return '<div class="hint" style="font-size:10px;margin-top:3px">' + auto + "Type " + which + " here only for ones that aren\u2019t logged as games \u2014 the two are added together.</div>";
 }
@@ -6295,7 +6313,7 @@ const GROUP_VIEW = {
   },
   pit: {
     normal: [["", ["IP", "H", "R", "ER", "BB", "K", "HR", "IBB"]]],
-    adv: [["Feats", ["CG", "SHO", "QS", "NH", "PG"]], ["Pitches", ["PC", "STR", "BAL", "SwS", "LkS"]], ["Efficiency", ["PH", "PBB", "PK", "PIO", "IPO"]], ["Challenges", ["CHL", "CHW"]]],
+    adv: [["Feats", ["CG", "SHO", "QS", "NH", "PG", "IMM"]], ["Pitches", ["PC", "STR", "BAL", "SwS", "LkS"]], ["Efficiency", ["PH", "PBB", "PK", "PIO", "IPO"]], ["Challenges", ["CHL", "CHW"]]],
     headMetrics: ["ERA", "WHIP"], headCounts: ["IP", "K"]
   },
   fld: {
@@ -6653,7 +6671,7 @@ function careerCardHtml(p) {
     return '<div style="margin-top:4px"><div style="font-size:11px;font-weight:700;color:var(--ink-soft)">' + (grp === "bat" ? "Batting" : "Pitching") + (rateLine.trim() ? " \u2014 " + esc(rateLine) : "") + "</div>"
       + (cells.length ? '<div class="sgrid">' + cells.join("") + "</div>" : "") + "</div>";
   };
-  const body = render("bat", "batting", ["G", "AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"]) + render("pit", "pitching", ["G", "W", "L", "SV", "IP", "H", "ER", "BB", "K", "HR", "QS", "CG", "SHO", "NH", "PG"]);
+  const body = render("bat", "batting", ["G", "AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"]) + render("pit", "pitching", ["G", "W", "L", "SV", "IP", "H", "ER", "BB", "K", "HR", "QS", "CG", "SHO", "NH", "PG", "IMM"]);
   if (!body) return header + '<div class="hint" style="margin-top:2px">No seasons yet — tap to add seasons (there\u2019s a one-tap button for your current season, ' + esc(currentSeason() || "\u2014") + '). Games you log flow into the matching season automatically.</div>';
   // awards line (read-only, summed across seasons)
   const awT = awardTotals(key);
@@ -6692,7 +6710,7 @@ function pitAccWithFeats(p) {
   const ids = p.gGames && p.gGames.pit;
   if (!ids || !Object.keys(ids).length) return p.pit;
   const key = mcKeyOf((p.name || "").trim(), p.pid || null);
-  const f = { CG: 0, SHO: 0, QS: 0, NH: 0, PG: 0 };
+  const f = { CG: 0, SHO: 0, QS: 0, NH: 0, PG: 0, IMM: 0 };
   for (const e of entries) {
     if (!ids[e.id]) continue;
     for (const r of (e.box || [])) {
@@ -6700,6 +6718,7 @@ function pitAccWithFeats(p) {
       const x = rowFeats(e, r); if (!x) continue;
       for (const k in f) f[k] += x[k];
     }
+    f.IMM += gameImmaculateFor(e, key);
   }
   const acc = Object.assign({}, p.pit);
   for (const k in f) if (f[k]) acc[k] = f[k];
