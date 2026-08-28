@@ -455,7 +455,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v206";
+const APP_VERSION = "v208";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -3747,7 +3747,8 @@ function videoMileBannerLines(nm, team, isPit) {
       const v = num(base[d.key]), g = num(tod[d.key]), eff = v + g;
       if (!eff) continue;
       const n = nextMile(eff, d.step, d.min), away = n - eff;
-      if (away <= 0 || away > d.near) continue;
+      const near = GAME_STATS[d.key] ? 1 : d.near;          // one-per-game stats only alert on the doorstep
+      if (away <= 0 || away > near) continue;
       const sig = d.key + "@" + n; if (seen.has(sig)) continue; seen.add(sig);   // career and season often chase the same number
       out.push({ away: away, text: away + " " + d.label + " from " + n + ' <span style="color:var(--ink-soft)">(' + esc(tag) + " " + v + (g ? " + " + g + " today" : "") + ")</span>" });
     }
@@ -3867,7 +3868,7 @@ function vMileLines(stats, defs) {
 // Records to chase, mapped to the Leaders-tab single-season boards. Separate bat/pit lists because
 // H and R mean different things on each side of the box score.
 const VREC_SEASON_BAT = [["HR", "HR"], ["H", "hits"], ["RBI", "RBI"], ["R", "runs"], ["SB", "SB"], ["2B", "2B"], ["3B", "3B"]];
-const VREC_SEASON_PIT = [["W", "wins"], ["K", "K"], ["SV", "saves"], ["SHO", "shutouts"]];
+const VREC_SEASON_PIT = [["W", "wins"], ["K", "K"], ["SV", "saves"]];   // shutouts/CG/no-hitters are too rare to chase
 const VREC_CAREER_BAT = VREC_SEASON_BAT, VREC_CAREER_PIT = VREC_SEASON_PIT;
 // Chasing the all-time boards: getting onto the board, then passing the man above.
 // These sit alongside the round-number milestones — once a record is passed, the round numbers carry on.
@@ -7068,7 +7069,7 @@ function trendChartSvg(series, key) {
 // ── Relationship: one dot per game ───────────────────────────────────
 // Season totals can't answer "what happens to the 4-seam when he leans on the changeup" — that
 // needs game-level points. Pulls each game's pitch mix straight from its box row.
-let relOpen = false, relXS = "pit|IP", relYS = "pit|K";
+let relOpen = false, relXS = "pit|IP", relYS = "pit|K", relSkip = {};   // seasons switched off in the scatter
 let anaKey = "";                                   // Analytics tab: which player is selected
 function gameArsenalRows(key) {
   const out = [];
@@ -7127,6 +7128,7 @@ function relPoints(key) {
   for (const e of entries) {
     if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
     if (seasonExcluded(key, seasonOf(e))) continue;
+    if (relSkip[String(seasonOf(e))]) continue;              // switched off with the season chips
     const line = gameLine(e, key); if (!line) continue;
     const x = relAxisValue(relXS, line, line.ars), y = relAxisValue(relYS, line, line.ars);
     if (x == null || y == null) continue;
@@ -7199,6 +7201,14 @@ function relBlockHtml(pa) {
     + '<div class="hint" style="font-size:10px;margin:4px 0">Reads the game log rather than season totals, so you can see how two things move together. The dashed line is the fit; r near 0 means no relationship.</div>'
     + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px"><span class="hint" style="font-size:11px;min-width:12px">Y</span>' + sel("relYSel", relYS) + "</div>"
     + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><span class="hint" style="font-size:11px;min-width:12px">X</span>' + sel("relXSel", relXS) + "</div>"
+    + (function () {                                        // which seasons feed the chart
+        const ss = trendSeasons(key); if (ss.length < 2) return "";
+        const on = ss.filter(s => !relSkip[s]).length;
+        return '<div class="hint" style="font-size:10px;margin-bottom:2px">Seasons used (' + on + " of " + ss.length + ") — tap to include or drop</div>"
+          + '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">'
+          + ss.map(s => '<button class="chip disp" style="font-size:10px;padding:2px 7px' + (relSkip[s] ? ";opacity:.4;text-decoration:line-through" : ";background:var(--ink);color:var(--card)") + '" data-relseason="' + esc(s) + '">' + esc(s) + "</button>").join("")
+          + (on < ss.length ? ' <button class="chip disp" style="font-size:10px;padding:2px 7px" data-relseasonall="1">All</button>' : "")
+          + "</div>"; })()
     + scatterSvg(relPoints(key), relXS, relYS, relAxisLabel(key, relXS), relAxisLabel(key, relYS))
     + "</details>";
 }
@@ -7592,6 +7602,12 @@ function wireCompare(out) {
   out.querySelectorAll("[data-reldetails]").forEach(d => d.addEventListener("toggle", () => { relOpen = d.open; }));
   const rx = out.querySelector("#relXSel"); if (rx) rx.addEventListener("change", () => { relXS = rx.value; renderStatsContent(); });
   const ry = out.querySelector("#relYSel"); if (ry) ry.addEventListener("change", () => { relYS = ry.value; renderStatsContent(); });
+  out.querySelectorAll("[data-relseason]").forEach(b => b.addEventListener("click", () => {
+    const s = b.getAttribute("data-relseason");
+    if (relSkip[s]) delete relSkip[s]; else relSkip[s] = true;
+    renderStatsContent();
+  }));
+  const ra = out.querySelector("[data-relseasonall]"); if (ra) ra.addEventListener("click", () => { relSkip = {}; renderStatsContent(); });
   out.querySelectorAll("select[data-cmp]").forEach(sel => sel.addEventListener("change", () => {
     const which = sel.dataset.cmp;
     if (which === "field") { cmpField = sel.value; renderStatsContent(); return; }
