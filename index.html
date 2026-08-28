@@ -455,7 +455,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v204";
+const APP_VERSION = "v206";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -3835,8 +3835,7 @@ const VMILE_CAREER_BAT = [
 const VMILE_CAREER_PIT = [
   { key: "K", label: "K", step: 100, min: 100, near: 15 },
   { key: "W", label: "wins", step: 25, min: 25, near: 5 },
-  { key: "SV", label: "saves", step: 25, min: 25, near: 5 },
-  { key: "SHO", label: "shutouts", step: 5, min: 5, near: 1 }
+  { key: "SV", label: "saves", step: 25, min: 25, near: 5 }
 ];
 const VMILE_SEASON_BAT = [
   { key: "HR", label: "HR", step: 10, min: 20, near: 3 },
@@ -3850,6 +3849,9 @@ const VMILE_SEASON_PIT = [
   { key: "W", label: "wins", step: 5, min: 10, near: 2 },
   { key: "SV", label: "saves", step: 5, min: 20, near: 2 }
 ];
+// Stats you can only add one of per game - a win, a shutout, a no-hitter. Being "5 wins away" means
+// five more starts, which isn't upcoming, so these only surface when you're one away.
+const GAME_STATS = { W: 1, SV: 1 };
 // Milestones a set of totals is closing on, nearest first.
 function vMileLines(stats, defs) {
   if (!stats) return [];
@@ -3857,7 +3859,8 @@ function vMileLines(stats, defs) {
   for (const d of defs) {
     const v = num(stats[d.key]); if (!v) continue;
     const n = nextMile(v, d.step, d.min), away = n - v;
-    if (away > 0 && away <= d.near) out.push({ away: away, next: n, label: d.label, v: v });
+    const near = GAME_STATS[d.key] ? 1 : d.near;
+    if (away > 0 && away <= near) out.push({ away: away, next: n, label: d.label, v: v });
   }
   return out.sort((a, b) => a.away - b.away);
 }
@@ -3873,7 +3876,7 @@ function vRecordLines(stats, defs, scope) {
   if (!stats || typeof effCat !== "function") return out;
   const sc = scope === "career" ? "career" : "season";
   const word = sc === "career" ? "career" : "single-season";
-  const win = t => Math.min(25, Math.max(8, Math.ceil(t * 0.08)));   // near enough to be a real chase, capped so 762 HR doesn't fire 60 out
+  const win = (t, cat) => GAME_STATS[cat] ? 1 : Math.min(25, Math.max(8, Math.ceil(t * 0.08)));   // near enough to be a real chase, capped so 762 HR doesn't fire 60 out
   for (const [cat, label] of defs) {
     const v = num(stats[cat]); if (!v) continue;
     let c = null; try { c = effCat(sc, cat); } catch (e) { c = null; }
@@ -3881,10 +3884,10 @@ function vRecordLines(stats, defs, scope) {
     const R = rankInBoard(list, v);
     if (!R.inBoard) {
       const target = num(R.low[1]), away = target - v;
-      if (away > 0 && away <= win(target)) out.push({ away: away, text: away + " " + label + " from the all-time " + word + " top " + R.len });
+      if (away > 0 && away <= win(target, cat)) out.push({ away: away, text: away + " " + label + " from the all-time " + word + " top " + R.len });
     } else if (R.next) {
       const target = num(R.next[1]), away = target - v;
-      if (away > 0 && away <= win(target)) out.push({ away: away, text: away + " " + label + " from passing " + esc(R.next[0]) + " (" + target + ") for #" + Math.max(1, R.rank - 1) });
+      if (away > 0 && away <= win(target, cat)) out.push({ away: away, text: away + " " + label + " from passing " + esc(R.next[0]) + " (" + target + ") for #" + Math.max(1, R.rank - 1) });
     }
   }
   return out.sort((a, b) => a.away - b.away);
