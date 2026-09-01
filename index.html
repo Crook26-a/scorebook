@@ -455,7 +455,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v208";
+const APP_VERSION = "v212";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -3744,10 +3744,11 @@ function videoMileBannerLines(nm, team, isPit) {
   const todayCar = seasonExcluded(key, gsea) ? {} : today;
   const roll = (base, defs, tag, tod) => {
     for (const d of defs) {
+      if (!mileOn(d.key, "round")) continue;
       const v = num(base[d.key]), g = num(tod[d.key]), eff = v + g;
       if (!eff) continue;
       const n = nextMile(eff, d.step, d.min), away = n - eff;
-      const near = GAME_STATS[d.key] ? 1 : d.near;          // one-per-game stats only alert on the doorstep
+      const near = mileNearFor(d.key, "round", d.near);      // your setting, else the built-in default
       if (away <= 0 || away > near) continue;
       const sig = d.key + "@" + n; if (seen.has(sig)) continue; seen.add(sig);   // career and season often chase the same number
       out.push({ away: away, text: away + " " + d.label + " from " + n + ' <span style="color:var(--ink-soft)">(' + esc(tag) + " " + v + (g ? " + " + g + " today" : "") + ")</span>" });
@@ -3836,7 +3837,12 @@ const VMILE_CAREER_BAT = [
 const VMILE_CAREER_PIT = [
   { key: "K", label: "K", step: 100, min: 100, near: 15 },
   { key: "W", label: "wins", step: 25, min: 25, near: 5 },
-  { key: "SV", label: "saves", step: 25, min: 25, near: 5 }
+  { key: "SV", label: "saves", step: 25, min: 25, near: 5 },
+  { key: "SHO", label: "shutouts", step: 5, min: 5, near: 1 },
+  { key: "CG", label: "complete games", step: 5, min: 5, near: 1 },
+  { key: "NH", label: "no-hitters", step: 5, min: 5, near: 1 },
+  { key: "PG", label: "perfect games", step: 5, min: 5, near: 1 },
+  { key: "IMM", label: "immaculate innings", step: 5, min: 5, near: 1 }
 ];
 const VMILE_SEASON_BAT = [
   { key: "HR", label: "HR", step: 10, min: 20, near: 3 },
@@ -3852,36 +3858,61 @@ const VMILE_SEASON_PIT = [
 ];
 // Stats you can only add one of per game - a win, a shutout, a no-hitter. Being "5 wins away" means
 // five more starts, which isn't upcoming, so these only surface when you're one away.
-const GAME_STATS = { W: 1, SV: 1 };
-// Milestones a set of totals is closing on, nearest first.
+const GAME_STATS = { W: 1, SV: 1, SHO: 1, CG: 1, NH: 1, PG: 1, IMM: 1 };
+// Records to chase, mapped to the Leaders-tab boards. Separate bat/pit lists because H and R mean
+// different things on each side of the box score.
+const VREC_SEASON_BAT = [["HR", "HR"], ["H", "hits"], ["RBI", "RBI"], ["R", "runs"], ["SB", "SB"], ["2B", "2B"], ["3B", "3B"]];
+const VREC_SEASON_PIT = [["W", "wins"], ["K", "K"], ["SV", "saves"], ["SHO", "shutouts"]];
+const VREC_CAREER_BAT = VREC_SEASON_BAT, VREC_CAREER_PIT = VREC_SEASON_PIT;
+// Which milestones you want watched, per stat AND per context: round numbers, the career board, and
+// the single-season board are three different kinds of alert, so they're set independently.
+const MILE_CTX = [["round", "R", "round numbers"], ["career", "C", "career board"], ["season", "S", "season board"]];
+const MILEOFF_KEY = "sports-stat-mileoff-v1", MILENEAR_KEY = "sports-stat-milenear-v1";
+let mileOff = null, mileNear = {};
+try { mileOff = JSON.parse(localStorage.getItem(MILEOFF_KEY) || "null"); } catch (e) { mileOff = null; }
+try { mileNear = JSON.parse(localStorage.getItem(MILENEAR_KEY) || "{}") || {}; } catch (e) { mileNear = {}; }
+if (!mileOff || typeof mileOff !== "object") mileOff = { SHO: 1, CG: 1, NH: 1, PG: 1, IMM: 1 };
+(function () {   // older settings were one value per stat — spread them across all three contexts
+  const fix = o => { const out = {}; for (const k in o) { if (k.indexOf("|") >= 0) out[k] = o[k]; else for (const c of MILE_CTX) out[c[0] + "|" + k] = o[k]; } return out; };
+  mileOff = fix(mileOff); mileNear = fix(mileNear);
+})();
+function persistMileOff() { try { localStorage.setItem(MILEOFF_KEY, JSON.stringify(mileOff)); } catch (e) {} }
+function persistMileNear() { try { localStorage.setItem(MILENEAR_KEY, JSON.stringify(mileNear)); } catch (e) {} }
+// How deep into a leaderboard is worth chasing. The boards run 150 deep, so "approaching the top
+// 150" is barely news — set this to 25 or 10 and only the part you care about counts.
+const MILETOP_KEY = "sports-stat-miletop-v1";
+let mileTop = {};
+try { mileTop = JSON.parse(localStorage.getItem(MILETOP_KEY) || "{}") || {}; } catch (e) { mileTop = {}; }
+function persistMileTop() { try { localStorage.setItem(MILETOP_KEY, JSON.stringify(mileTop)); } catch (e) {} }
+function mileTopFor(sc) { const v = mileTop[sc]; return (v != null && String(v) !== "" && num(v) > 0) ? Math.round(num(v)) : 0; }
+function mileOn(k, ctx) { return !mileOff[(ctx || "round") + "|" + k]; }
+function mileNearSet(k, ctx) { const v = mileNear[(ctx || "round") + "|" + k]; return v != null && String(v) !== ""; }
+function mileNearFor(k, ctx, dflt) { return mileNearSet(k, ctx) ? Math.max(1, num(mileNear[(ctx || "round") + "|" + k])) : (GAME_STATS[k] ? 1 : dflt); }
 function vMileLines(stats, defs) {
   if (!stats) return [];
   const out = [];
   for (const d of defs) {
+    if (!mileOn(d.key, "round")) continue;
     const v = num(stats[d.key]); if (!v) continue;
     const n = nextMile(v, d.step, d.min), away = n - v;
-    const near = GAME_STATS[d.key] ? 1 : d.near;
+    const near = mileNearFor(d.key, "round", d.near);
     if (away > 0 && away <= near) out.push({ away: away, next: n, label: d.label, v: v });
   }
   return out.sort((a, b) => a.away - b.away);
 }
-// Records to chase, mapped to the Leaders-tab single-season boards. Separate bat/pit lists because
-// H and R mean different things on each side of the box score.
-const VREC_SEASON_BAT = [["HR", "HR"], ["H", "hits"], ["RBI", "RBI"], ["R", "runs"], ["SB", "SB"], ["2B", "2B"], ["3B", "3B"]];
-const VREC_SEASON_PIT = [["W", "wins"], ["K", "K"], ["SV", "saves"]];   // shutouts/CG/no-hitters are too rare to chase
-const VREC_CAREER_BAT = VREC_SEASON_BAT, VREC_CAREER_PIT = VREC_SEASON_PIT;
-// Chasing the all-time boards: getting onto the board, then passing the man above.
-// These sit alongside the round-number milestones — once a record is passed, the round numbers carry on.
 function vRecordLines(stats, defs, scope) {
   const out = [];
   if (!stats || typeof effCat !== "function") return out;
   const sc = scope === "career" ? "career" : "season";
   const word = sc === "career" ? "career" : "single-season";
-  const win = (t, cat) => GAME_STATS[cat] ? 1 : Math.min(25, Math.max(8, Math.ceil(t * 0.08)));   // near enough to be a real chase, capped so 762 HR doesn't fire 60 out
+  const win = (t, cat) => mileNearSet(cat, sc) ? mileNearFor(cat, sc, 8) : (GAME_STATS[cat] ? 1 : Math.min(25, Math.max(8, Math.ceil(t * 0.08))));   // near enough to be a real chase, capped so 762 HR doesn't fire 60 out
   for (const [cat, label] of defs) {
+    if (!mileOn(cat, sc)) continue;
     const v = num(stats[cat]); if (!v) continue;
     let c = null; try { c = effCat(sc, cat); } catch (e) { c = null; }
-    const list = c && c.list; if (!list || !list.length) continue;
+    let list = c && c.list; if (!list || !list.length) continue;
+    const lim = mileTopFor(sc);
+    if (lim && list.length > lim) list = list.slice(0, lim);      // only chase as deep as you asked
     const R = rankInBoard(list, v);
     if (!R.inBoard) {
       const target = num(R.low[1]), away = target - v;
@@ -3893,14 +3924,46 @@ function vRecordLines(stats, defs, scope) {
   }
   return out.sort((a, b) => a.away - b.away);
 }
-function vRecRow(r) {
-  return '<div class="recrow" style="font-size:12px">🏆 <b>' + esc(r.name) + "</b> \u2014 " + r.text + "</div>";
-}
 function vMileRow(r, ctx) {
   return '<div class="recrow" style="font-size:12px">🎮 <b>' + esc(r.name) + "</b> \u2014 <b>" + r.away + "</b> " + esc(r.label) + " from " + r.next
     + ' <span style="color:var(--ink-soft)">(' + (ctx ? esc(ctx) + " \u00b7 " : "") + "at " + r.v + ")</span></div>";
 }
-// The video equivalent of the MLB chase board: career totals and the active season, closest first.
+function vRecRow(r) {
+  return '<div class="recrow" style="font-size:12px">🏆 <b>' + esc(r.name) + "</b> \u2014 " + r.text + "</div>";
+}
+function mileDefaultNear(k) {
+  for (const d of VMILE_CAREER_BAT.concat(VMILE_SEASON_BAT, VMILE_CAREER_PIT, VMILE_SEASON_PIT)) if (d.key === k) return GAME_STATS[k] ? 1 : d.near;
+  return GAME_STATS[k] ? 1 : 8;
+}
+function mileToggleList() {
+  const seen = {}, out = [];
+  const add = (k, l) => { if (!seen[k]) { seen[k] = 1; out.push([k, l]); } };
+  for (const d of VMILE_CAREER_BAT.concat(VMILE_SEASON_BAT, VMILE_CAREER_PIT, VMILE_SEASON_PIT)) add(d.key, d.label);
+  for (const p of VREC_SEASON_BAT.concat(VREC_SEASON_PIT)) add(p[0], p[1]);
+  return out;
+}
+function mileTogglesHtml() {
+  const list = mileToggleList();
+  let off = 0;
+  for (const [k] of list) for (const c of MILE_CTX) if (!mileOn(k, c[0])) off++;
+  const cell = (k, ctx) => {
+    const on = mileOn(k, ctx);
+    return '<span style="display:inline-flex;align-items:center;gap:1px">'
+      + '<button class="chip disp" style="font-size:9px;padding:1px 5px;min-width:0' + (on ? ";background:var(--ink);color:var(--card)" : ";opacity:.4;text-decoration:line-through") + '" data-mtog="' + esc(ctx + "|" + k) + '">' + esc(ctx.charAt(0).toUpperCase()) + "</button>"
+      + (on ? '<input class="mono" data-mnear="' + esc(ctx + "|" + k) + '" inputmode="numeric" value="' + esc(mileNearSet(k, ctx) ? mileNear[ctx + "|" + k] : "") + '" placeholder="' + mileNearFor(k, ctx, mileDefaultNear(k)) + '" style="width:26px;text-align:center;padding:1px;font-size:9px">' : "")
+      + "</span>";
+  };
+  return '<details style="margin-top:4px"><summary class="disp" style="cursor:pointer;font-size:11px;color:var(--ink-soft)">\u2699 Which milestones to watch'
+    + (off ? " (" + off + " off)" : "") + "</summary>"
+    + '<div class="hint" style="font-size:10px;margin:3px 0">Chase only the top <input class="mono" data-mtop="career" inputmode="numeric" value="'
+    + esc(mileTopFor("career") || "") + '" placeholder="all" style="width:34px;text-align:center;padding:1px;font-size:10px"> of the career board and the top <input class="mono" data-mtop="season" inputmode="numeric" value="'
+    + esc(mileTopFor("season") || "") + '" placeholder="all" style="width:34px;text-align:center;padding:1px;font-size:10px"> of the season board. Blank means the whole board.</div>'
+    + '<div class="hint" style="font-size:10px;margin:3px 0"><b>R</b> round numbers \u00b7 <b>C</b> career board \u00b7 <b>S</b> season board. Tap a letter to switch that one off; the box next to it is how close you have to be before it shows (blank = the default shown greyed).</div>'
+    + '<div style="display:flex;flex-direction:column;gap:3px">'
+    + list.map(([k]) => '<div style="display:flex;align-items:center;gap:5px"><span class="mono" style="min-width:34px;font-size:10px;font-weight:700">' + esc(k) + "</span>"
+        + MILE_CTX.map(c => cell(k, c[0])).join("") + "</div>").join("")
+    + "</div></details>";
+}
 function videoMilestonesHtml() {
   const map = videoCareerPlayers();
   const keys = Object.keys(map);
@@ -3925,10 +3988,11 @@ function videoMilestonesHtml() {
   }
   careerRows.sort((a, b) => a.away - b.away);
   seasonRows.sort((a, b) => a.away - b.away);
+  const toggles = mileTogglesHtml();
   if (!careerRows.length && !seasonRows.length) {
-    return '<div class="hint">No one\u2019s closing in yet — milestones show up here as your players approach the round numbers (career: every 50 HR / 100 hits, RBI, runs; season: 30 HR, 100 RBI, 20 wins and the like).</div>';
+    return toggles + '<div class="hint">No one\u2019s closing in yet — milestones show up here as your players approach the round numbers (career: every 50 HR / 100 hits, RBI, runs; season: 30 HR, 100 RBI, 20 wins and the like).</div>';
   }
-  let html = "";
+  let html = toggles;
   if (careerRows.length) html += '<div class="grouplabel disp">Career</div>' + careerRows.slice(0, 20).map(r => r.isRec ? vRecRow(r) : vMileRow(r, "")).join("");
   if (seasonRows.length) html += '<div class="grouplabel disp">' + esc(cur) + " season</div>" + seasonRows.slice(0, 20).map(r => r.isRec ? vRecRow(r) : vMileRow(r, "")).join("");
   return html;
@@ -8551,6 +8615,21 @@ function renderRecordsContent() {
   out.querySelectorAll("[data-iwscope]").forEach(b => b.addEventListener("click", () => {
     iwasScope = b.dataset.iwscope; try { localStorage.setItem("sports-stat-iwas-scope", iwasScope); } catch (e) {}
     renderRecordsContent();
+  }));
+  out.querySelectorAll("[data-mtop]").forEach(inp => inp.addEventListener("change", () => {
+    const sc = inp.getAttribute("data-mtop"), v = inp.value.trim();
+    if (v === "" || num(v) <= 0) delete mileTop[sc]; else mileTop[sc] = String(Math.round(num(v)));
+    persistMileTop(); renderRecordsContent();
+  }));
+  out.querySelectorAll("[data-mnear]").forEach(inp => inp.addEventListener("change", () => {
+    const k = inp.getAttribute("data-mnear"), v = inp.value.trim();
+    if (v === "" || num(v) <= 0) delete mileNear[k]; else mileNear[k] = String(Math.round(num(v)));
+    persistMileNear(); renderRecordsContent();
+  }));
+  out.querySelectorAll("[data-mtog]").forEach(b => b.addEventListener("click", () => {
+    const k = b.getAttribute("data-mtog");
+    if (mileOff[k]) delete mileOff[k]; else mileOff[k] = 1;
+    persistMileOff(); renderRecordsContent();
   }));
   const witAdd = out.querySelector("[data-witadd]");
   if (witAdd) witAdd.addEventListener("click", () => { chaseAddOpen = !chaseAddOpen; renderRecordsContent(); });
