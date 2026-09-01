@@ -455,7 +455,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v213";
+const APP_VERSION = "v214";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1514,6 +1514,7 @@ function editorSeasonKeys(key, grp) {
   for (const sk in manual) if (out.indexOf(sk) < 0) out.push(sk);
   return out.sort();
 }
+let mcOpenSeasons = {};   // which season panels are expanded, so an edit does not slam them shut
 function seasonExcluded(key, sk) {
   const mc = manualCareer[key];
   return !!(mc && mc.noCareer && mc.noCareer[String(sk)]);
@@ -1666,7 +1667,8 @@ function renderCareerEditor() {
         + AWARD_FIELDS.map(([id, lbl]) => '<label style="font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" data-maseason="' + esc(yr) + '" data-maward="' + id + '"' + (won.indexOf(id) >= 0 ? " checked" : "") + ">" + esc(lbl) + "</label>").join("") + "</div>";
       const excl = seasonExcluded(mcEdit.key, yr);
       const exclBox = '<label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-top:6px"><input type="checkbox" data-mcnocareer="' + esc(yr) + '"' + (excl ? " checked" : "") + ">Don\u2019t count toward career totals <span style=\"color:var(--ink-soft)\">(All-Star, spring training, playoffs)</span></label>";
-      return '<details class="mcseason" data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>"
+      const okey = grp + "|" + yr;
+      return '<details class="mcseason"' + (mcOpenSeasons[okey] ? " open" : "") + ' data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>"
         + '<div class="hint" style="font-size:10px;margin:2px 0">Shows this season\u2019s current total (typed + games logged since). Editing sets the total; games you log afterward add on top.</div>'
         + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + exclBox + awChecks
         + '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);display:flex;gap:6px;justify-content:space-between;align-items:center">'
@@ -1752,6 +1754,7 @@ function saveCareerEditor(wrap) {
 }
 function wireCareerEditor(wrap) {
   const close = () => wrap.remove();
+  wrap.querySelectorAll(".mcseason").forEach(d => d.addEventListener("toggle", () => { mcOpenSeasons[d.getAttribute("data-sgrp") + "|" + d.getAttribute("data-skey")] = d.open; }));
   wrap.querySelectorAll("[data-mcnocareer]").forEach(cb => cb.addEventListener("change", () => { saveCareerEditor(wrap); renderCareerEditor(); }));   // same season shows in both blocks — resync
   wrap.querySelectorAll("[data-mcunlump]").forEach(b => b.addEventListener("click", () => {
     saveCareerEditor(wrap);                                   // save first, then drop the baseline so it can't be rewritten
@@ -3884,6 +3887,7 @@ const MILETOP_KEY = "sports-stat-miletop-v1";
 let mileTop = {};
 try { mileTop = JSON.parse(localStorage.getItem(MILETOP_KEY) || "{}") || {}; } catch (e) { mileTop = {}; }
 function persistMileTop() { try { localStorage.setItem(MILETOP_KEY, JSON.stringify(mileTop)); } catch (e) {} }
+let mileSetOpen = false;   // keep the settings panel open across the re-render each tap causes
 function mileTopFor(sc) { const v = mileTop[sc]; return (v != null && String(v) !== "" && num(v) > 0) ? Math.round(num(v)) : 0; }
 function mileOn(k, ctx) { return !mileOff[(ctx || "round") + "|" + k]; }
 function mileNearSet(k, ctx) { const v = mileNear[(ctx || "round") + "|" + k]; return v != null && String(v) !== ""; }
@@ -3953,7 +3957,7 @@ function mileTogglesHtml() {
       + (on ? '<input class="mono" data-mnear="' + esc(ctx + "|" + k) + '" inputmode="numeric" value="' + esc(mileNearSet(k, ctx) ? mileNear[ctx + "|" + k] : "") + '" placeholder="' + mileNearFor(k, ctx, mileDefaultNear(k)) + '" style="width:26px;text-align:center;padding:1px;font-size:9px">' : "")
       + "</span>";
   };
-  return '<details style="margin-top:4px"><summary class="disp" style="cursor:pointer;font-size:11px;color:var(--ink-soft)">\u2699 Which milestones to watch'
+  return '<details data-mset="1"' + (mileSetOpen ? " open" : "") + ' style="margin-top:4px"><summary class="disp" style="cursor:pointer;font-size:11px;color:var(--ink-soft)">\u2699 Which milestones to watch'
     + (off ? " (" + off + " off)" : "") + "</summary>"
     + '<div class="hint" style="font-size:10px;margin:3px 0">Chase only the top <input class="mono" data-mtop="career" inputmode="numeric" value="'
     + esc(mileTopFor("career") || "") + '" placeholder="all" style="width:34px;text-align:center;padding:1px;font-size:10px"> of the career board and the top <input class="mono" data-mtop="season" inputmode="numeric" value="'
@@ -8635,6 +8639,7 @@ function renderRecordsContent() {
     iwasScope = b.dataset.iwscope; try { localStorage.setItem("sports-stat-iwas-scope", iwasScope); } catch (e) {}
     renderRecordsContent();
   }));
+  out.querySelectorAll("[data-mset]").forEach(d => d.addEventListener("toggle", () => { mileSetOpen = d.open; }));
   out.querySelectorAll("[data-mtop]").forEach(inp => inp.addEventListener("change", () => {
     const sc = inp.getAttribute("data-mtop"), v = inp.value.trim();
     if (v === "" || num(v) <= 0) delete mileTop[sc]; else mileTop[sc] = String(Math.round(num(v)));
