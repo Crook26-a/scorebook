@@ -455,7 +455,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v218";
+const APP_VERSION = "v221";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -968,7 +968,7 @@ function renderList() {
     const hasScore = filled(e.awayScore) || filled(e.homeScore);
     if (mergeFrom) {
       if (mergeFrom === e.id) return '<div class="card" data-id="' + e.id + '" style="border:2px solid var(--red);background:var(--red-soft)"><div class="meta mono">' + esc(e.date) + '</div><div class="matchup disp">' + esc(e.away || "?") + ' <span class="at">@</span> ' + esc(e.home || "?") + '</div><div class="cardbtns" style="margin-top:8px"><span class="mono" style="font-size:12px;color:var(--red);align-self:center;margin-right:auto">\u2934 The game you\u2019re merging</span><button class="ebtn" data-act="mergecancel">Cancel</button></div></div>';
-      return '<div class="card" data-id="' + e.id + '" style="border:2px dashed var(--red)"><div class="meta mono">' + esc(e.date) + (modeOf(e) === "video" && e.season ? " \u00b7 \ud83d\udcc5 " + esc(e.season) : "") + '</div><div class="matchup disp">' + esc(e.away || "?") + ' <span class="at">@</span> ' + esc(e.home || "?") + (hasScore ? ' <span class="score mono">' + esc(e.awayScore || "\u2013") + "\u2013" + esc(e.homeScore || "\u2013") + '</span>' : "") + '</div><button class="savebtn disp" data-act="mergeInto" style="width:100%;margin-top:8px">\u2935 Merge into this game</button></div>';
+      return '<div class="card" data-id="' + e.id + '" style="border:2px dashed var(--red)"><div class="meta mono">' + esc(e.date) + (modeOf(e) === "video" && e.season ? " \u00b7 \ud83d\udcc5 " + esc(e.season) + (isPostSeason(e.season) ? " \ud83c\udfc6" : "") : "") + '</div><div class="matchup disp">' + esc(e.away || "?") + ' <span class="at">@</span> ' + esc(e.home || "?") + (hasScore ? ' <span class="score mono">' + esc(e.awayScore || "\u2013") + "\u2013" + esc(e.homeScore || "\u2013") + '</span>' : "") + '</div><button class="savebtn disp" data-act="mergeInto" style="width:100%;margin-top:8px">\u2935 Merge into this game</button></div>';
     }
     const legacy = (e.statLines || []).length
       ? '<div style="margin-top:8px;border-top:1px dashed var(--line);padding-top:8px">' + e.statLines.map(s =>
@@ -978,7 +978,7 @@ function renderList() {
       + (selMode ? '<label style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px"><input type="checkbox" data-selid="' + e.id + '"' + (selIds[e.id] ? " checked" : "") + ">select</label>" : "")
       + (venueDef(e).stamp ? '<div class="stamp disp">' + venueDef(e).stamp + "</div>" : "")
       + (e.inProgress ? '<div class="disp" style="color:var(--red);font-weight:700;font-size:12px;letter-spacing:.04em">● IN PROGRESS</div>' : "")
-      + '<div class="meta mono">' + (SPORTS[e.sport] || "") + " " + esc(e.date) + (e.place ? " · " + esc(e.place) : esc(venueDef(e).meta || "")) + (modeOf(e) === "video" && e.season ? " · 📅 " + esc(e.season) : "") + (e.noRec ? " · 🚫 no records" : "") + "</div>"
+      + '<div class="meta mono">' + (SPORTS[e.sport] || "") + " " + esc(e.date) + (e.place ? " · " + esc(e.place) : esc(venueDef(e).meta || "")) + (modeOf(e) === "video" && e.season ? " · 📅 " + esc(e.season) + (isPostSeason(e.season) ? " 🏆" : "") : "") + (e.noRec ? " · 🚫 no records" : "") + "</div>"
       + '<div class="matchup disp">' + esc(e.away || "?") + " " + (hasScore ? '<span class="score mono">' + esc(e.awayScore || "–") + "</span>" : "")
       + '<span class="at">@</span>' + esc(e.home || "?") + " " + (hasScore ? '<span class="score mono">' + esc(e.homeScore || "–") + "</span>" : "") + "</div>"
       + (e.sport === "baseball" && e.live && e.live.line ? lineScoreTable(e.live.line, e.away, e.home, 0) : "")
@@ -1074,7 +1074,10 @@ function openForm(entry, restored) {
     + '<button class="boxlaunch disp" id="fBox"></button>'
     + '<button class="boxlaunch disp" id="fLive"></button>'
     + '<label>Notes</label><textarea id="fNotes" rows="2" placeholder="Walk-off in the 9th, sat behind the dugout…">' + esc(form.notes) + "</textarea>"
-    + (modeOf(form) === "video" ? '<div style="margin-top:8px"><label>Season</label><input id="fSeason" placeholder="Season 1" value="' + esc(form.season) + '"></div>' : "")
+    + (modeOf(form) === "video" ? '<div style="margin-top:8px"><label>Season</label>'
+        + '<div style="display:flex;gap:6px;align-items:center"><input id="fSeason" placeholder="Season 1" value="' + esc(form.season) + '" style="flex:1;min-width:0">'
+        + '<button type="button" class="chip disp" id="fSeasonPost" title="Count this season as postseason" style="font-size:12px;padding:3px 9px' + (isPostSeason(form.season) ? ";background:var(--ink);color:var(--card)" : ";opacity:.5") + '">\ud83c\udfc6</button></div>'
+        + '<div class="hint" id="fSeasonPostNote" style="font-size:10px">' + (isPostSeason(form.season) ? "Marked postseason \u2014 kept out of regular career totals and summed on its own." : "Tap \ud83c\udfc6 to make this season the postseason.") + "</div></div>" : "")
     + '<label class="hint" style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-style:normal"><input type="checkbox" id="fNoRec"' + (form.noRec ? " checked" : "") + ' style="width:auto;margin:0"> 🚫 Leave this game out of the Records page</label>'
     + '<div id="fSaveHint" class="hint hidden" style="color:var(--red);font-style:normal;margin-bottom:8px">Add a team name first — at least one of Away or Home — so the game has something to file under.</div>'
     + '<div class="saverow"><button class="savebtn disp" id="fSave">' + (editingId ? "Save changes" : "Add to scorebook") + '</button><button class="cancelbtn" id="fCancel">Cancel</button></div></div>';
@@ -1091,6 +1094,24 @@ function openForm(entry, restored) {
   document.getElementById("fHomeScore").addEventListener("input", markScoreEdited);
   if (document.getElementById("fWinner")) document.getElementById("fWinner").addEventListener("change", ev => { if (ev.target.value) form.winner = ev.target.value; else delete form.winner; });
   if (document.getElementById("fSeason")) bind("fSeason", "season");
+  {
+    const pb = document.getElementById("fSeasonPost");
+    if (pb) pb.addEventListener("click", () => {
+      const box = document.getElementById("fSeason");
+      const s = (box ? box.value : form.season || "").trim();
+      if (!s) { if (box) box.focus(); return; }
+      form.season = s;
+      if (postSeasons[s]) delete postSeasons[s]; else postSeasons[s] = 1;
+      persistPostSeasons();
+      const on = isPostSeason(s);
+      pb.style.background = on ? "var(--ink)" : "";
+      pb.style.color = on ? "var(--card)" : "";
+      pb.style.opacity = on ? "1" : ".5";
+      const note = document.getElementById("fSeasonPostNote");
+      if (note) note.textContent = on ? "Marked postseason \u2014 kept out of regular career totals and summed on its own."
+        : "Tap \ud83c\udfc6 to make this season the postseason.";
+    });
+  }
   document.getElementById("fNoRec").addEventListener("change", ev => form.noRec = ev.target.checked);
   if (document.getElementById("fLvl")) document.getElementById("fLvl").addEventListener("change", ev => { if (ev.target.value) form.lvl = ev.target.value; else delete form.lvl; });
   a.querySelectorAll(".vbtn").forEach(b => b.addEventListener("click", () => { form.venue = b.dataset.v; updateVenue(); }));
@@ -1760,7 +1781,7 @@ function renderCareerEditor() {
       const excl = seasonExcluded(mcEdit.key, yr);
       const exclBox = '<label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-top:6px"><input type="checkbox" data-mcnocareer="' + esc(yr) + '"' + (excl ? " checked" : "") + ">Don\u2019t count toward career totals <span style=\"color:var(--ink-soft)\">(All-Star, spring training, playoffs)</span></label>";
       const okey = grp + "|" + yr;
-      return '<details class="mcseason"' + (mcOpenSeasons[okey] ? " open" : "") + ' data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>"
+      return '<details class="mcseason"' + (mcOpenSeasons[okey] ? " open" : "") + ' data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (isPostSeason(yr) ? ' <span style="font-weight:400;color:var(--red)">\ud83c\udfc6 playoffs</span>' : excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>"
         + '<div class="hint" style="font-size:10px;margin:2px 0">Shows this season\u2019s current total (typed + games logged since). Editing sets the total; games you log afterward add on top.</div>'
         + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + exclBox + awChecks
         + '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);display:flex;gap:6px;justify-content:space-between;align-items:center">'
@@ -3829,9 +3850,20 @@ function videoMileBannerLines(nm, team, isPit) {
   const grp = isPit ? "pit" : "bat";
   const row = boxRowFor(nm, team, isPit ? "pitching" : "batting");
   const key = mcKeyOf(nm, (row && row.pid) || null);
-  const editing = form.id && entries.some(x => x.id === form.id);      // a saved game is already inside the totals
+  // Always count the row in front of you. If this game is already saved, its last-saved copy is
+  // sitting inside the totals, so take that back out rather than ignoring the live row — otherwise
+  // resuming a saved game freezes the banner (and a game older than the cutoff isn't in the totals
+  // at all, so there'd be nothing to see either way).
+  const saved = form.id ? entries.find(x => x.id === form.id) : null;
+  const cut = Math.max(liveSince || 0, (manualCareer[key] && manualCareer[key].since) || 0);
+  const counted = !!saved && (!cut || idMs(saved.id) > cut);
   const today = {};
-  if (row && !editing) for (const c in row.stats) today[c] = num(row.stats[c]);
+  if (row) for (const c in row.stats) today[c] = num(row.stats[c]);
+  const back = {};
+  if (counted) for (const r of (saved.box || [])) {
+    if (playerRowGrp(r, key) !== grp) continue;
+    for (const c in r.stats) if (filled(r.stats[c])) back[c] = (back[c] || 0) + num(r.stats[c]);
+  }
   const out = [], seen = new Set();
   // A game in an exhibition/playoff season (⊘ not in career) doesn't move career totals, so it must
   // not move career milestones either — otherwise the banner climbs all game and resets on save.
@@ -3840,7 +3872,7 @@ function videoMileBannerLines(nm, team, isPit) {
   const roll = (base, defs, tag, tod) => {
     for (const d of defs) {
       if (!mileOn(d.key, "round")) continue;
-      const v = num(base[d.key]), g = num(tod[d.key]), eff = v + g;
+      const v = num(base[d.key]) - num(back[d.key]), g = num(tod[d.key]), eff = v + g;
       if (!eff) continue;
       const n = nextMile(eff, d.step, d.min), away = n - eff;
       const near = mileNearFor(d.key, "round", d.near);      // your setting, else the built-in default
@@ -3850,7 +3882,7 @@ function videoMileBannerLines(nm, team, isPit) {
     }
   };
   const pushRec = r => { const sig = "rec:" + r.text; if (seen.has(sig)) return; seen.add(sig); out.push({ away: r.away, text: "🏆 " + r.text }); };
-  const merge = (base, tod) => { const m = {}; for (const c in base) m[c] = num(base[c]); for (const c in tod) m[c] = (m[c] || 0) + tod[c]; return m; };
+  const merge = (base, tod) => { const m = {}; for (const c in base) m[c] = num(base[c]) - num(back[c]); for (const c in tod) m[c] = (m[c] || 0) + tod[c]; return m; };
   const car = careerResolvedStats(key, grp);
   roll(car, isPit ? VMILE_CAREER_PIT : VMILE_CAREER_BAT, "career", todayCar);
   for (const r of vRecordLines(merge(car, todayCar), isPit ? VREC_CAREER_PIT : VREC_CAREER_BAT, "career")) pushRec(r);
@@ -6325,8 +6357,7 @@ function aggregate(venueF, yearF) {
       if (tn) { const T = ensureTeam(tn); T._g[e.id] = 1; addAgg(T[gkey], r.stats, r.group); }
       const pkey = r.pid ? ("id:" + r.pid) : r.player.trim().toLowerCase();
       const P = players[pkey] = players[pkey] || { name: r.player.trim(), pid: r.pid || null, games: {}, teams: {}, bat: {}, pit: {}, fld: {}, gGames: { bat: {}, pit: {}, fld: {} } };
-      P.games[e.id] = 1;
-      P.gGames[gkey][e.id] = 1;
+      if (rowActive(r)) { P.games[e.id] = 1; P.gGames[gkey][e.id] = 1; }   // an empty row is a listed player, not a game played
       if (tn) P.teams[tn] = 1;
       addAgg(P[gkey], r.stats, r.group);
     }
@@ -6918,7 +6949,7 @@ function careerCardHtml(p) {
     const inner = seasonLine("bat", "batting", ["G", "AB", "R", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB"]) + seasonLine("pit", "pitching", ["G", "W", "L", "SV", "IP", "H", "ER", "BB", "K", "HR", "QS", "CG", "SHO"]);
     const wonIds = (mc && mc.awards && Array.isArray(mc.awards[sk])) ? mc.awards[sk] : [];
     const awBits = wonIds.length ? '<div style="font-size:11px;margin-top:3px">🏅 ' + wonIds.map(id => esc((AWARD_FIELDS.find(f => f[0] === id) || [id, id])[1])).join(", ") + "</div>" : "";
-    return '<details style="border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-top:5px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(sk) + (sk === cur ? " \ud83d\udd34" : "") + (seasonExcluded(key, sk) ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>" + (inner || '<div class="hint" style="font-size:10px">No stats yet.</div>') + awBits + arsenalBlockHtml(key, sk, p.name, "Arsenal \u2014 " + sk) + "</details>";
+    return '<details style="border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-top:5px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(sk) + (sk === cur ? " \ud83d\udd34" : "") + (isPostSeason(sk) ? ' <span style="font-weight:400;color:var(--red)">\ud83c\udfc6</span>' : seasonExcluded(key, sk) ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>" + (inner || '<div class="hint" style="font-size:10px">No stats yet.</div>') + awBits + arsenalBlockHtml(key, sk, p.name, "Arsenal \u2014 " + sk) + "</details>";
   }).join("");
   const psb = postseasonStats(key, "bat"), psp = postseasonStats(key, "pit");
   const psLine = (function () {
@@ -6948,13 +6979,15 @@ function careerCardHtml(p) {
 // rows, so without this a playoff run silently pads the same totals the career card keeps separate.
 function splitPostseason(p) {
   const key = mcKeyOf((p.name || "").trim(), p.pid || null);
-  const reg = { bat: {}, pit: {}, fld: {}, games: {}, gPit: {} };
-  const post = { bat: {}, pit: {}, fld: {}, games: {}, gPit: {} };
-  let anyPost = false;
+  const mk = () => ({ bat: {}, pit: {}, fld: {}, games: {}, gPit: {} });
+  const reg = mk(), post = mk(), other = mk();
+  let anyPost = false, anyOther = false;
   for (const e of entries) {
     if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
-    const isP = isPostSeason(seasonOf(e));
-    const t = isP ? post : reg;
+    const sk = seasonOf(e);
+    const isP = isPostSeason(sk);
+    const isOther = !isP && seasonExcluded(key, sk);      // AA/AAA/exhibition: out of career, not postseason
+    const t = isP ? post : isOther ? other : reg;
     for (const r of (e.box || [])) {
       const g = playerRowGrp(r, key);
       const nm = (r.player || "").trim();
@@ -6962,16 +6995,21 @@ function splitPostseason(p) {
       const bucket = r.group === "batting" ? "bat" : r.group === "pitching" ? "pit" : r.group === "fielding" ? "fld" : null;
       if (!bucket) continue;
       addAgg(t[bucket], r.stats, r.group);
-      if (bucket === "bat") t.games[e.id] = 1;
-      if (bucket === "pit") t.gPit[e.id] = 1;
+      if (rowActive(r)) {
+        if (bucket === "bat") t.games[e.id] = 1;
+        if (bucket === "pit") t.gPit[e.id] = 1;
+      }
       if (isP) anyPost = true;
+      if (isOther) anyOther = true;
     }
   }
-  return anyPost ? { reg: reg, post: post } : null;
+  return (anyPost || anyOther) ? { reg: reg, post: post, other: other, anyPost: anyPost, anyOther: anyOther } : null;
 }
-function pitAccWithFeats(p) {
-  const ids = p.gGames && p.gGames.pit;
-  if (!ids || !Object.keys(ids).length) return p.pit;
+function pitAccWithFeats(p, bucket) {
+  // bucket is one of splitPostseason's slices; without it, the player's whole log.
+  const ids = bucket ? bucket.gPit : (p.gGames && p.gGames.pit);
+  const base = bucket ? bucket.pit : p.pit;
+  if (!ids || !Object.keys(ids).length) return base;
   const key = mcKeyOf((p.name || "").trim(), p.pid || null);
   const f = { CG: 0, SHO: 0, QS: 0, NH: 0, PG: 0, IMM: 0 };
   for (const e of entries) {
@@ -6983,7 +7021,7 @@ function pitAccWithFeats(p) {
     }
     f.IMM += gameImmaculateFor(e, key);
   }
-  const acc = Object.assign({}, p.pit);
+  const acc = Object.assign({}, base);
   for (const k in f) if (f[k]) acc[k] = f[k];
   return acc;
 }
@@ -8024,15 +8062,29 @@ function renderStatsContent() {
         + '<span class="mono" style="font-size:11px;color:var(--ink-soft)"> &nbsp;' + gp + " GP" + (quick ? " · " + quick : "") + "</span>"
         + (teamNames ? '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">' + esc(teamNames) + "</div>" : "")
         + "</summary>"
-        + (function () { const sp = splitPostseason(p); if (!sp) return groupDetailHtml(p.bat, "bat", gp, p.name); return '<div class="hint" style="font-size:10px;margin-top:6px;color:var(--ink-soft)">Regular season</div>' + groupDetailHtml(sp.reg.bat, "bat", Object.keys(sp.reg.games).length, p.name); })() + groupDetailHtml(pitAccWithFeats(p), "pit", gp, p.name, p.gGames ? Object.keys(p.gGames.pit).length : 0) + groupDetailHtml(p.fld, "fld", gp, p.name)
+        + (function () {
+            const sp = splitPostseason(p);
+            const pitG = p.gGames ? Object.keys(p.gGames.pit).length : 0;
+            if (!sp) return groupDetailHtml(p.bat, "bat", gp, p.name) + groupDetailHtml(pitAccWithFeats(p), "pit", gp, p.name, pitG) + groupDetailHtml(p.fld, "fld", gp, p.name);
+            const rg = Object.keys(sp.reg.games).length, rp = Object.keys(sp.reg.gPit).length;
+            return '<div class="hint" style="font-size:10px;margin-top:6px;color:var(--ink-soft)">Regular season</div>'
+              + groupDetailHtml(sp.reg.bat, "bat", rg, p.name)
+              + groupDetailHtml(pitAccWithFeats(p, sp.reg), "pit", rg, p.name, rp)
+              + groupDetailHtml(sp.reg.fld, "fld", rg, p.name);
+          })()
         + (function () {                                   // postseason, kept visually separate
             const sp = splitPostseason(p); if (!sp) return "";
             const pg = Object.keys(sp.post.games).length, pp = Object.keys(sp.post.gPit).length;
             const inner = groupDetailHtml(sp.post.bat, "bat", pg, p.name)
-              + groupDetailHtml(sp.post.pit, "pit", pg, p.name, pp)
+              + groupDetailHtml(pitAccWithFeats(p, sp.post), "pit", pg, p.name, pp)
               + groupDetailHtml(sp.post.fld, "fld", pg, p.name);
-            if (!inner) return "";
-            return '<div class="hint" style="font-size:10px;margin-top:10px;color:var(--red);font-weight:700">\ud83c\udfc6 Postseason</div>' + inner;
+            const post = inner ? '<div class="hint" style="font-size:10px;margin-top:10px;color:var(--red);font-weight:700">\ud83c\udfc6 Postseason</div>' + inner : "";
+            const og = Object.keys(sp.other.games).length, op = Object.keys(sp.other.gPit).length;
+            const oInner = sp.anyOther ? (groupDetailHtml(sp.other.bat, "bat", og, p.name)
+              + groupDetailHtml(pitAccWithFeats(p, sp.other), "pit", og, p.name, op)
+              + groupDetailHtml(sp.other.fld, "fld", og, p.name)) : "";
+            const oth = oInner ? '<div class="hint" style="font-size:10px;margin-top:10px;color:var(--ink-soft);font-weight:700">\u2298 Not in career (minors, exhibition)</div>' + oInner : "";
+            return post + oth;
           })()
         + (appMode === "video" ? careerCardHtml(p) + recordBookHtml(p) : "")
         + (yearF === "all" ? playerExtrasHtml(p.name.trim().toLowerCase(), venueF, p.pid) : "")
@@ -9054,7 +9106,7 @@ document.getElementById("exportBtn").addEventListener("click", async () => {
   const payload = JSON.stringify({
     version: 3, exported: new Date().toISOString(),
     games: entries, teams: teamsDB, parks: parksDB,
-    pitchBank: pitchBank, arsenals: arsenalPresets, pins: pinnedPlayers, witnessed: witnessed, firsts: firsts, manualCareer: manualCareer, liveSince: liveSince, playerHand: playerHand, leaderOverrides: leaderOverrides, mileWatch: mileWatch, debut: _debut,
+    pitchBank: pitchBank, arsenals: arsenalPresets, pins: pinnedPlayers, witnessed: witnessed, firsts: firsts, manualCareer: manualCareer, liveSince: liveSince, postSeasons: postSeasons, mileOff: mileOff, mileNear: mileNear, mileTop: mileTop, playerHand: playerHand, leaderOverrides: leaderOverrides, mileWatch: mileWatch, debut: _debut,
     prefs: {
       theme: localStorage.getItem("sports-stat-theme") || "",
       mode: localStorage.getItem("sports-stat-mode") || "",
@@ -9166,6 +9218,10 @@ document.getElementById("importFile").addEventListener("change", ev => {
         if (Array.isArray(data.firsts)) { for (const x of data.firsts) if (x && x.player && x.label && x.kind) addFirst(x); }
         if (data.manualCareer && typeof data.manualCareer === "object") { for (const k in data.manualCareer) if (!manualCareer[k]) manualCareer[k] = data.manualCareer[k]; persistManualCareer(); }
         if (typeof data.liveSince === "number" && data.liveSince > liveSince) { liveSince = data.liveSince; persistLiveSince(); }
+        if (data.postSeasons && typeof data.postSeasons === "object") { for (const k in data.postSeasons) postSeasons[k] = data.postSeasons[k]; persistPostSeasons(); }
+        if (data.mileOff && typeof data.mileOff === "object") { mileOff = data.mileOff; persistMileOff(); }
+        if (data.mileNear && typeof data.mileNear === "object") { mileNear = data.mileNear; persistMileNear(); }
+        if (data.mileTop && typeof data.mileTop === "object") { mileTop = data.mileTop; persistMileTop(); }
         if (data.playerHand && typeof data.playerHand === "object") { for (const k in data.playerHand) if (!playerHand[k]) playerHand[k] = data.playerHand[k]; persistPlayerHand(); }
         if (data.leaderOverrides && typeof data.leaderOverrides === "object") { for (const sc in data.leaderOverrides) { leaderOverrides[sc] = leaderOverrides[sc] || {}; for (const cid in data.leaderOverrides[sc]) leaderOverrides[sc][cid] = data.leaderOverrides[sc][cid]; } persistLeaderOverrides(); }
         if (data.mileWatch) {
