@@ -261,7 +261,7 @@
     <button class="modebtn disp" data-mode="video">🎮 Video games</button>
   </div>
   <div id="seasonBar" class="hint hidden">
-    <span>📅 Current season: <b id="seasonLabel">not set</b></span><span style="white-space:nowrap;color:var(--ink-soft)">tap to change</span>
+    <span>📅 Current season: <b id="seasonLabel">not set</b></span><span style="white-space:nowrap"><button id="seasMgrBtn" class="lbtn soft" style="font-size:10px;padding:1px 7px">🗓 Seasons</button> <span style="color:var(--ink-soft)">tap to change</span></span>
   </div>
   <div id="err" class="err hidden">Couldn't save — your browser may be blocking storage (private browsing?). Changes will be lost when you close this page.</div>
   <div class="nav">
@@ -455,7 +455,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v214";
+const APP_VERSION = "v218";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -975,6 +975,7 @@ function renderList() {
           '<div class="mono" style="font-size:13px;display:flex;gap:12px;padding:2px 0"><span style="min-width:120px;font-weight:600">' + esc(s.player) + "</span><span>" + esc(s.line) + "</span></div>").join("") + "</div>"
       : "";
     return '<div class="card" data-id="' + e.id + '"' + (e.inProgress ? ' style="border-left:3px solid var(--red)"' : "") + ">"
+      + (selMode ? '<label style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px"><input type="checkbox" data-selid="' + e.id + '"' + (selIds[e.id] ? " checked" : "") + ">select</label>" : "")
       + (venueDef(e).stamp ? '<div class="stamp disp">' + venueDef(e).stamp + "</div>" : "")
       + (e.inProgress ? '<div class="disp" style="color:var(--red);font-weight:700;font-size:12px;letter-spacing:.04em">● IN PROGRESS</div>' : "")
       + '<div class="meta mono">' + (SPORTS[e.sport] || "") + " " + esc(e.date) + (e.place ? " · " + esc(e.place) : esc(venueDef(e).meta || "")) + (modeOf(e) === "video" && e.season ? " · 📅 " + esc(e.season) : "") + (e.noRec ? " · 🚫 no records" : "") + "</div>"
@@ -1010,7 +1011,7 @@ function renderList() {
       + '<span>🎉 <b style="color:var(--red)">' + reached + ' games logged!</b> Your scorebook keeps growing.</span>'
       + '<button class="addrow" data-act="dismissMile" style="color:var(--ink-soft)">✕</button></div>';
   }
-  const topBanner = mileBanner + mergeBanner;
+  const topBanner = mileBanner + mergeBanner + (selMode ? selBarHtml(list.length) : "");
   if (list.length <= GROUP) {
     area.innerHTML = topBanner + cardHtmls.join("");
   } else {
@@ -1515,10 +1516,101 @@ function editorSeasonKeys(key, grp) {
   return out.sort();
 }
 let mcOpenSeasons = {};   // which season panels are expanded, so an edit does not slam them shut
+// Season labels that are postseason. Playoff ball is its own thing: it stays out of regular career
+// totals and gets summed separately, and the flag lives on the label so every player shares it.
+const POSTKEY = "sports-stat-postseasons-v1";
+let postSeasons = {};
+try { postSeasons = JSON.parse(localStorage.getItem(POSTKEY) || "{}") || {}; } catch (e) { postSeasons = {}; }
+function persistPostSeasons() { try { localStorage.setItem(POSTKEY, JSON.stringify(postSeasons)); } catch (e) {} }
+function isPostSeason(sk) { return !!postSeasons[String(sk)]; }
+// Every season label in use, with how many games carry it.
+// Pick individual games and move just those. The label-wide rename in the season manager is the
+// blunt tool; this is for when only some games under a label belong somewhere else.
+let selMode = false, selIds = {}, selPost = false;
+function selCount() { let n = 0; for (const k in selIds) if (selIds[k]) n++; return n; }
+function selBarHtml(shown) {
+  const n = selCount();
+  return '<div class="hint" style="position:sticky;top:0;z-index:5;background:var(--card);border:1px solid var(--red);border-radius:6px;padding:6px 8px;margin-bottom:8px">'
+    + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+    + '<b style="color:var(--red)">' + n + " selected</b>"
+    + '<button class="addrow" data-selall="1" style="font-size:11px">Select all ' + shown + " shown</button>"
+    + (n ? '<button class="addrow" data-selnone="1" style="font-size:11px">Clear</button>' : "")
+    + '<button class="addrow" data-seldone="1" style="font-size:11px;margin-left:auto">\u2715 Done</button></div>'
+    + (n ? '<div style="display:flex;gap:6px;align-items:center;margin-top:6px"><input id="selSeason" placeholder="Move to season\u2026" style="flex:1;min-width:0;padding:3px 6px;font-size:12px">'
+        + '<button class="chip disp" data-selpost="1" title="Count that season as postseason" style="font-size:11px;padding:2px 7px' + (selPost ? ";background:var(--ink);color:var(--card)" : ";opacity:.5") + '">\ud83c\udfc6</button>'
+        + '<button class="lbtn soft" data-selapply="1" style="font-size:11px;padding:2px 8px">Move</button></div>'
+        + (selPost ? '<div class="hint" style="font-size:10px;margin-top:3px">That season will be marked postseason \u2014 kept out of regular career totals and summed on its own.</div>' : "") : "")
+    + "</div>";
+}
+function openSeasonManager() {
+  const wrap = document.createElement("div");
+  wrap.id = "seasMgr";
+  wrap.style.cssText = "position:fixed;inset:0;z-index:10002;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;padding:14px;overflow:auto";
+  document.body.appendChild(wrap);
+  renderSeasonManager();
+}
+function renderSeasonManager() {
+  const wrap = document.getElementById("seasMgr"); if (!wrap) return;
+  const counts = seasonLabelCounts(appMode);
+  const labels = Object.keys(counts).sort();
+  const rows = labels.length ? labels.map(s =>
+      '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px dashed var(--line)">'
+      + '<input class="mono" data-srename="' + esc(s) + '" value="' + esc(s) + '" style="flex:1;min-width:0;padding:3px 5px;font-size:12px">'
+      + '<span class="hint mono" style="font-size:10px;min-width:34px;text-align:right">' + counts[s] + "g</span>"
+      + '<button class="chip disp" style="font-size:10px;padding:2px 7px' + (isPostSeason(s) ? ";background:var(--ink);color:var(--card)" : ";opacity:.5") + '" data-spost="' + esc(s) + '" title="Count as postseason">\ud83c\udfc6</button>'
+      + "</div>").join("")
+    : '<div class="hint">No seasons on your games in this mode yet.</div>';
+  wrap.innerHTML = '<div class="card" style="max-width:460px;width:100%;margin:0">'
+    + '<div class="disp" style="font-weight:700;font-size:15px;border-bottom:2px solid var(--ink);padding-bottom:3px">\ud83d\uddd3 Seasons<button class="lbtn soft" id="smClose" style="float:right;font-size:11px;padding:2px 8px">Done</button></div>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">Rename a label to move every game with it \u2014 that is how you merge scattered labels into one. \ud83c\udfc6 marks a label as postseason: those games stay out of regular career totals and are summed separately.</div>'
+    + rows
+    + '<div class="hint" style="font-size:10px;margin-top:6px">Renaming applies when you leave the box. Editing a label to match another merges them.</div>'
+    + '<button class="lbtn soft" id="smPick" style="width:100%;margin-top:8px;font-size:11px">\u2611 Pick individual games instead\u2026</button>'
+    + "</div>";
+  wireSeasonManager(wrap);
+}
+function wireSeasonManager(wrap) {
+  wrap.querySelector("#smClose").addEventListener("click", () => { wrap.remove(); renderList(); try { renderStatsContent(); } catch (e) {} });
+  const pick = wrap.querySelector("#smPick");
+  if (pick) pick.addEventListener("click", () => {
+    wrap.remove(); selMode = true; selIds = {};
+    const gv = document.querySelector('.navbtn[data-view="games"]'); if (gv) gv.click();
+    renderList();
+  });
+  wrap.querySelectorAll("[data-spost]").forEach(b => b.addEventListener("click", () => {
+    const s = b.getAttribute("data-spost");
+    if (postSeasons[s]) delete postSeasons[s]; else postSeasons[s] = 1;
+    persistPostSeasons(); renderSeasonManager();
+  }));
+  wrap.querySelectorAll("[data-srename]").forEach(inp => inp.addEventListener("change", () => {
+    const from = inp.getAttribute("data-srename"), to = inp.value.trim();
+    if (!to || to === from) { inp.value = from; return; }
+    const n = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && String(e.season == null ? "" : e.season) === from).length;
+    const merging = !!seasonLabelCounts(appMode)[to];
+    appConfirm("Move " + n + " game" + (n === 1 ? "" : "s") + " from \u201c" + from + "\u201d to \u201c" + to + "\u201d?" + (merging ? " That label already exists, so the two will be merged." : ""), () => {
+      for (const e of entries) if (e.sport === "baseball" && modeOf(e) === appMode && String(e.season == null ? "" : e.season) === from) e.season = to;
+      if (postSeasons[from]) { delete postSeasons[from]; postSeasons[to] = 1; persistPostSeasons(); }
+      persist(); renderSeasonManager();
+    }, () => { inp.value = from; });
+  }));
+}
+function seasonLabelCounts(mode) {
+  const c = {};
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== mode) continue;
+    const s = String(e.season == null ? "" : e.season); if (!s) continue;
+    c[s] = (c[s] || 0) + 1;
+  }
+  return c;
+}
 function seasonExcluded(key, sk) {
+  if (isPostSeason(sk)) return true;                  // playoffs are counted on their own, never in the regular career
   const mc = manualCareer[key];
   return !!(mc && mc.noCareer && mc.noCareer[String(sk)]);
 }
+// The postseason equivalent of careerSeasonKeys.
+function postSeasonKeys(key) { return playerSeasonKeys(key).filter(sk => isPostSeason(sk)); }
+function postseasonStats(key, grp) { return sumStatObjs(postSeasonKeys(key).map(sk => seasonResolvedStats(key, sk, grp))); }
 function careerSeasonKeys(key) { return playerSeasonKeys(key).filter(sk => !seasonExcluded(key, sk)); }
 function typedFeat(key, k) {
   const mc = manualCareer[key]; if (!mc || !mc.pit) return 0;
@@ -4855,7 +4947,43 @@ document.getElementById("search").addEventListener("input", renderList);
 document.getElementById("addBtn").addEventListener("click", () => openForm(null));
 const GAME_MILESTONES = [10, 25, 50, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000, 3000];
 function currentMilestone() { const n = entries.length; let m = 0; for (const x of GAME_MILESTONES) if (n >= x) m = x; return m; }
+document.getElementById("listArea").addEventListener("change", ev => {
+  const cb = ev.target.closest("[data-selid]");
+  if (!cb) return;
+  const id = cb.getAttribute("data-selid");
+  if (cb.checked) selIds[id] = 1; else delete selIds[id];
+  const bar = document.querySelector("[data-selall]");
+  if (bar) renderList();
+});
 document.getElementById("listArea").addEventListener("click", ev => {
+  const sel = ev.target.closest("[data-selall],[data-selnone],[data-seldone],[data-selapply],[data-selpost]");
+  if (sel) {
+    if (sel.hasAttribute("data-seldone")) { selMode = false; selIds = {}; selPost = false; renderList(); return; }
+    if (sel.hasAttribute("data-selpost")) {
+      const keep = document.getElementById("selSeason");                 // don't lose what they've typed
+      const typed = keep ? keep.value : "";
+      selPost = !selPost; renderList();
+      const box = document.getElementById("selSeason"); if (box) { box.value = typed; }
+      return;
+    }
+    if (sel.hasAttribute("data-selnone")) { selIds = {}; renderList(); return; }
+    if (sel.hasAttribute("data-selall")) {
+      document.querySelectorAll("#listArea .card[data-id]").forEach(c => { selIds[c.getAttribute("data-id")] = 1; });
+      renderList(); return;
+    }
+    const box = document.getElementById("selSeason"), to = box ? box.value.trim() : "";
+    const ids = Object.keys(selIds).filter(k => selIds[k]);
+    if (!to) { if (box) box.focus(); return; }
+    if (!ids.length) return;
+    appConfirm("Move " + ids.length + " selected game" + (ids.length === 1 ? "" : "s") + " to \u201c" + to + "\u201d?"
+      + (selPost ? " That season will be marked postseason." : ""), () => {
+      const set = new Set(ids);
+      for (const e of entries) if (set.has(e.id)) e.season = to;
+      if (selPost) { postSeasons[to] = 1; persistPostSeasons(); }
+      persist(); selIds = {}; renderList(); try { renderStatsContent(); } catch (err) {}
+    });
+    return;
+  }
   const btn = ev.target.closest("button[data-act]");
   if (!btn) return;
   if (btn.dataset.act === "dismissMile") {
@@ -4904,6 +5032,8 @@ document.getElementById("listArea").addEventListener("click", ev => {
 renderTally();
 renderList();
 { const vb = document.getElementById("verBadge"); if (vb) vb.textContent = APP_VERSION; }
+{ const sm = document.getElementById("seasMgrBtn");
+  if (sm) sm.addEventListener("click", ev => { ev.stopPropagation(); openSeasonManager(); }); }
 // If index.html and sw.js were uploaded out of step, the old service worker keeps serving the old
 // index.html from its cache and the app looks frozen at the previous version. The cache name carries
 // the sw.js version, so a mismatch here says plainly which file didn't make it.
@@ -6462,6 +6592,9 @@ function _cats(minPA, minIP) {
 }
 const BBREF_CAREER = _cats(_CAR_MIN_PA, _CAR_MIN_IP);
 const BBREF_SEASON = _cats(_SEA_MIN_PA, _SEA_MIN_IP);
+// Postseason boards: same categories, no qualifying minimums (nobody gets 502 PA in October) and no
+// bundled reference data — these start as your own players and can be topped up by import.
+const BBREF_POST = _cats(null, null);
 // ═══════════════════════════════════════════════════════════════════════════
 //  SEED LEADERBOARD DATA  —  the app's built-in ("out of the box") boards.
 //  This is the ONLY place to edit to add/replace leaderboard data. Do not touch
@@ -6573,7 +6706,7 @@ function setLeaderOverride(scope, catId, list, source) { leaderOverrides[scope] 
 const YEAR_CUTOFF = 1920;   // single-season & single-game boards exclude anything before this year
 const preCutoff = y => { y = +y; return y >= 1000 && y < YEAR_CUTOFF; };
 function effCat(scope, catId) {
-  const DS = scope === "award" ? BBREF_AWARD : scope === "season" ? BBREF_SEASON : BBREF_CAREER;
+  const DS = scope === "award" ? BBREF_AWARD : scope === "post" ? BBREF_POST : scope === "season" ? BBREF_SEASON : BBREF_CAREER;
   const base = DS[catId] || BBREF_CAREER[catId];
   if (!base) return null;
   const ov = leaderOverrides[scope] && leaderOverrides[scope][catId];
@@ -6787,9 +6920,23 @@ function careerCardHtml(p) {
     const awBits = wonIds.length ? '<div style="font-size:11px;margin-top:3px">🏅 ' + wonIds.map(id => esc((AWARD_FIELDS.find(f => f[0] === id) || [id, id])[1])).join(", ") + "</div>" : "";
     return '<details style="border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-top:5px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(sk) + (sk === cur ? " \ud83d\udd34" : "") + (seasonExcluded(key, sk) ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>" + (inner || '<div class="hint" style="font-size:10px">No stats yet.</div>') + awBits + arsenalBlockHtml(key, sk, p.name, "Arsenal \u2014 " + sk) + "</details>";
   }).join("");
+  const psb = postseasonStats(key, "bat"), psp = postseasonStats(key, "pit");
+  const psLine = (function () {
+    const bits = [];
+    const B = [["G", "G"], ["H", "H"], ["HR", "HR"], ["RBI", "RBI"], ["R", "R"], ["SB", "SB"]];
+    const P = [["G", "G"], ["W", "W"], ["L", "L"], ["SV", "SV"], ["IP", "IP"], ["K", "K"], ["ERA", null]];
+    for (const [k] of B) if (num(psb[k])) bits.push(num(psb[k]) + " " + k);
+    const pp = [];
+    for (const [k] of P) if (k !== "ERA" && (k === "IP" ? filled(psp.IP) : num(psp[k]))) pp.push((k === "IP" ? psp.IP : num(psp[k])) + " " + k);
+    if (!bits.length && !pp.length) return "";
+    const seasons = postSeasonKeys(key);
+    return '<div style="margin-top:4px;font-size:12px">\ud83c\udfc6 <b>Postseason</b> <span style="color:var(--ink-soft);font-size:10px">(' + seasons.length + " season" + (seasons.length === 1 ? "" : "s") + ")</span>"
+      + (bits.length ? '<div class="hint" style="font-size:10px">' + bits.join(" \u00b7 ") + "</div>" : "")
+      + (pp.length ? '<div class="hint" style="font-size:10px">' + pp.join(" \u00b7 ") + "</div>" : "") + "</div>";
+  })();
   return header
     + '<div class="hint" style="margin:2px 0 4px">Career = the sum of your seasons. Games you log flow into their season live' + (cur ? " (current: " + esc(cur) + " \ud83d\udd34)" : "") + "; edit a season to set its total by hand.</div>"
-    + body + awLine
+    + body + awLine + psLine
     + projectionBlockHtml(p)
     + arsenalBlockHtml(key, null, p.name, "Arsenal \u2014 career")
     + (seasonRows ? '<div class="sclabel" style="margin-top:8px">Seasons (tap to expand)</div>' + seasonRows : "");
@@ -6797,6 +6944,31 @@ function careerCardHtml(p) {
 // The Players tab card sums raw box-score columns, so CG/SHO/QS/NH/PG never appear — they aren't
 // columns. Derive them from exactly the games this card is already counting (p.gGames.pit), using
 // the same rowFeats rule as everywhere else, so the card can't disagree with itself.
+// Split a player-card accumulator into regular-season and postseason halves. The card sums raw box
+// rows, so without this a playoff run silently pads the same totals the career card keeps separate.
+function splitPostseason(p) {
+  const key = mcKeyOf((p.name || "").trim(), p.pid || null);
+  const reg = { bat: {}, pit: {}, fld: {}, games: {}, gPit: {} };
+  const post = { bat: {}, pit: {}, fld: {}, games: {}, gPit: {} };
+  let anyPost = false;
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
+    const isP = isPostSeason(seasonOf(e));
+    const t = isP ? post : reg;
+    for (const r of (e.box || [])) {
+      const g = playerRowGrp(r, key);
+      const nm = (r.player || "").trim();
+      if (!nm || mcKeyOf(nm, r.pid || null) !== key) continue;
+      const bucket = r.group === "batting" ? "bat" : r.group === "pitching" ? "pit" : r.group === "fielding" ? "fld" : null;
+      if (!bucket) continue;
+      addAgg(t[bucket], r.stats, r.group);
+      if (bucket === "bat") t.games[e.id] = 1;
+      if (bucket === "pit") t.gPit[e.id] = 1;
+      if (isP) anyPost = true;
+    }
+  }
+  return anyPost ? { reg: reg, post: post } : null;
+}
 function pitAccWithFeats(p) {
   const ids = p.gGames && p.gGames.pit;
   if (!ids || !Object.keys(ids).length) return p.pit;
@@ -7429,18 +7601,23 @@ function leaderMineRows(cat, scope) {
   if (scope === "career") {
     const map = videoCareerPlayers();
     for (const key in map) consider(map[key].name, careerResolvedStats(key, "bat"), careerResolvedStats(key, "pit"), "");
+  } else if (scope === "post") {
+    const map = videoCareerPlayers();                                  // career postseason totals
+    for (const key in map) consider(map[key].name, postseasonStats(key, "bat"), postseasonStats(key, "pit"), "");
   } else {
     const map = videoCareerPlayers();
     for (const key in map)
-      for (const sk of playerSeasonKeys(key))
+      for (const sk of playerSeasonKeys(key)) {
+        if (isPostSeason(sk)) continue;                                // a playoff run isn't a single season
         consider(map[key].name, seasonResolvedStats(key, sk, "bat"), seasonResolvedStats(key, sk, "pit"), sk);
+      }
   }
   return { onBoard, chasing, unqualified, asc, floorVal };
 }
 let leaderAward = "MVP";
 function awardsScopeToggle() {
   return '<div style="display:flex;gap:6px;margin-bottom:8px">'
-    + ['career', 'season', 'award'].map(s => '<button class="chip disp' + (leaderScope === s ? " active" : "") + '" data-lscope="' + s + '">' + (s === "career" ? "Career" : s === "season" ? "Single-season" : "🏅 Awards") + "</button>").join("") + "</div>";
+    + ['career', 'season', 'post', 'award'].map(s => '<button class="chip disp' + (leaderScope === s ? " active" : "") + '" data-lscope="' + s + '">' + (s === "career" ? "Career" : s === "season" ? "Single-season" : s === "post" ? "🏆 Playoffs" : "🏅 Awards") + "</button>").join("") + "</div>";
 }
 function awardsTabHtml() {
   const ids = Object.keys(BBREF_AWARD);
@@ -7483,12 +7660,12 @@ function awardsTabHtml() {
 }
 function leadersTabHtml() {
   if (leaderScope === "award") return awardsTabHtml();
-  const DS = leaderScope === "season" ? BBREF_SEASON : BBREF_CAREER;
+  const DS = leaderScope === "post" ? BBREF_POST : leaderScope === "season" ? BBREF_SEASON : BBREF_CAREER;
   const cats = Object.keys(DS);
   if (!DS[leaderStat]) leaderStat = cats[0];
   const cat = effCat(leaderScope, leaderStat) || DS[leaderStat];
   const scopeToggle = '<div style="display:flex;gap:6px;margin-bottom:8px">'
-    + ['career', 'season', 'award'].map(s => '<button class="chip disp' + (leaderScope === s ? " active" : "") + '" data-lscope="' + s + '">' + (s === "career" ? "Career" : s === "season" ? "Single-season" : "🏅 Awards") + "</button>").join("") + "</div>";
+    + ['career', 'season', 'post', 'award'].map(s => '<button class="chip disp' + (leaderScope === s ? " active" : "") + '" data-lscope="' + s + '">' + (s === "career" ? "Career" : s === "season" ? "Single-season" : s === "post" ? "🏆 Playoffs" : "🏅 Awards") + "</button>").join("") + "</div>";
   const chips = cats.map(id => '<button class="chip disp' + (leaderStat === id ? " active" : "") + '" data-lstat="' + id + '">' + esc((DS[id] || BBREF_CAREER[id]).label.replace(" (P)", "")) + "</button>").join("");
   const { onBoard, chasing, unqualified, asc, floorVal } = leaderMineRows(cat, leaderScope);
   const rows = cat.list.map(e => ({ name: e[0], value: e[1], year: e[2], mine: false })).concat(onBoard);
@@ -7604,7 +7781,7 @@ function loadSheetJS() {
   return _sheetJSPromise;
 }
 function openPasteLeader(scope, catId) {
-  const cat = (scope === "award" ? BBREF_AWARD : scope === "season" ? BBREF_SEASON : BBREF_CAREER)[catId] || BBREF_CAREER[catId];
+  const cat = (scope === "award" ? BBREF_AWARD : scope === "post" ? BBREF_POST : scope === "season" ? BBREF_SEASON : BBREF_CAREER)[catId] || BBREF_CAREER[catId];
   const d = document.createElement("div");
   d.style.cssText = "position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:18px";
   d.innerHTML = '<div style="background:var(--card);border:1.5px solid var(--ink);border-radius:10px;max-width:440px;width:100%;padding:16px;box-shadow:4px 4px 0 var(--ink)">'
@@ -7847,7 +8024,16 @@ function renderStatsContent() {
         + '<span class="mono" style="font-size:11px;color:var(--ink-soft)"> &nbsp;' + gp + " GP" + (quick ? " · " + quick : "") + "</span>"
         + (teamNames ? '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">' + esc(teamNames) + "</div>" : "")
         + "</summary>"
-        + groupDetailHtml(p.bat, "bat", gp, p.name) + groupDetailHtml(pitAccWithFeats(p), "pit", gp, p.name, p.gGames ? Object.keys(p.gGames.pit).length : 0) + groupDetailHtml(p.fld, "fld", gp, p.name)
+        + (function () { const sp = splitPostseason(p); if (!sp) return groupDetailHtml(p.bat, "bat", gp, p.name); return '<div class="hint" style="font-size:10px;margin-top:6px;color:var(--ink-soft)">Regular season</div>' + groupDetailHtml(sp.reg.bat, "bat", Object.keys(sp.reg.games).length, p.name); })() + groupDetailHtml(pitAccWithFeats(p), "pit", gp, p.name, p.gGames ? Object.keys(p.gGames.pit).length : 0) + groupDetailHtml(p.fld, "fld", gp, p.name)
+        + (function () {                                   // postseason, kept visually separate
+            const sp = splitPostseason(p); if (!sp) return "";
+            const pg = Object.keys(sp.post.games).length, pp = Object.keys(sp.post.gPit).length;
+            const inner = groupDetailHtml(sp.post.bat, "bat", pg, p.name)
+              + groupDetailHtml(sp.post.pit, "pit", pg, p.name, pp)
+              + groupDetailHtml(sp.post.fld, "fld", pg, p.name);
+            if (!inner) return "";
+            return '<div class="hint" style="font-size:10px;margin-top:10px;color:var(--red);font-weight:700">\ud83c\udfc6 Postseason</div>' + inner;
+          })()
         + (appMode === "video" ? careerCardHtml(p) + recordBookHtml(p) : "")
         + (yearF === "all" ? playerExtrasHtml(p.name.trim().toLowerCase(), venueF, p.pid) : "")
         + ((!p.pid && Object.keys(p.teams).length > 1) ? '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)"><div style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">This line spans ' + Object.keys(p.teams).length + " teams (" + esc(Object.keys(p.teams).join(", ")) + "). If those are different people who happen to share a name, split them so their stats stop combining.</div><button class=\"lbtn soft\" data-splitp=\"" + esc(p.name.trim().toLowerCase()) + "\" style=\"width:100%\">\u2934 Different people \u2014 split by team</button></div>" : "")
