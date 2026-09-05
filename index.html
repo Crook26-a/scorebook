@@ -455,7 +455,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v224";
+const APP_VERSION = "v226";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -7010,9 +7010,9 @@ function careerCardHtml(p) {
     for (const [k] of P) if (k !== "ERA" && (k === "IP" ? filled(psp.IP) : num(psp[k]))) pp.push((k === "IP" ? psp.IP : num(psp[k])) + " " + k);
     if (!bits.length && !pp.length) return "";
     const seasons = postSeasonKeys(key);
-    return '<div style="margin-top:4px;font-size:12px">\ud83c\udfc6 <b>Postseason</b> <span style="color:var(--ink-soft);font-size:10px">(' + seasons.length + " season" + (seasons.length === 1 ? "" : "s") + ")</span>"
+    return '<details style="margin-top:4px"><summary class="disp" style="cursor:pointer;font-size:12px">\ud83c\udfc6 <b>Postseason</b> <span style="color:var(--ink-soft);font-size:10px">(' + seasons.length + " season" + (seasons.length === 1 ? "" : "s") + ")</span></summary>"
       + (bits.length ? '<div class="hint" style="font-size:10px">' + bits.join(" \u00b7 ") + "</div>" : "")
-      + (pp.length ? '<div class="hint" style="font-size:10px">' + pp.join(" \u00b7 ") + "</div>" : "") + "</div>";
+      + (pp.length ? '<div class="hint" style="font-size:10px">' + pp.join(" \u00b7 ") + "</div>" : "") + "</details>";
   })();
   return header
     + '<div class="hint" style="margin:2px 0 4px">Career = the sum of your seasons. Games you log flow into their season live' + (cur ? " (current: " + esc(cur) + " \ud83d\udd34)" : "") + "; edit a season to set its total by hand.</div>"
@@ -7558,6 +7558,114 @@ function relBlockHtml(pa) {
     + scatterSvg(relPoints(key), relXS, relYS, relAxisLabel(key, relXS), relAxisLabel(key, relYS))
     + "</details>";
 }
+// ── Splits ───────────────────────────────────────────────────────────
+// The park a game is played in is the home team's, so home/away, opponent, and ballpark splits all
+// fall out of one pass. Postseason and ⊘ seasons follow the same rule as everywhere else.
+let splGrp = "bat", splStat = "HR", splSort = "rate", splOpen = false;
+const SPL_BAT = [["HR", "HR"], ["H", "H"], ["RBI", "RBI"], ["R", "R"], ["2B", "2B"], ["SB", "SB"], ["AVG", "AVG"], ["OPS", "OPS"]];
+const SPL_PIT = [["K", "K"], ["W", "W"], ["IP", "IP"], ["SO", "K"], ["ERA", "ERA"], ["WHIP", "WHIP"]];
+function splitAgg(key, grp) {
+  const home = {}, away = {}, byOpp = {}, byPark = {};
+  let hg = 0, ag = 0;
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== statsMode()) continue;
+    if (seasonExcluded(key, seasonOf(e))) continue;
+    for (const r of (e.box || [])) {
+      if (playerRowGrp(r, key) !== grp) continue;
+      const isHome = r.team === "home";
+      const park = (e.home || "").trim() || "(unknown)";
+      const opp = (isHome ? (e.away || "") : (e.home || "")).trim() || "(unknown)";
+      addAgg(isHome ? home : away, r.stats, r.group);
+      if (rowActive(r)) { if (isHome) hg++; else ag++; }
+      const O = byOpp[opp] = byOpp[opp] || { home: {}, away: {}, all: {}, hg: 0, ag: 0 };
+      addAgg(O.all, r.stats, r.group); addAgg(isHome ? O.home : O.away, r.stats, r.group);
+      if (rowActive(r)) { if (isHome) O.hg++; else O.ag++; }
+      const P = byPark[park] = byPark[park] || { acc: {}, g: 0, mine: isHome };
+      addAgg(P.acc, r.stats, r.group); if (rowActive(r)) P.g++;
+      if (isHome) P.mine = true;
+    }
+  }
+  const fin = a => aggToStats(a, grp === "bat" ? "batting" : "pitching");
+  const out = { home: fin(home), away: fin(away), hg: hg, ag: ag, opp: {}, park: {} };
+  for (const k in byOpp) out.opp[k] = { all: fin(byOpp[k].all), home: fin(byOpp[k].home), away: fin(byOpp[k].away), hg: byOpp[k].hg, ag: byOpp[k].ag };
+  for (const k in byPark) out.park[k] = { s: fin(byPark[k].acc), g: byPark[k].g, mine: byPark[k].mine };
+  return out;
+}
+// value + the rate that makes sense for it
+function splVal(s, grp, stat) {
+  const m = mapOf(BOX.baseball[grp === "bat" ? 0 : 1].calc(s));
+  if (m && filled(m[stat])) return { v: num(m[stat]), rate: null, isRate: true };
+  if (stat === "IP") { const o = ipOutsOf(s.IP); return { v: o / 3, rate: null, isRate: true }; }
+  const v = num(s[stat]);
+  const den = grp === "bat" ? num(s.AB) : ipOutsOf(s.IP) / 3;
+  return { v: v, rate: den > 0 ? (grp === "bat" ? v / den : v * 9 / den) : null, isRate: false };
+}
+function splFmt(stat, v) {
+  if (stat === "AVG" || stat === "OPS") return b3(v);
+  if (stat === "ERA" || stat === "WHIP") return Number(v).toFixed(2);
+  if (stat === "IP") return Number(v).toFixed(1);
+  return String(Math.round(v));
+}
+function splitsBlockHtml(p) {
+  const key = p ? mcKeyOf((p.name || "").trim(), p.pid || null) : null;
+  if (!key) return "";
+  const defs = splGrp === "bat" ? SPL_BAT : SPL_PIT;
+  if (!defs.some(d => d[0] === splStat)) splStat = defs[0][0];
+  const S = splitAgg(key, splGrp);
+  if (!S.hg && !S.ag) return "";
+  const chip = (v, cur, attr, lbl) => '<button class="chip disp" style="font-size:10px;padding:2px 7px' + (cur === v ? ";background:var(--ink);color:var(--card)" : "") + '" data-' + attr + '="' + esc(v) + '">' + esc(lbl) + "</button>";
+  const grpChips = ["bat", "pit"].map(g => chip(g, splGrp, "splgrp", g === "bat" ? "Batting" : "Pitching")).join("");
+  const statChips = defs.map(d => chip(d[0], splStat, "splstat", d[1])).join("");
+  const sortChips = [["rate", "By rate"], ["total", "By total"]].map(x => chip(x[0], splSort, "splsort", x[1])).join("");
+  const perLbl = splGrp === "bat" ? "/AB" : "/9";
+  // home vs away
+  const hv = splVal(S.home, splGrp, splStat), av = splVal(S.away, splGrp, splStat);
+  const line = (lbl, g, x) => '<div style="display:flex;gap:8px;font-size:12px"><span style="min-width:52px;color:var(--ink-soft)">' + lbl + "</span>"
+    + "<b>" + splFmt(splStat, x.v) + "</b>"
+    + (x.rate != null ? ' <span style="color:var(--ink-soft)">' + (splGrp === "bat" ? b3(x.rate) : Number(x.rate).toFixed(2)) + perLbl + "</span>" : "")
+    + ' <span style="color:var(--ink-soft);margin-left:auto">' + g + " G</span></div>";
+  // ballparks
+  const parks = Object.keys(S.park).map(nm => {
+    const x = splVal(S.park[nm].s, splGrp, splStat);
+    return { nm: nm, g: S.park[nm].g, mine: S.park[nm].mine, v: x.v, rate: x.rate, isRate: x.isRate };
+  }).filter(r => r.g > 0);
+  const minG = 3;
+  const ranked = parks.slice().sort((a, b) => {
+    const asc = splStat === "ERA" || splStat === "WHIP";
+    if (splSort === "total" || parks[0].isRate) return asc ? a.v - b.v : b.v - a.v;
+    const ar = a.rate == null ? -1 : a.rate, br = b.rate == null ? -1 : b.rate;
+    if (a.g < minG && b.g >= minG) return 1;
+    if (b.g < minG && a.g >= minG) return -1;
+    return asc ? ar - br : br - ar;
+  }).slice(0, 12);
+  const parkRows = ranked.map(r => '<div style="display:flex;gap:6px;font-size:11px;padding:2px 0;border-bottom:1px dashed var(--line)">'
+    + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.nm) + (r.mine ? ' <span style="color:var(--red)">\u2302</span>' : "") + "</span>"
+    + '<b style="min-width:38px;text-align:right">' + splFmt(splStat, r.v) + "</b>"
+    + '<span style="min-width:52px;text-align:right;color:var(--ink-soft)">' + (r.rate != null ? (splGrp === "bat" ? b3(r.rate) : Number(r.rate).toFixed(2)) : "\u2014") + "</span>"
+    + '<span style="min-width:30px;text-align:right;color:var(--ink-soft)">' + r.g + "g</span></div>").join("");
+  // opponents
+  const opps = Object.keys(S.opp).map(nm => {
+    const A = splVal(S.opp[nm].all, splGrp, splStat), H = splVal(S.opp[nm].home, splGrp, splStat), Aw = splVal(S.opp[nm].away, splGrp, splStat);
+    return { nm: nm, all: A.v, mine: H.v, theirs: Aw.v, hg: S.opp[nm].hg, ag: S.opp[nm].ag };
+  }).filter(r => r.hg + r.ag > 0).sort((a, b) => (b.hg + b.ag) - (a.hg + a.ag)).slice(0, 12);
+  const oppRows = opps.map(r => '<div style="display:flex;gap:6px;font-size:11px;padding:2px 0;border-bottom:1px dashed var(--line)">'
+    + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.nm) + "</span>"
+    + '<span style="min-width:56px;text-align:right">' + splFmt(splStat, r.mine) + ' <span style="color:var(--ink-soft);font-size:9px">' + r.hg + "g</span></span>"
+    + '<span style="min-width:56px;text-align:right">' + splFmt(splStat, r.theirs) + ' <span style="color:var(--ink-soft);font-size:9px">' + r.ag + "g</span></span></div>").join("");
+  return '<details' + (splOpen ? " open" : "") + ' data-spldetails="1" style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83c\udfdf Splits \u2014 home, away, and by ballpark</summary>'
+    + '<div style="display:flex;gap:5px;flex-wrap:wrap;margin:5px 0">' + grpChips + "</div>"
+    + '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:5px">' + statChips + "</div>"
+    + '<div class="grouplabel disp" style="margin-top:4px">Home / away</div>'
+    + line("Home", S.hg, hv) + line("Away", S.ag, av)
+    + '<details open style="margin-top:8px"><summary class="grouplabel disp" style="cursor:pointer">Ballparks</summary>'
+    + '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:3px">' + sortChips + "</div>"
+    + '<div style="display:flex;gap:6px;font-size:9px;color:var(--ink-soft);letter-spacing:.04em"><span style="flex:1">PARK</span><span style="min-width:38px;text-align:right">' + esc(splStat) + '</span><span style="min-width:52px;text-align:right">' + esc(splStat + perLbl) + '</span><span style="min-width:30px;text-align:right">G</span></div>'
+    + parkRows
+    + '<div class="hint" style="font-size:9px;margin-top:2px">\u2302 = your own park. Rate ranking needs ' + minG + '+ games at a park.</div></details>'
+    + '<details open style="margin-top:8px"><summary class="grouplabel disp" style="cursor:pointer">By opponent</summary>'
+    + '<div style="display:flex;gap:6px;font-size:9px;color:var(--ink-soft);letter-spacing:.04em"><span style="flex:1">TEAM</span><span style="min-width:56px;text-align:right">AT MINE</span><span style="min-width:56px;text-align:right">AT THEIRS</span></div>'
+    + oppRows + "</details></details>";
+}
 function analyticsTabHtml() {
   const pool = playerPool(statsMode());
   if (!pool.length) return '<div class="hint" style="padding:10px">No players logged in this mode yet.</div>';
@@ -7576,7 +7684,7 @@ function analyticsTabHtml() {
     + '<select id="anaSel" class="inline" style="flex:1">'
     + pool.map(x => '<option value="' + esc(x.key) + '"' + (x.key === anaKey ? " selected" : "") + ">" + esc(x.name) + "</option>").join("")
     + "</select></div>";
-  return sel + trendBlockHtml(p, null) + relBlockHtml(p);
+  return sel + trendBlockHtml(p, null) + splitsBlockHtml(p) + relBlockHtml(p);
 }
 function wireAnalytics(out) {
   const s = out.querySelector("#anaSel");
@@ -7966,6 +8074,10 @@ function wireCompare(out) {
   out.querySelectorAll("[data-tstat]").forEach(b => b.addEventListener("click", () => { trendStat = b.dataset.tstat; renderStatsContent(); }));
   out.querySelectorAll("[data-trate]").forEach(b => b.addEventListener("click", () => { trendRate = b.dataset.trate === "1"; renderStatsContent(); }));
   out.querySelectorAll("[data-tpitch]").forEach(b => b.addEventListener("click", () => { trendPitch = b.dataset.tpitch; renderStatsContent(); }));
+  out.querySelectorAll("[data-spldetails]").forEach(d => d.addEventListener("toggle", () => { splOpen = d.open; }));
+  out.querySelectorAll("[data-splgrp]").forEach(b => b.addEventListener("click", () => { splGrp = b.dataset.splgrp; renderStatsContent(); }));
+  out.querySelectorAll("[data-splstat]").forEach(b => b.addEventListener("click", () => { splStat = b.dataset.splstat; renderStatsContent(); }));
+  out.querySelectorAll("[data-splsort]").forEach(b => b.addEventListener("click", () => { splSort = b.dataset.splsort; renderStatsContent(); }));
   out.querySelectorAll("[data-twide]").forEach(b => b.addEventListener("click", () => { trendWide = b.dataset.twide === "1"; renderStatsContent(); }));
   out.querySelectorAll("[data-reldetails]").forEach(d => d.addEventListener("toggle", () => { relOpen = d.open; }));
   const rx = out.querySelector("#relXSel"); if (rx) rx.addEventListener("change", () => { relXS = rx.value; renderStatsContent(); });
@@ -8133,10 +8245,10 @@ function renderStatsContent() {
             const pitG = p.gGames ? Object.keys(p.gGames.pit).length : 0;
             if (!sp) return groupDetailHtml(p.bat, "bat", gp, p.name) + groupDetailHtml(pitAccWithFeats(p), "pit", gp, p.name, pitG) + groupDetailHtml(p.fld, "fld", gp, p.name);
             const rg = Object.keys(sp.reg.games).length, rp = Object.keys(sp.reg.gPit).length;
-            return '<div class="hint" style="font-size:10px;margin-top:6px;color:var(--ink-soft)">Regular season</div>'
+            return '<details open style="margin-top:6px"><summary class="disp" style="cursor:pointer;font-size:10px;color:var(--ink-soft)">Regular season</summary>'
               + groupDetailHtml(sp.reg.bat, "bat", rg, p.name)
               + groupDetailHtml(pitAccWithFeats(p, sp.reg), "pit", rg, p.name, rp)
-              + groupDetailHtml(sp.reg.fld, "fld", rg, p.name);
+              + groupDetailHtml(sp.reg.fld, "fld", rg, p.name) + "</details>";
           })()
         + (function () {                                   // postseason, kept visually separate
             const sp = splitPostseason(p); if (!sp) return "";
@@ -8144,12 +8256,12 @@ function renderStatsContent() {
             const inner = groupDetailHtml(sp.post.bat, "bat", pg, p.name)
               + groupDetailHtml(pitAccWithFeats(p, sp.post), "pit", pg, p.name, pp)
               + groupDetailHtml(sp.post.fld, "fld", pg, p.name);
-            const post = inner ? '<div class="hint" style="font-size:10px;margin-top:10px;color:var(--red);font-weight:700">\ud83c\udfc6 Postseason</div>' + inner : "";
+            const post = inner ? '<details style="margin-top:10px"><summary class="disp" style="cursor:pointer;font-size:10px;color:var(--red);font-weight:700">\ud83c\udfc6 Postseason</summary>' + inner + "</details>" : "";
             const og = Object.keys(sp.other.games).length, op = Object.keys(sp.other.gPit).length;
             const oInner = sp.anyOther ? (groupDetailHtml(sp.other.bat, "bat", og, p.name)
               + groupDetailHtml(pitAccWithFeats(p, sp.other), "pit", og, p.name, op)
               + groupDetailHtml(sp.other.fld, "fld", og, p.name)) : "";
-            const oth = oInner ? '<div class="hint" style="font-size:10px;margin-top:10px;color:var(--ink-soft);font-weight:700">\u2298 Not in career (minors, exhibition)</div>' + oInner : "";
+            const oth = oInner ? '<details style="margin-top:10px"><summary class="disp" style="cursor:pointer;font-size:10px;color:var(--ink-soft);font-weight:700">\u2298 Not in career (minors, exhibition)</summary>' + oInner + "</details>" : "";
             return post + oth;
           })()
         + (appMode === "video" ? careerCardHtml(p) + recordBookHtml(p) : "")
