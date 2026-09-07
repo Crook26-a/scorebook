@@ -455,7 +455,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v226";
+const APP_VERSION = "v229";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -3869,13 +3869,14 @@ function videoMileBannerLines(nm, team, isPit) {
   // not move career milestones either — otherwise the banner climbs all game and resets on save.
   const gsea = seasonOf(form) || currentSeason();
   const todayCar = seasonExcluded(key, gsea) ? {} : today;
-  const roll = (base, defs, tag, tod) => {
+  const roll = (base, defs, tag, tod, ctx) => {
     for (const d of defs) {
-      if (!mileOn(d.key, "round")) continue;
+      if (!mileOn(d.key, ctx)) continue;
       const v = num(base[d.key]) - num(back[d.key]), g = num(tod[d.key]), eff = v + g;
       if (!eff) continue;
-      const n = nextMile(eff, d.step, d.min), away = n - eff;
-      const near = mileNearFor(d.key, "round", d.near);      // your setting, else the built-in default
+      const st = mileStepFor(d.key, ctx, d.step);
+      const n = nextMile(eff, st, Math.min(d.min, st)), away = n - eff;
+      const near = mileNearFor(d.key, ctx, d.near);          // your setting, else the built-in default
       if (away <= 0 || away > near) continue;
       const sig = d.key + "@" + n; if (seen.has(sig)) continue; seen.add(sig);   // career and season often chase the same number
       out.push({ away: away, text: away + " " + d.label + " from " + n + ' <span style="color:var(--ink-soft)">(' + esc(tag) + " " + v + (g ? " + " + g + " today" : "") + ")</span>" });
@@ -3884,11 +3885,11 @@ function videoMileBannerLines(nm, team, isPit) {
   const pushRec = r => { const sig = "rec:" + r.text; if (seen.has(sig)) return; seen.add(sig); out.push({ away: r.away, text: "🏆 " + r.text }); };
   const merge = (base, tod) => { const m = {}; for (const c in base) m[c] = num(base[c]) - num(back[c]); for (const c in tod) m[c] = (m[c] || 0) + tod[c]; return m; };
   const car = careerResolvedStats(key, grp);
-  roll(car, isPit ? VMILE_CAREER_PIT : VMILE_CAREER_BAT, "career", todayCar);
+  roll(car, isPit ? VMILE_CAREER_PIT : VMILE_CAREER_BAT, "career", todayCar, "roundc");
   for (const r of vRecordLines(merge(car, todayCar), isPit ? VREC_CAREER_PIT : VREC_CAREER_BAT, "career")) pushRec(r);
   if (gsea) {                                                          // the season this game belongs to, not whatever the season bar says
     const sea = seasonResolvedStats(key, gsea, grp);
-    roll(sea, isPit ? VMILE_SEASON_PIT : VMILE_SEASON_BAT, gsea, today);
+    roll(sea, isPit ? VMILE_SEASON_PIT : VMILE_SEASON_BAT, gsea, today, "rounds");
     for (const r of vRecordLines(merge(sea, today), isPit ? VREC_SEASON_PIT : VREC_SEASON_BAT, "season")) pushRec(r);
   }
   return out.sort((a, b) => a.away - b.away).slice(0, 6).map(o => o.text);
@@ -3993,14 +3994,23 @@ const VREC_SEASON_PIT = [["W", "wins"], ["K", "K"], ["SV", "saves"], ["SHO", "sh
 const VREC_CAREER_BAT = VREC_SEASON_BAT, VREC_CAREER_PIT = VREC_SEASON_PIT;
 // Which milestones you want watched, per stat AND per context: round numbers, the career board, and
 // the single-season board are three different kinds of alert, so they're set independently.
-const MILE_CTX = [["round", "R", "round numbers"], ["career", "C", "career board"], ["season", "S", "season board"]];
+const MILE_CTX = [["roundc", "RC", "career round numbers"], ["rounds", "RS", "season round numbers"], ["career", "BC", "career board"], ["season", "BS", "season board"]];
 const MILEOFF_KEY = "sports-stat-mileoff-v1", MILENEAR_KEY = "sports-stat-milenear-v1";
 let mileOff = null, mileNear = {};
 try { mileOff = JSON.parse(localStorage.getItem(MILEOFF_KEY) || "null"); } catch (e) { mileOff = null; }
 try { mileNear = JSON.parse(localStorage.getItem(MILENEAR_KEY) || "{}") || {}; } catch (e) { mileNear = {}; }
-if (!mileOff || typeof mileOff !== "object") mileOff = { SHO: 1, CG: 1, NH: 1, PG: 1, IMM: 1 };
+if (!mileOff || typeof mileOff !== "object") mileOff = { SHO: 1, CG: 1, NH: 1, PG: 1, IMM: 1 };   // spread across all contexts below
 (function () {   // older settings were one value per stat — spread them across all three contexts
-  const fix = o => { const out = {}; for (const k in o) { if (k.indexOf("|") >= 0) out[k] = o[k]; else for (const c of MILE_CTX) out[c[0] + "|" + k] = o[k]; } return out; };
+  const fix = o => {
+    const out = {};
+    for (const k in o) {
+      if (k.indexOf("|") < 0) { for (const c of MILE_CTX) out[c[0] + "|" + k] = o[k]; continue; }
+      const p = k.split("|");
+      if (p[0] === "round") { out["roundc|" + p[1]] = o[k]; out["rounds|" + p[1]] = o[k]; }   // round numbers split in two
+      else out[k] = o[k];
+    }
+    return out;
+  };
   mileOff = fix(mileOff); mileNear = fix(mileNear);
 })();
 function persistMileOff() { try { localStorage.setItem(MILEOFF_KEY, JSON.stringify(mileOff)); } catch (e) {} }
@@ -4012,18 +4022,31 @@ let mileTop = {};
 try { mileTop = JSON.parse(localStorage.getItem(MILETOP_KEY) || "{}") || {}; } catch (e) { mileTop = {}; }
 function persistMileTop() { try { localStorage.setItem(MILETOP_KEY, JSON.stringify(mileTop)); } catch (e) {} }
 let mileSetOpen = false;   // keep the settings panel open across the re-render each tap causes
+// Which round numbers to watch for. Career K defaults to every 100; set it to 250 and you only
+// hear about 2500, 2750, 3000. Only applies to the two round-number contexts.
+const MILESTEP_KEY = "sports-stat-milestep-v1";
+const MILE_STEPS = [25, 50, 100, 250, 500, 1000];
+let mileStep = {};
+try { mileStep = JSON.parse(localStorage.getItem(MILESTEP_KEY) || "{}") || {}; } catch (e) { mileStep = {}; }
+function persistMileStep() { try { localStorage.setItem(MILESTEP_KEY, JSON.stringify(mileStep)); } catch (e) {} }
+function mileStepFor(k, ctx, dflt) {
+  const v = mileStep[(ctx || "roundc") + "|" + k];
+  return (v != null && String(v) !== "" && num(v) > 0) ? num(v) : dflt;
+}
 function mileTopFor(sc) { const v = mileTop[sc]; return (v != null && String(v) !== "" && num(v) > 0) ? Math.round(num(v)) : 0; }
 function mileOn(k, ctx) { return !mileOff[(ctx || "round") + "|" + k]; }
 function mileNearSet(k, ctx) { const v = mileNear[(ctx || "round") + "|" + k]; return v != null && String(v) !== ""; }
 function mileNearFor(k, ctx, dflt) { return mileNearSet(k, ctx) ? Math.max(1, num(mileNear[(ctx || "round") + "|" + k])) : (GAME_STATS[k] ? 1 : dflt); }
-function vMileLines(stats, defs) {
+function vMileLines(stats, defs, ctx) {
   if (!stats) return [];
   const out = [];
   for (const d of defs) {
-    if (!mileOn(d.key, "round")) continue;
+    const c = ctx || "roundc";
+    if (!mileOn(d.key, c)) continue;
     const v = num(stats[d.key]); if (!v) continue;
-    const n = nextMile(v, d.step, d.min), away = n - v;
-    const near = mileNearFor(d.key, "round", d.near);
+    const step = mileStepFor(d.key, c, d.step);
+    const n = nextMile(v, step, Math.min(d.min, step)), away = n - v;
+    const near = mileNearFor(d.key, c, d.near);
     if (away > 0 && away <= near) out.push({ away: away, next: n, label: d.label, v: v });
   }
   return out.sort((a, b) => a.away - b.away);
@@ -4059,8 +4082,14 @@ function vMileRow(r, ctx) {
 function vRecRow(r) {
   return '<div class="recrow" style="font-size:12px">🏆 <b>' + esc(r.name) + "</b> \u2014 " + r.text + "</div>";
 }
-function mileDefaultNear(k) {
-  for (const d of VMILE_CAREER_BAT.concat(VMILE_SEASON_BAT, VMILE_CAREER_PIT, VMILE_SEASON_PIT)) if (d.key === k) return GAME_STATS[k] ? 1 : d.near;
+function mileDefaultStep(k, ctx) {
+  const lists = ctx === "rounds" ? VMILE_SEASON_BAT.concat(VMILE_SEASON_PIT) : VMILE_CAREER_BAT.concat(VMILE_CAREER_PIT);
+  for (const d of lists) if (d.key === k) return d.step;
+  return 100;
+}
+function mileDefaultNear(k, ctx) {
+  const lists = ctx === "rounds" ? VMILE_SEASON_BAT.concat(VMILE_SEASON_PIT) : ctx === "roundc" ? VMILE_CAREER_BAT.concat(VMILE_CAREER_PIT) : VMILE_CAREER_BAT.concat(VMILE_SEASON_BAT, VMILE_CAREER_PIT, VMILE_SEASON_PIT);
+  for (const d of lists) if (d.key === k) return GAME_STATS[k] ? 1 : d.near;
   return GAME_STATS[k] ? 1 : 8;
 }
 function mileToggleList() {
@@ -4077,8 +4106,12 @@ function mileTogglesHtml() {
   const cell = (k, ctx) => {
     const on = mileOn(k, ctx);
     return '<span style="display:inline-flex;align-items:center;gap:1px">'
-      + '<button class="chip disp" style="font-size:9px;padding:1px 5px;min-width:0' + (on ? ";background:var(--ink);color:var(--card)" : ";opacity:.4;text-decoration:line-through") + '" data-mtog="' + esc(ctx + "|" + k) + '">' + esc(ctx.charAt(0).toUpperCase()) + "</button>"
-      + (on ? '<input class="mono" data-mnear="' + esc(ctx + "|" + k) + '" inputmode="numeric" value="' + esc(mileNearSet(k, ctx) ? mileNear[ctx + "|" + k] : "") + '" placeholder="' + mileNearFor(k, ctx, mileDefaultNear(k)) + '" style="width:26px;text-align:center;padding:1px;font-size:9px">' : "")
+      + '<button class="chip disp" style="font-size:9px;padding:1px 5px;min-width:0' + (on ? ";background:var(--ink);color:var(--card)" : ";opacity:.4;text-decoration:line-through") + '" data-mtog="' + esc(ctx + "|" + k) + '">' + esc((MILE_CTX.find(c => c[0] === ctx) || ["", ctx])[1]) + "</button>"
+      + (on ? '<input class="mono" data-mnear="' + esc(ctx + "|" + k) + '" inputmode="numeric" value="' + esc(mileNearSet(k, ctx) ? mileNear[ctx + "|" + k] : "") + '" placeholder="' + mileNearFor(k, ctx, mileDefaultNear(k, ctx)) + '" style="width:26px;text-align:center;padding:1px;font-size:9px">' : "")
+      + (on && (ctx === "roundc" || ctx === "rounds") ? '<select class="mono" data-mstep="' + esc(ctx + "|" + k) + '" style="font-size:9px;padding:0;max-width:46px">'
+          + '<option value="">/' + mileStepFor(k, ctx, mileDefaultStep(k, ctx)) + "</option>"
+          + MILE_STEPS.map(s => '<option value="' + s + '"' + (num(mileStep[ctx + "|" + k]) === s ? " selected" : "") + ">/" + s + "</option>").join("")
+          + "</select>" : "")
       + "</span>";
   };
   return '<details data-mset="1"' + (mileSetOpen ? " open" : "") + ' style="margin-top:4px"><summary class="disp" style="cursor:pointer;font-size:11px;color:var(--ink-soft)">\u2699 Which milestones to watch'
@@ -4086,7 +4119,7 @@ function mileTogglesHtml() {
     + '<div class="hint" style="font-size:10px;margin:3px 0">Chase only the top <input class="mono" data-mtop="career" inputmode="numeric" value="'
     + esc(mileTopFor("career") || "") + '" placeholder="all" style="width:34px;text-align:center;padding:1px;font-size:10px"> of the career board and the top <input class="mono" data-mtop="season" inputmode="numeric" value="'
     + esc(mileTopFor("season") || "") + '" placeholder="all" style="width:34px;text-align:center;padding:1px;font-size:10px"> of the season board. Blank means the whole board.</div>'
-    + '<div class="hint" style="font-size:10px;margin:3px 0"><b>R</b> round numbers \u00b7 <b>C</b> career board \u00b7 <b>S</b> season board. Tap a letter to switch that one off; the box next to it is how close you have to be before it shows (blank = the default shown greyed).</div>'
+    + '<div class="hint" style="font-size:10px;margin:3px 0"><b>RC</b> career round numbers \u00b7 <b>RS</b> season round numbers \u00b7 <b>BC</b> career board \u00b7 <b>BS</b> season board. Tap a letter to switch that one off; the box next to it is how close you have to be before it shows (blank = default). The /100 dropdown on RC and RS picks which round numbers count.</div>'
     + '<div style="display:flex;flex-direction:column;gap:3px">'
     + list.map(([k]) => '<div style="display:flex;align-items:center;gap:5px"><span class="mono" style="min-width:34px;font-size:10px;font-weight:700">' + esc(k) + "</span>"
         + MILE_CTX.map(c => cell(k, c[0])).join("") + "</div>").join("")
@@ -4100,15 +4133,15 @@ function videoMilestonesHtml() {
   const careerRows = [], seasonRows = [];
   for (const key of keys) {
     const nm = map[key].name || key.replace(/^nm:/, "");
-    const cb = vMileLines(careerResolvedStats(key, "bat"), VMILE_CAREER_BAT);
-    const cp = vMileLines(careerResolvedStats(key, "pit"), VMILE_CAREER_PIT);
+    const cb = vMileLines(careerResolvedStats(key, "bat"), VMILE_CAREER_BAT, "roundc");
+    const cp = vMileLines(careerResolvedStats(key, "pit"), VMILE_CAREER_PIT, "roundc");
     for (const m of cb.concat(cp)) careerRows.push({ name: nm, ...m });
     const crb = vRecordLines(careerResolvedStats(key, "bat"), VREC_CAREER_BAT, "career");
     const crp = vRecordLines(careerResolvedStats(key, "pit"), VREC_CAREER_PIT, "career");
     for (const m of crb.concat(crp)) careerRows.push({ name: nm, isRec: true, ...m });
     if (cur) {
       const sbStats = seasonResolvedStats(key, cur, "bat"), spStats = seasonResolvedStats(key, cur, "pit");
-      const sb = vMileLines(sbStats, VMILE_SEASON_BAT), sp = vMileLines(spStats, VMILE_SEASON_PIT);
+      const sb = vMileLines(sbStats, VMILE_SEASON_BAT, "rounds"), sp = vMileLines(spStats, VMILE_SEASON_PIT, "rounds");
       for (const m of sb.concat(sp)) seasonRows.push({ name: nm, ...m });
       const rb = vRecordLines(sbStats, VREC_SEASON_BAT, "season"), rp = vRecordLines(spStats, VREC_SEASON_PIT, "season");
       for (const m of rb.concat(rp)) seasonRows.push({ name: nm, isRec: true, ...m });
@@ -7598,7 +7631,9 @@ function splVal(s, grp, stat) {
   if (stat === "IP") { const o = ipOutsOf(s.IP); return { v: o / 3, rate: null, isRate: true }; }
   const v = num(s[stat]);
   const den = grp === "bat" ? num(s.AB) : ipOutsOf(s.IP) / 3;
-  return { v: v, rate: den > 0 ? (grp === "bat" ? v / den : v * 9 / den) : null, isRate: false };
+  // Batting reads as at-bats per event (AB/HR), so lower is better; pitching stays per nine innings.
+  const rate = grp === "bat" ? (v > 0 && den > 0 ? den / v : null) : (den > 0 ? v * 9 / den : null);
+  return { v: v, rate: rate, isRate: false, rateAsc: grp === "bat" };
 }
 function splFmt(stat, v) {
   if (stat === "AVG" || stat === "OPS") return b3(v);
@@ -7617,12 +7652,14 @@ function splitsBlockHtml(p) {
   const grpChips = ["bat", "pit"].map(g => chip(g, splGrp, "splgrp", g === "bat" ? "Batting" : "Pitching")).join("");
   const statChips = defs.map(d => chip(d[0], splStat, "splstat", d[1])).join("");
   const sortChips = [["rate", "By rate"], ["total", "By total"]].map(x => chip(x[0], splSort, "splsort", x[1])).join("");
-  const perLbl = splGrp === "bat" ? "/AB" : "/9";
+  const perLbl = splGrp === "bat" ? "AB/" + splStat : splStat + "/9";
+  const rateFmt = r => r == null ? "\u2014" : Number(r).toFixed(1);
+  const rateAsc = splGrp === "bat";   // fewer at-bats per homer is better
   // home vs away
   const hv = splVal(S.home, splGrp, splStat), av = splVal(S.away, splGrp, splStat);
   const line = (lbl, g, x) => '<div style="display:flex;gap:8px;font-size:12px"><span style="min-width:52px;color:var(--ink-soft)">' + lbl + "</span>"
     + "<b>" + splFmt(splStat, x.v) + "</b>"
-    + (x.rate != null ? ' <span style="color:var(--ink-soft)">' + (splGrp === "bat" ? b3(x.rate) : Number(x.rate).toFixed(2)) + perLbl + "</span>" : "")
+    + (x.rate != null ? ' <span style="color:var(--ink-soft)">' + rateFmt(x.rate) + " " + perLbl + "</span>" : "")
     + ' <span style="color:var(--ink-soft);margin-left:auto">' + g + " G</span></div>";
   // ballparks
   const parks = Object.keys(S.park).map(nm => {
@@ -7633,15 +7670,16 @@ function splitsBlockHtml(p) {
   const ranked = parks.slice().sort((a, b) => {
     const asc = splStat === "ERA" || splStat === "WHIP";
     if (splSort === "total" || parks[0].isRate) return asc ? a.v - b.v : b.v - a.v;
-    const ar = a.rate == null ? -1 : a.rate, br = b.rate == null ? -1 : b.rate;
     if (a.g < minG && b.g >= minG) return 1;
     if (b.g < minG && a.g >= minG) return -1;
-    return asc ? ar - br : br - ar;
+    const worst = rateAsc ? Infinity : -Infinity;               // never rank a park with none of the stat
+    const ar = a.rate == null ? worst : a.rate, br = b.rate == null ? worst : b.rate;
+    return rateAsc ? ar - br : br - ar;
   }).slice(0, 12);
   const parkRows = ranked.map(r => '<div style="display:flex;gap:6px;font-size:11px;padding:2px 0;border-bottom:1px dashed var(--line)">'
     + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.nm) + (r.mine ? ' <span style="color:var(--red)">\u2302</span>' : "") + "</span>"
     + '<b style="min-width:38px;text-align:right">' + splFmt(splStat, r.v) + "</b>"
-    + '<span style="min-width:52px;text-align:right;color:var(--ink-soft)">' + (r.rate != null ? (splGrp === "bat" ? b3(r.rate) : Number(r.rate).toFixed(2)) : "\u2014") + "</span>"
+    + '<span style="min-width:52px;text-align:right;color:var(--ink-soft)">' + rateFmt(r.rate) + "</span>"
     + '<span style="min-width:30px;text-align:right;color:var(--ink-soft)">' + r.g + "g</span></div>").join("");
   // opponents
   const opps = Object.keys(S.opp).map(nm => {
@@ -7659,7 +7697,7 @@ function splitsBlockHtml(p) {
     + line("Home", S.hg, hv) + line("Away", S.ag, av)
     + '<details open style="margin-top:8px"><summary class="grouplabel disp" style="cursor:pointer">Ballparks</summary>'
     + '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:3px">' + sortChips + "</div>"
-    + '<div style="display:flex;gap:6px;font-size:9px;color:var(--ink-soft);letter-spacing:.04em"><span style="flex:1">PARK</span><span style="min-width:38px;text-align:right">' + esc(splStat) + '</span><span style="min-width:52px;text-align:right">' + esc(splStat + perLbl) + '</span><span style="min-width:30px;text-align:right">G</span></div>'
+    + '<div style="display:flex;gap:6px;font-size:9px;color:var(--ink-soft);letter-spacing:.04em"><span style="flex:1">PARK</span><span style="min-width:38px;text-align:right">' + esc(splStat) + '</span><span style="min-width:52px;text-align:right">' + esc(perLbl) + '</span><span style="min-width:30px;text-align:right">G</span></div>'
     + parkRows
     + '<div class="hint" style="font-size:9px;margin-top:2px">\u2302 = your own park. Rate ranking needs ' + minG + '+ games at a park.</div></details>'
     + '<details open style="margin-top:8px"><summary class="grouplabel disp" style="cursor:pointer">By opponent</summary>'
@@ -9061,6 +9099,11 @@ function renderRecordsContent() {
     if (v === "" || num(v) <= 0) delete mileTop[sc]; else mileTop[sc] = String(Math.round(num(v)));
     persistMileTop(); renderRecordsContent();
   }));
+  out.querySelectorAll("[data-mstep]").forEach(sel => sel.addEventListener("change", () => {
+    const k = sel.getAttribute("data-mstep"), v = sel.value;
+    if (!v) delete mileStep[k]; else mileStep[k] = v;
+    persistMileStep(); renderRecordsContent();
+  }));
   out.querySelectorAll("[data-mnear]").forEach(inp => inp.addEventListener("change", () => {
     const k = inp.getAttribute("data-mnear"), v = inp.value.trim();
     if (v === "" || num(v) <= 0) delete mileNear[k]; else mileNear[k] = String(Math.round(num(v)));
@@ -9284,7 +9327,7 @@ document.getElementById("exportBtn").addEventListener("click", async () => {
   const payload = JSON.stringify({
     version: 3, exported: new Date().toISOString(),
     games: entries, teams: teamsDB, parks: parksDB,
-    pitchBank: pitchBank, arsenals: arsenalPresets, pins: pinnedPlayers, witnessed: witnessed, firsts: firsts, manualCareer: manualCareer, liveSince: liveSince, postSeasons: postSeasons, mileOff: mileOff, mileNear: mileNear, mileTop: mileTop, playerHand: playerHand, leaderOverrides: leaderOverrides, mileWatch: mileWatch, debut: _debut,
+    pitchBank: pitchBank, arsenals: arsenalPresets, pins: pinnedPlayers, witnessed: witnessed, firsts: firsts, manualCareer: manualCareer, liveSince: liveSince, postSeasons: postSeasons, mileOff: mileOff, mileNear: mileNear, mileTop: mileTop, mileStep: mileStep, playerHand: playerHand, leaderOverrides: leaderOverrides, mileWatch: mileWatch, debut: _debut,
     prefs: {
       theme: localStorage.getItem("sports-stat-theme") || "",
       mode: localStorage.getItem("sports-stat-mode") || "",
@@ -9400,6 +9443,7 @@ document.getElementById("importFile").addEventListener("change", ev => {
         if (data.mileOff && typeof data.mileOff === "object") { mileOff = data.mileOff; persistMileOff(); }
         if (data.mileNear && typeof data.mileNear === "object") { mileNear = data.mileNear; persistMileNear(); }
         if (data.mileTop && typeof data.mileTop === "object") { mileTop = data.mileTop; persistMileTop(); }
+        if (data.mileStep && typeof data.mileStep === "object") { mileStep = data.mileStep; persistMileStep(); }
         if (data.playerHand && typeof data.playerHand === "object") { for (const k in data.playerHand) if (!playerHand[k]) playerHand[k] = data.playerHand[k]; persistPlayerHand(); }
         if (data.leaderOverrides && typeof data.leaderOverrides === "object") { for (const sc in data.leaderOverrides) { leaderOverrides[sc] = leaderOverrides[sc] || {}; for (const cid in data.leaderOverrides[sc]) leaderOverrides[sc][cid] = data.leaderOverrides[sc][cid]; } persistLeaderOverrides(); }
         if (data.mileWatch) {
