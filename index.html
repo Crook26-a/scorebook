@@ -455,7 +455,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v229";
+const APP_VERSION = "v231";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -7641,6 +7641,122 @@ function splFmt(stat, v) {
   if (stat === "IP") return Number(v).toFixed(1);
   return String(Math.round(v));
 }
+// ── Pitch sequencing ─────────────────────────────────────────────────
+// The live log records the pitch type and the count before every pitch, so at-bats can be rebuilt by
+// cutting wherever the count resets to 0-0. That gives real sequences and what each one ended in.
+let seqLen = 3, seqMin = 25, seqOpen = false, seqSort = "k", seqBuild = [];
+function pitchSequences(key) {
+  const abList = [];
+  for (const en of entries) {
+    if (en.sport !== "baseball" || modeOf(en) !== statsMode()) continue;
+    if (seasonExcluded(key, seasonOf(en))) continue;
+    const log = en.live && en.live.log; if (!log || !log.length) continue;
+    let cur = [];
+    const flush = () => { if (cur.length) abList.push(cur); cur = []; };
+    for (const le of log) {
+      const p = le.pit; if (!p || !p.cols) continue;
+      if (!(p.player || "").trim() || mcKeyOf(p.player.trim(), null) !== key) continue;
+      let pitch = null, isK = false, ends = false;
+      for (const c of (p.cols || [])) {
+        const n = String(c[0]);
+        if (n.indexOf("px:") === 0) pitch = n.slice(3);
+        else if (n === "K") isK = true;
+        else if (n.indexOf("po:") === 0) ends = true;
+      }
+      if (!pitch) continue;
+      const sn = le.snap || {};
+      if (sn.b === 0 && sn.s === 0 && cur.length) flush();
+      cur.push({ p: pitch, k: isK });
+      if (ends || isK) flush();
+    }
+    flush();
+  }
+  return abList;
+}
+// Counts for runs of a given length: how often thrown, and how often the run finished the at-bat.
+function seqCounts(abList, len) {
+  const seqs = {}, outp = {};
+  for (const ab of abList) {
+    const last = ab[ab.length - 1];
+    for (let i = 0; i + len <= ab.length; i++) {
+      const kk = ab.slice(i, i + len).map(x => x.p).join(" \u2192 ");
+      const s = seqs[kk] = seqs[kk] || { n: 0, e: 0, k: 0 };
+      s.n++;
+      if (i + len === ab.length) { s.e++; if (last.k) s.k++; }
+    }
+    const O = outp[last.p] = outp[last.p] || { n: 0, e: 0, k: 0 };
+    O.n++; O.e++; if (last.k) O.k++;
+  }
+  return { seqs: seqs, outp: outp };
+}
+// One specific sequence, however long, plus what tends to come next when it isn't the end.
+function seqLookup(abList, arr) {
+  const out = { n: 0, e: 0, k: 0, next: {} };
+  if (!arr.length) return out;
+  for (const ab of abList) {
+    const last = ab[ab.length - 1];
+    for (let i = 0; i + arr.length <= ab.length; i++) {
+      let hit = true;
+      for (let j = 0; j < arr.length; j++) if (ab[i + j].p !== arr[j]) { hit = false; break; }
+      if (!hit) continue;
+      out.n++;
+      if (i + arr.length === ab.length) { out.e++; if (last.k) out.k++; }
+      else { const nx = ab[i + arr.length].p; out.next[nx] = (out.next[nx] || 0) + 1; }
+    }
+  }
+  return out;
+}
+function seqBlockHtml(p) {
+  const key = p ? mcKeyOf((p.name || "").trim(), p.pid || null) : null;
+  if (!key) return "";
+  const abList = pitchSequences(key);
+  if (!abList.length) return "";
+  const C = seqCounts(abList, seqLen);
+  const pitches = arsenalPitchNames(key);
+  const chip = (v, cur, attr, lbl) => '<button class="chip disp" style="font-size:10px;padding:2px 7px' + (String(cur) === String(v) ? ";background:var(--ink);color:var(--card)" : "") + '" data-' + attr + '="' + esc(v) + '">' + esc(lbl) + "</button>";
+  const hdr = (first, a, b, c) => '<div style="display:flex;gap:6px;font-size:9px;color:var(--ink-soft);letter-spacing:.04em;border-bottom:1px solid var(--line);padding-bottom:2px">'
+    + '<span style="flex:1">' + first + '</span><span style="min-width:42px;text-align:right">' + a + '</span>'
+    + '<span style="min-width:34px;text-align:right">' + b + '</span><span style="min-width:42px;text-align:right">' + c + "</span></div>";
+  const row = (name, v) => '<div style="display:flex;gap:6px;font-size:11px;padding:2px 0;border-bottom:1px dashed var(--line)">'
+    + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(name) + "</span>"
+    + '<b style="min-width:42px;text-align:right">' + (v.e ? (v.k / v.e * 100).toFixed(1) + "%" : "\u2014") + "</b>"
+    + '<span style="min-width:34px;text-align:right;color:var(--ink-soft)">' + v.k + "</span>"
+    + '<span style="min-width:42px;text-align:right;color:var(--ink-soft)">' + v.e + "</span></div>";
+  const outRows = Object.keys(C.outp).map(k => ({ k: k, v: C.outp[k] })).filter(x => x.v.e >= 10)
+    .sort((a, b) => seqSort === "n" ? b.v.e - a.v.e : (b.v.k / b.v.e) - (a.v.k / a.v.e))
+    .map(x => row(x.k, x.v)).join("");
+  const seqRows = Object.keys(C.seqs).map(k => ({ k: k, v: C.seqs[k] })).filter(x => x.v.e >= seqMin)
+    .sort((a, b) => seqSort === "n" ? b.v.e - a.v.e : (b.v.k / b.v.e) - (a.v.k / a.v.e))
+    .slice(0, 15).map(x => row(x.k, x.v)).join("");
+  // ── builder ──
+  const B = seqLookup(abList, seqBuild);
+  const nextTop = Object.keys(B.next).map(k => [k, B.next[k]]).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  const builtLine = !seqBuild.length
+    ? '<div class="hint" style="font-size:10px">Tap pitches to build a sequence of any length \u2014 three fastballs then a curve, whatever you want.</div>'
+    : '<div style="font-size:12px;font-weight:700;margin:3px 0">' + esc(seqBuild.join(" \u2192 ")) + "</div>"
+      + '<div class="hint" style="font-size:10px">Thrown <b>' + B.n + '</b> time' + (B.n === 1 ? "" : "s") + " \u00b7 ended the at-bat <b>" + B.e + "</b> time" + (B.e === 1 ? "" : "s")
+      + (B.e ? " \u00b7 <b>" + B.k + "</b> of those a strikeout (<b>" + (B.k / B.e * 100).toFixed(1) + "%</b>)" : "")
+      + "</div>"
+      + (nextTop.length ? '<div class="hint" style="font-size:10px">When it kept going, next pitch was: ' + nextTop.map(t => esc(t[0]) + " " + t[1]).join(" \u00b7 ") + "</div>" : "");
+  const buildChips = pitches.map(pn => '<button class="chip disp" style="font-size:10px;padding:2px 7px" data-seqadd="' + esc(pn) + '">+ ' + esc(pn) + "</button>").join("");
+  return '<details' + (seqOpen ? " open" : "") + ' data-seqdetails="1" style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\u26be Pitch sequencing</summary>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">Rebuilt from your pitch log \u2014 <b>' + abList.length + '</b> at-bats. \u201cK rate\u201d is strikeouts as a share of the at-bats that <i>ended</i> on that pitch or sequence.</div>'
+    + '<details open style="margin-top:6px"><summary class="grouplabel disp" style="cursor:pointer">Build a sequence</summary>'
+    + '<div style="display:flex;gap:5px;flex-wrap:wrap;margin:4px 0">' + buildChips
+    + (seqBuild.length ? '<button class="chip disp" style="font-size:10px;padding:2px 7px" data-seqback="1">\u232b</button><button class="chip disp" style="font-size:10px;padding:2px 7px" data-seqclear="1">clear</button>' : "")
+    + "</div>" + builtLine + "</details>"
+    + '<details open style="margin-top:8px"><summary class="grouplabel disp" style="cursor:pointer">Best out pitch</summary>'
+    + '<div class="hint" style="font-size:9px;margin:2px 0">Pitches that finished an at-bat, and how often that was a strikeout.</div>'
+    + hdr("PITCH", "K RATE", "K", "AB ENDED") + outRows + "</details>"
+    + '<details open style="margin-top:8px"><summary class="grouplabel disp" style="cursor:pointer">Top sequences</summary>'
+    + '<div style="display:flex;gap:5px;flex-wrap:wrap;margin:4px 0">' + [2, 3, 4, 5].map(n => chip(n, seqLen, "seqlen", n + "-pitch")).join("") + "</div>"
+    + '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:4px"><span class="hint" style="font-size:9px">min</span>'
+    + [10, 25, 50, 100].map(n => chip(n, seqMin, "seqmin", String(n))).join("")
+    + '<span style="width:6px"></span>' + [["k", "By K rate"], ["n", "By use"]].map(x => chip(x[0], seqSort, "seqsort", x[1])).join("") + "</div>"
+    + hdr("SEQUENCE", "K RATE", "K", "AB ENDED")
+    + (seqRows || '<div class="hint" style="font-size:10px">Nothing meets that minimum yet \u2014 try a lower one.</div>')
+    + "</details></details>";
+}
 function splitsBlockHtml(p) {
   const key = p ? mcKeyOf((p.name || "").trim(), p.pid || null) : null;
   if (!key) return "";
@@ -7722,7 +7838,7 @@ function analyticsTabHtml() {
     + '<select id="anaSel" class="inline" style="flex:1">'
     + pool.map(x => '<option value="' + esc(x.key) + '"' + (x.key === anaKey ? " selected" : "") + ">" + esc(x.name) + "</option>").join("")
     + "</select></div>";
-  return sel + trendBlockHtml(p, null) + splitsBlockHtml(p) + relBlockHtml(p);
+  return sel + trendBlockHtml(p, null) + splitsBlockHtml(p) + seqBlockHtml(p) + relBlockHtml(p);
 }
 function wireAnalytics(out) {
   const s = out.querySelector("#anaSel");
@@ -8112,6 +8228,13 @@ function wireCompare(out) {
   out.querySelectorAll("[data-tstat]").forEach(b => b.addEventListener("click", () => { trendStat = b.dataset.tstat; renderStatsContent(); }));
   out.querySelectorAll("[data-trate]").forEach(b => b.addEventListener("click", () => { trendRate = b.dataset.trate === "1"; renderStatsContent(); }));
   out.querySelectorAll("[data-tpitch]").forEach(b => b.addEventListener("click", () => { trendPitch = b.dataset.tpitch; renderStatsContent(); }));
+  out.querySelectorAll("[data-seqdetails]").forEach(d => d.addEventListener("toggle", () => { seqOpen = d.open; }));
+  out.querySelectorAll("[data-seqadd]").forEach(b => b.addEventListener("click", () => { seqBuild.push(b.getAttribute("data-seqadd")); renderStatsContent(); }));
+  out.querySelectorAll("[data-seqback]").forEach(b => b.addEventListener("click", () => { seqBuild.pop(); renderStatsContent(); }));
+  out.querySelectorAll("[data-seqclear]").forEach(b => b.addEventListener("click", () => { seqBuild = []; renderStatsContent(); }));
+  out.querySelectorAll("[data-seqlen]").forEach(b => b.addEventListener("click", () => { seqLen = num(b.dataset.seqlen); renderStatsContent(); }));
+  out.querySelectorAll("[data-seqmin]").forEach(b => b.addEventListener("click", () => { seqMin = num(b.dataset.seqmin); renderStatsContent(); }));
+  out.querySelectorAll("[data-seqsort]").forEach(b => b.addEventListener("click", () => { seqSort = b.dataset.seqsort; renderStatsContent(); }));
   out.querySelectorAll("[data-spldetails]").forEach(d => d.addEventListener("toggle", () => { splOpen = d.open; }));
   out.querySelectorAll("[data-splgrp]").forEach(b => b.addEventListener("click", () => { splGrp = b.dataset.splgrp; renderStatsContent(); }));
   out.querySelectorAll("[data-splstat]").forEach(b => b.addEventListener("click", () => { splStat = b.dataset.splstat; renderStatsContent(); }));
