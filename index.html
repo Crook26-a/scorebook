@@ -455,7 +455,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v231";
+const APP_VERSION = "v232";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -9003,8 +9003,29 @@ function renderRecordsContent() {
   const feats = {};
   const CG_MIN_OUTS = 24;          // 8 innings — an away starter in a home win goes only 8
   const SHO_MIN_OUTS = 27;         // 9 innings — a shutout means he finished the job
-  const noHitters = [];
+  const noHitters = [], immGames = [];
   for (const e of games) {
+    // Immaculate innings need the pitch-by-pitch log, so they're counted per game rather than per row.
+    const log = e.live && e.live.log;
+    if (log && log.length) {
+      const byP = {};
+      for (const le of log) {
+        const pp = le.pit; if (!pp || !(pp.player || "").trim() || !pp.cols) continue;
+        const inn = (le.snap && le.snap.inn) || 0; if (!inn) continue;
+        const nm = pp.player.trim();
+        const b = (byP[nm] = byP[nm] || {})[inn] = byP[nm][inn] || { pc: 0, k: 0 };
+        for (const c of pp.cols) { if (c[0] === "PC") b.pc += num(c[1]); else if (c[0] === "K") b.k += num(c[1]); }
+      }
+      for (const nm in byP) {
+        let n = 0, innings = [];
+        for (const i in byP[nm]) if (byP[nm][i].pc === 9 && byP[nm][i].k === 3) { n++; innings.push(i); }
+        if (!n) continue;
+        const k4 = nm.toLowerCase();   // same keying as the row-based feats, so one pitcher stays one row
+        const F2 = feats[k4] = feats[k4] || { name: nm, qs: 0, cg: 0, sho: 0, noh: 0, perf: 0, imm: 0 };
+        F2.imm += n;
+        immGames.push({ player: nm, e: e, innings: innings });
+      }
+    }
     const bySide = { away: [], home: [] };
     for (const r of (e.box || [])) if (r.group === "pitching" && r.player.trim() && bySide[r.team]) bySide[r.team].push(r);
     for (const side of ["away", "home"]) {
@@ -9015,7 +9036,7 @@ function renderRecordsContent() {
         const o3 = ipOutsOf(r.stats.IP);
         if (!o3) continue;
         const k3 = r.player.trim().toLowerCase();
-        const F = feats[k3] = feats[k3] || { name: r.player.trim(), qs: 0, cg: 0, sho: 0, noh: 0, perf: 0 };
+        const F = feats[k3] = feats[k3] || { name: r.player.trim(), qs: 0, cg: 0, sho: 0, noh: 0, perf: 0, imm: 0 };
         if (o3 >= 18 && (filled(r.stats.ER) ? num(r.stats.ER) : num(r.stats.R)) <= 3) F.qs++;
         // Shutout: the other team never scored and he went the full nine (or more). Reads the game
         // score when it's there and falls back to the pitcher's own R column when it isn't.
@@ -9039,6 +9060,7 @@ function renderRecordsContent() {
     return '<div class="grouplabel disp">' + label + "</div>"
       + rows.map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + '.</span> <b>' + r[key] + '</b> <span class="statk" data-stat="' + statKey + '">' + statKey + "</span> — " + esc(r.name) + "</div>").join("");
   };
+  const immHtml = immGames.length ? immGames.slice(-6).reverse().map(g => '<div class="recrow"><b>' + esc(g.player) + "</b> \u2014 immaculate inning" + (g.innings.length > 1 ? "s" : "") + " (" + g.innings.map(i => "inn " + i).join(", ") + ") <span style=\"color:var(--ink-soft)\">" + esc(g.e.date || "") + "</span></div>").join("") : "";
   const noHitHtml = noHitters.length ? noHitters.map(nh => '<div class="recrow"><b>' + esc(nh.player) + "</b> threw a " + (nh.perfect ? "<b>perfect game</b> 💎" : "<b>no-hitter</b>")
     + '<div style="font-size:11px;color:var(--ink-soft);padding-left:4px">' + esc(gameTag(nh.e))
     + " \u00b7 also counts as a complete game" + (nh.sho ? ", a shutout" : "") + (nh.perfect ? " and a no-hitter" : "") + "</div></div>").join("") : "";
@@ -9047,7 +9069,9 @@ function renderRecordsContent() {
     + featTop("cg", "Complete games", "CG")
     + featTop("sho", "Shutouts", "SHO")
     + featTop("noh", "No-hitters", "NH")
-    + featTop("perf", "Perfect games", "PG");
+    + featTop("perf", "Perfect games", "PG")
+    + featTop("imm", "Immaculate innings", "IMM")
+    + (immHtml ? '<div class="grouplabel disp">Recent immaculate innings</div>' + immHtml : "");
   const cardFeats = ft ? card("🎖 Pitching feats", ft) : "";
   // ── ballparks ──
   let cardParks = "";
