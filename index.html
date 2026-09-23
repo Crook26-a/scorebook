@@ -435,6 +435,7 @@ const STAT_GLOSSARY = {
   "CHL": "Pitch challenges used (ABS)", "CHW": "Challenges won \u2014 calls overturned", "CH%": "Challenge success rate", "XBT": "Extra bases taken: steals, advancing on a teammate's hit, and runs scored from the bases (solo tracking)",
   "R/G": "Runs scored per game, across the games you witnessed",
   "TB": "Total bases — plus extra bases taken (XBT) when tracked. SLG and ISO use the official hits-only version", "AVG": "Batting average: hits per at-bat",
+  "uBB": "Unintentional walks: total walks minus intentional ones",
   "OBP": "On-base percentage: how often he reaches base", "SLG": "Slugging: total bases per at-bat", "OPS": "OBP + SLG. .800+ is a good hitter",
   "RISP": "Average with runners in scoring position: clutch hitting", "ISO": "Isolated power (SLG minus AVG): extra bases only",
   "BABIP": "Batting average on balls in play. ~.300 is normal; far off suggests luck", "BB%": "Walk rate per plate appearance", "K%": "Strikeout rate per plate appearance",
@@ -455,7 +456,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v232";
+const APP_VERSION = "v233";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -7299,10 +7300,10 @@ function fmtMean(row, mean) {
 // ── Season-by-season trend (Compare tab) ─────────────────────────────
 // Plots one stat across a video player's seasons so you can see the shape of a career. Exhibition
 // seasons (⊘ not in career) are left out so All-Star and playoff lines don't dent the arc.
-const TREND_BAT = [["HR", "HR"], ["H", "H"], ["RBI", "RBI"], ["R", "R"], ["SB", "SB"], ["AVG", "AVG"], ["OPS", "OPS"], ["bWAR", "bWAR"]];
+const TREND_BAT = [["HR", "HR"], ["H", "H"], ["RBI", "RBI"], ["R", "R"], ["SB", "SB"], ["AB", "AB"], ["PA", "PA"], ["BB", "BB"], ["uBB", "BB (no IBB)"], ["AVG", "AVG"], ["OBP", "OBP"], ["OPS", "OPS"], ["bWAR", "bWAR"]];
 const TREND_PIT = [["W", "W"], ["K", "K"], ["SV", "SV"], ["IP", "IP"], ["ERA", "ERA"], ["SHO", "SHO"], ["QS", "QS"], ["pWAR", "pWAR"]];
 let trendGrp = "bat", trendStat = "HR", trendOpen = false, trendRate = false, trendPitch = "", trendWide = false;
-const TREND_RATE_STATS = { AVG: 1, OPS: 1, ERA: 1 };   // already rates — per-game would be meaningless
+const TREND_RATE_STATS = { AVG: 1, OBP: 1, OPS: 1, ERA: 1 };   // already rates — per-game would be meaningless
 // ── Arsenal over time ────────────────────────────────────────────────
 // Same maths as the arsenal card, but per season so a pitch can be tracked across a career.
 const ARS_LEGACY_NAME = { FB: "Fastball", CB: "Curve", SL: "Slider", CH: "Changeup", OT: "Other" };
@@ -7344,6 +7345,8 @@ function arsenalMetric(o, pitch, metric, games) {
 }
 function trendVal(stats, grp, key) {
   if (!stats) return null;
+  // BB already counts intentional ones, so unintentional is the difference.
+  if (key === "uBB") { if (!filled(stats.BB) && !filled(stats.IBB)) return null; return Math.max(0, num(stats.BB) - num(stats.IBB)); }
   if (key === "IP") { const o = ipOutsOf(stats.IP); return o ? o / 3 : null; }
   if (filled(stats[key])) return num(stats[key]);
   const m = mapOf(BOX.baseball[grp === "bat" ? 0 : 1].calc(stats));   // rates (AVG/OPS/ERA) are computed, not stored
@@ -7407,7 +7410,7 @@ function trendChartSvg(series, key) {
   const perG = trendRate && !TREND_RATE_STATS[key] && trendGrp !== "ars";
   const fmt = v => (trendGrp === "ars")
       ? (key === "baa" ? b3(v) : key === "thrown" ? String(Math.round(v)) : key === "rvpg" ? Number(v).toFixed(2) : (key === "rv100" || key === "rvtot") ? Number(v).toFixed(1) : Math.round(v) + "%")
-    : (key === "AVG" || key === "OPS") ? b3(v) : perG ? Number(v).toFixed(2)
+    : (key === "AVG" || key === "OBP" || key === "OPS") ? b3(v) : perG ? Number(v).toFixed(2)
     : (key === "ERA" || key === "IP" || key === "bWAR" || key === "pWAR") ? Number(v).toFixed(key === "ERA" ? 2 : 1) : String(Math.round(v));
   const colors = ["var(--red)", "var(--ink)"];
   let g = "";
