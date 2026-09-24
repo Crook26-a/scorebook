@@ -252,6 +252,7 @@
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex:none">
         <button id="themeBtn" style="background:none;border:1.5px solid var(--ink);color:var(--ink);border-radius:999px;width:38px;height:38px;cursor:pointer;font-size:16px">🌙</button>
         <span id="verBadge" style="font-size:10px;color:var(--ink-soft);line-height:1;letter-spacing:.5px"></span>
+        <button id="settingsBtn" title="Settings" style="background:none;border:1.5px solid var(--ink);color:var(--ink);border-radius:999px;width:38px;height:38px;cursor:pointer;font-size:16px">⚙</button>
       </div>
     </div>
     <div id="tally"></div>
@@ -457,7 +458,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v234";
+const APP_VERSION = "v236";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1564,6 +1565,54 @@ function selBarHtml(shown) {
         + '<button class="lbtn soft" data-selapply="1" style="font-size:11px;padding:2px 8px">Move</button></div>'
         + (selPost ? '<div class="hint" style="font-size:10px;margin-top:3px">That season will be marked postseason \u2014 kept out of regular career totals and summed on its own.</div>' : "") : "")
     + "</div>";
+}
+// ── Settings ─────────────────────────────────────────────────────────
+// Everything that used to be scattered — the backup footer, the season manager, spoiler-free import,
+// the milestone grid — in one place. Existing buttons are reused rather than re-implemented.
+function openSettings() {
+  let w = document.getElementById("setWrap");
+  if (!w) {
+    w = document.createElement("div");
+    w.id = "setWrap";
+    w.style.cssText = "position:fixed;inset:0;z-index:10003;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;padding:14px;overflow:auto";
+    document.body.appendChild(w);
+  }
+  renderSettings();
+}
+function renderSettings() {
+  const w = document.getElementById("setWrap"); if (!w) return;
+  const sec = (title, body) => '<div style="margin-top:12px"><div class="grouplabel disp">' + title + "</div>" + body + "</div>";
+  const tog = (id, on, label, note) => '<label style="display:flex;align-items:flex-start;gap:8px;margin:5px 0;cursor:pointer"><input type="checkbox" id="' + id + '"' + (on ? " checked" : "") + ' style="width:auto;margin-top:2px"><span style="font-size:12px">' + label + (note ? '<br><span class="hint" style="font-size:10px">' + note + "</span>" : "") + "</span></label>";
+  const btn = (id, label) => '<button class="lbtn soft" id="' + id + '" style="font-size:12px;margin:3px 4px 3px 0">' + label + "</button>";
+  const cur = (typeof currentSeason === "function" && currentSeason()) || "not set";
+  w.innerHTML = '<div class="card" style="max-width:520px;width:100%;margin:0">'
+    + '<div class="disp" style="font-weight:700;font-size:16px;border-bottom:2px solid var(--ink);padding-bottom:3px">\u2699 Settings<button class="lbtn soft" id="setClose" style="float:right;font-size:11px;padding:2px 8px">Done</button></div>'
+    + sec("Appearance", btn("setTheme", "\ud83c\udf19 Toggle dark mode"))
+    + sec("Seasons", '<div class="hint" style="font-size:11px">Current season: <b>' + esc(cur) + "</b></div>" + btn("setSeasons", "\ud83d\uddd3 Manage seasons") + btn("setSeasonPick", "\ud83d\udcc5 Change current season"))
+    + sec("Scoring", tog("setMile", milestonesOn(), "\u26a1 MLB milestone alerts while scoring", "Looks up real players\u2019 career totals online during real games."))
+    + sec("Importing", tog("setSpoil", noSpoilers(), "\ud83d\ude48 Spoiler-free import", "Hides scores in the game list and doesn\u2019t import them."))
+    + sec("Milestone watch", mileTogglesHtml())
+    + sec("Your data", btn("setBackup", "\u2b07 Back up to a file") + btn("setRestore", "\u2b06 Restore from backup") + btn("setFixSplit", "\ud83d\udd17 Fix split players")
+        + '<div class="hint" style="font-size:10px;margin-top:3px">Backups include your games, careers, playoff flags and every setting on this page.</div>')
+    + '<div class="hint" style="font-size:10px;margin-top:12px;text-align:center">' + esc(APP_VERSION) + "</div>"
+    + "</div>";
+  wireSettings(w);
+}
+function wireSettings(w) {
+  const on = (id, fn) => { const el = w.querySelector("#" + id); if (el) el.addEventListener("click", fn); };
+  const click = id => { const el = document.getElementById(id); if (el) el.click(); };
+  on("setClose", () => { w.remove(); renderList(); try { renderStatsContent(); } catch (e) {} try { renderRecordsContent(); } catch (e) {} });
+  on("setTheme", () => click("themeBtn"));
+  on("setSeasons", () => { w.remove(); openSeasonManager(); });
+  on("setSeasonPick", () => { w.remove(); click("seasonBar"); });
+  on("setBackup", () => click("exportBtn"));
+  on("setRestore", () => click("importBtn"));
+  on("setFixSplit", () => click("fixSplitBtn"));
+  const mt = w.querySelector("#setMile");
+  if (mt) mt.addEventListener("change", () => { const old = document.getElementById("mileToggle"); if (old) { old.checked = mt.checked; old.dispatchEvent(new Event("change")); } });
+  const sp = w.querySelector("#setSpoil");
+  if (sp) sp.addEventListener("change", () => setNoSpoilers(sp.checked));
+  wireMileSettings(w, renderSettings);
 }
 function openSeasonManager() {
   const wrap = document.createElement("div");
@@ -4101,6 +4150,30 @@ function mileToggleList() {
   for (const p of VREC_SEASON_BAT.concat(VREC_SEASON_PIT)) add(p[0], p[1]);
   return out;
 }
+// Shared by the Records tab and the Settings page, so the milestone grid behaves the same in both.
+function wireMileSettings(root, rerender) {
+  root.querySelectorAll("[data-mset]").forEach(d => d.addEventListener("toggle", () => { mileSetOpen = d.open; }));
+  root.querySelectorAll("[data-mtop]").forEach(inp => inp.addEventListener("change", () => {
+    const sc = inp.getAttribute("data-mtop"), v = inp.value.trim();
+    if (v === "" || num(v) <= 0) delete mileTop[sc]; else mileTop[sc] = String(Math.round(num(v)));
+    persistMileTop(); rerender();
+  }));
+  root.querySelectorAll("[data-mstep]").forEach(sel => sel.addEventListener("change", () => {
+    const k = sel.getAttribute("data-mstep"), v = sel.value;
+    if (!v) delete mileStep[k]; else mileStep[k] = v;
+    persistMileStep(); rerender();
+  }));
+  root.querySelectorAll("[data-mnear]").forEach(inp => inp.addEventListener("change", () => {
+    const k = inp.getAttribute("data-mnear"), v = inp.value.trim();
+    if (v === "" || num(v) <= 0) delete mileNear[k]; else mileNear[k] = String(Math.round(num(v)));
+    persistMileNear(); rerender();
+  }));
+  root.querySelectorAll("[data-mtog]").forEach(b => b.addEventListener("click", () => {
+    const k = b.getAttribute("data-mtog");
+    if (mileOff[k]) delete mileOff[k]; else mileOff[k] = 1;
+    persistMileOff(); rerender();
+  }));
+}
 function mileTogglesHtml() {
   const list = mileToggleList();
   let off = 0;
@@ -5099,6 +5172,7 @@ document.getElementById("listArea").addEventListener("click", ev => {
 renderTally();
 renderList();
 { const vb = document.getElementById("verBadge"); if (vb) vb.textContent = APP_VERSION; }
+{ const sb = document.getElementById("settingsBtn"); if (sb) sb.addEventListener("click", openSettings); }
 { const sm = document.getElementById("seasMgrBtn");
   if (sm) sm.addEventListener("click", ev => { ev.stopPropagation(); openSeasonManager(); }); }
 // If index.html and sw.js were uploaded out of step, the old service worker keeps serving the old
@@ -7716,6 +7790,275 @@ function seqLookup(abList, arr) {
   }
   return out;
 }
+// ── Count-based pitching ─────────────────────────────────────────────
+// Every logged pitch carries the count it was thrown in, so the mix and results can be read per count:
+// what you throw 0-2, and whether it works there.
+let cntSel = "0-2", cntOpen = false;
+// ── Game-order engine: streaks + rolling form ─────────────────────────
+// A player's games in the order he played them, one row per game with that game's line.
+function playerGames(key, grp) {
+  const out = [];
+  for (const en of entries) {
+    if (en.sport !== "baseball" || modeOf(en) !== statsMode()) continue;
+    if (seasonExcluded(key, seasonOf(en))) continue;
+    const acc = {}; let got = false;
+    for (const r of (en.box || [])) if (playerRowGrp(r, key) === grp && rowActive(r)) { addAgg(acc, r.stats, r.group); got = true; }
+    if (got) out.push({ e: en, s: aggToStats(acc, grp === "bat" ? "batting" : "pitching") });
+  }
+  out.sort((a, b) => (a.e.date || "").localeCompare(b.e.date || "") || (idMs(a.e.id) - idMs(b.e.id)));
+  return out;
+}
+function runOf(games, test) {
+  let best = { len: 0 }, run = 0, start = null;
+  for (const g of games) {
+    if (test(g.s)) {
+      if (!run) start = g; run++;
+      if (run > best.len) best = { len: run, from: seasonOf(start.e), to: seasonOf(g.e) };   // seasons, not log dates
+    } else run = 0;
+  }
+  return { best: best, cur: run };
+}
+// ── Pitch-log engine: fatigue + times through the order ────────────────
+// Walks each game's pitches in order, numbering pitches and the batters he faced.
+const FAT_BUCKETS = [[1, 25], [26, 50], [51, 75], [76, 100], [101, 999]];
+function pitchWalk(key) {
+  const fat = FAT_BUCKETS.map(b => ({ lo: b[0], hi: b[1], n: 0, str: 0, sw: 0, wh: 0, pa: 0, k: 0, h: 0 }));
+  const tto = [0, 1, 2, 3].map(() => ({ pa: 0, k: 0, h: 0, bb: 0 }));
+  let games = 0;
+  for (const en of entries) {
+    if (en.sport !== "baseball" || modeOf(en) !== statsMode()) continue;
+    if (seasonExcluded(key, seasonOf(en))) continue;
+    const log = en.live && en.live.log; if (!log || !log.length) continue;
+    let pn = 0, pa = 0, any = false;
+    for (const le of log) {
+      const p = le.pit; if (!p || !p.cols) continue;
+      if (!(p.player || "").trim() || mcKeyOf(p.player.trim(), null) !== key) continue;
+      let pitch = false, str = false, sw = false, wh = false, k = false, hit = false, bb = false, ended = false;
+      for (const c of p.cols) {
+        const n = String(c[0]);
+        if (n.indexOf("px:") === 0) pitch = true;
+        else if (n === "STR") str = true;
+        else if (n.indexOf("psw:") === 0) sw = true;
+        else if (n.indexOf("pwh:") === 0) wh = true;
+        else if (n === "K") k = true;
+        else if (n === "H") hit = true;
+        else if (n === "BB") bb = true;
+        else if (n.indexOf("po:") === 0) ended = true;
+      }
+      if (!pitch) continue;
+      any = true; pn++;
+      const F = fat.find(f => pn >= f.lo && pn <= f.hi);
+      F.n++; if (str) F.str++; if (sw) F.sw++; if (wh) F.wh++;
+      if (ended || k || bb) {
+        pa++;
+        F.pa++; if (k) F.k++; if (hit) F.h++;
+        const T = tto[Math.min(3, Math.floor((pa - 1) / 9))];   // batters 1-9 first time through, 10-18 second...
+        T.pa++; if (k) T.k++; if (hit) T.h++; if (bb) T.bb++;
+      }
+    }
+    if (any) games++;
+  }
+  return { fat: fat, tto: tto, games: games };
+}
+let streakOpen = false, fatOpen = false, ttoOpen = false, rollOpen = false, rollGrp = "bat", rollStat = "OPS", rollWin = 20;
+function streakBlockHtml(p) {
+  const key = p ? mcKeyOf((p.name || "").trim(), p.pid || null) : null;
+  if (!key) return "";
+  const bg = playerGames(key, "bat"), pg = playerGames(key, "pit");
+  if (!bg.length && !pg.length) return "";
+  const span = r => !r.best.len ? "" : (r.best.from === r.best.to ? esc(r.best.from || "") : esc(r.best.from || "") + "\u2013" + esc(r.best.to || ""));
+  const row = (lbl, r) => '<div style="display:flex;gap:6px;font-size:11px;padding:2px 0;border-bottom:1px dashed var(--line)">'
+    + '<span style="flex:1">' + lbl + "</span>"
+    + '<b style="min-width:34px;text-align:right">' + r.best.len + "</b>"
+    + '<span style="min-width:70px;text-align:right;color:var(--ink-soft);font-size:10px">' + span(r) + "</span>"
+    + '<span style="min-width:44px;text-align:right' + (r.cur ? ";color:var(--red);font-weight:700" : ";color:var(--ink-soft)") + '">' + (r.cur || "\u2014") + "</span></div>";
+  const hdr = '<div style="display:flex;gap:6px;font-size:9px;color:var(--ink-soft);letter-spacing:.04em;border-bottom:1px solid var(--line);padding-bottom:2px"><span style="flex:1">STREAK</span><span style="min-width:34px;text-align:right">BEST</span><span style="min-width:70px;text-align:right">SEASON</span><span style="min-width:44px;text-align:right">NOW</span></div>';
+  let body = "";
+  if (bg.length) body += '<div class="grouplabel disp" style="margin-top:4px">Batting</div>' + hdr
+    + row("Hitting streak", runOf(bg, s => num(s.H) > 0))
+    + row("On-base streak", runOf(bg, s => num(s.H) + num(s.BB) + num(s.HBP) > 0))
+    + row("Multi-hit games", runOf(bg, s => num(s.H) >= 2))
+    + row("Homer in consecutive games", runOf(bg, s => num(s.HR) > 0));
+  if (pg.length) body += '<div class="grouplabel disp" style="margin-top:8px">Pitching</div>' + hdr
+    + row("Quality starts", runOf(pg, s => ipOutsOf(s.IP) >= 18 && (filled(s.ER) ? num(s.ER) : num(s.R)) <= 3))
+    + row("Scoreless outings", runOf(pg, s => ipOutsOf(s.IP) > 0 && num(s.R) === 0))
+    + row("10+ strikeout games", runOf(pg, s => num(s.K) >= 10))
+    + row("Walk-free outings", runOf(pg, s => ipOutsOf(s.IP) > 0 && num(s.BB) === 0));
+  return '<details' + (streakOpen ? " open" : "") + ' data-streakdetails="1" style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83d\udd25 Streaks</summary>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">Longest runs in the order you played them. <b style="color:var(--red)">Now</b> is a streak that is still alive.</div>'
+    + body + "</details>";
+}
+function fatigueBlockHtml(p) {
+  const key = p ? mcKeyOf((p.name || "").trim(), p.pid || null) : null;
+  if (!key) return "";
+  const W = pitchWalk(key);
+  if (!W.games) return "";
+  const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "\u2014";
+  const avg3 = (a, b) => b ? b3(a / b) : "\u2014";
+  const cols = '<div style="display:flex;gap:5px;font-size:9px;color:var(--ink-soft);letter-spacing:.04em;border-bottom:1px solid var(--line);padding-bottom:2px">';
+  const cell = (v, w, strong) => '<span style="min-width:' + w + 'px;text-align:right' + (strong ? ";font-weight:700" : "") + '">' + v + "</span>";
+  const fat = cols + '<span style="flex:1">PITCH #</span>' + cell("THROWN", 46) + cell("STRIKE", 40) + cell("WHIFF", 40) + cell("K RATE", 42) + cell("H/PA", 40) + "</div>"
+    + W.fat.filter(f => f.n).map(f => '<div style="display:flex;gap:5px;font-size:11px;padding:2px 0;border-bottom:1px dashed var(--line)">'
+      + '<span style="flex:1">' + f.lo + (f.hi > 200 ? "+" : "\u2013" + f.hi) + "</span>"
+      + cell(f.n, 46) + cell(pct(f.str, f.n), 40) + cell(pct(f.wh, f.sw), 40, true) + cell(pct(f.k, f.pa), 42, true) + cell(avg3(f.h, f.pa), 40) + "</div>").join("");
+  return '<details' + (fatOpen ? " open" : "") + ' data-fatdetails="1" style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83d\udd0b Pitch-count fatigue</summary>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">How you perform as your pitch count climbs within a game, across ' + W.games + ' games. A falling whiff or K rate late is where you start to fade.</div>'
+    + fat
+    + '<div class="hint" style="font-size:9px;margin-top:3px">Strike = strikes of pitches thrown. Whiff = misses of swings. K rate = strikeouts of batters whose at-bat ended in that range. H/PA = hits allowed per batter faced.</div>'
+    + "</details>";
+}
+function ttoBlockHtml(p) {
+  const key = p ? mcKeyOf((p.name || "").trim(), p.pid || null) : null;
+  if (!key) return "";
+  const W = pitchWalk(key);
+  if (!W.games) return "";
+  const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "\u2014";
+  const cell = (v, w, strong) => '<span style="min-width:' + w + 'px;text-align:right' + (strong ? ";font-weight:700" : "") + '">' + v + "</span>";
+  const lbl = ["1st time", "2nd time", "3rd time", "4th+"];
+  const rows = W.tto.map((t, i) => t.pa ? '<div style="display:flex;gap:5px;font-size:11px;padding:2px 0;border-bottom:1px dashed var(--line)">'
+    + '<span style="flex:1">' + lbl[i] + "</span>" + cell(t.pa, 44) + cell(pct(t.k, t.pa), 44, true)
+    + cell(t.pa ? b3(t.h / t.pa) : "\u2014", 44) + cell(t.pa ? (t.bb / t.pa * 100).toFixed(1) + "%" : "\u2014", 44) + "</div>" : "").join("");
+  return '<details' + (ttoOpen ? " open" : "") + ' data-ttodetails="1" style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83d\udd01 Times through the order</summary>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">How batters do the 1st, 2nd and 3rd time they see you in a game. The batters you face aren\u2019t named in the log, so this counts them in sequence \u2014 1\u20139 first time through, 10\u201318 second.</div>'
+    + '<div style="display:flex;gap:5px;font-size:9px;color:var(--ink-soft);letter-spacing:.04em;border-bottom:1px solid var(--line);padding-bottom:2px"><span style="flex:1">FACING</span>'
+    + cell("BATTERS", 44) + cell("K RATE", 44) + cell("H/PA", 44) + cell("BB RATE", 44) + "</div>"
+    + rows + "</details>";
+}
+// Rolling form: an N-game window slid across the career, so hot and cold stretches show up.
+const ROLL_BAT = [["OPS", "OPS"], ["AVG", "AVG"], ["OBP", "OBP"], ["HR", "HR"], ["H", "H"]];
+const ROLL_PIT = [["ERA", "ERA"], ["WHIP", "WHIP"], ["K", "K"], ["IP", "IP"]];
+function rollingSeries(key, grp, stat, win) {
+  const g = playerGames(key, grp);
+  const out = [];
+  for (let i = win - 1; i < g.length; i++) {
+    const acc = {};
+    for (let j = i - win + 1; j <= i; j++) addAgg(acc, g[j].s, grp === "bat" ? "batting" : "pitching");
+    const s = aggToStats(acc, grp === "bat" ? "batting" : "pitching");
+    const m = mapOf(BOX.baseball[grp === "bat" ? 0 : 1].calc(s));
+    let v = null;
+    if (m && filled(m[stat])) v = num(m[stat]);
+    else if (stat === "IP") v = ipOutsOf(s.IP) / 3;
+    else if (filled(s[stat])) v = num(s[stat]);
+    if (v != null) out.push({ i: i, v: v, season: seasonOf(g[i].e) });
+  }
+  return { pts: out, games: g.length };
+}
+function rollingSvg(pts, stat) {
+  if (pts.length < 2) return '<div class="hint" style="padding:8px">Not enough games for that window yet.</div>';
+  const W = 340, H = 150, L = 34, R = 10, T = 12, B = 22, iw = W - L - R, ih = H - T - B;
+  let lo = Infinity, hi = -Infinity;
+  for (const p of pts) { if (p.v < lo) lo = p.v; if (p.v > hi) hi = p.v; }
+  const pad = (hi - lo) * 0.08 || 0.01; lo -= pad; hi += pad;
+  const X = k => L + iw * k / (pts.length - 1), Y = v => T + ih - ih * (v - lo) / (hi - lo);
+  const fmt = v => (stat === "AVG" || stat === "OBP" || stat === "OPS") ? b3(v) : (stat === "ERA" || stat === "WHIP") ? Number(v).toFixed(2) : Number(v).toFixed(stat === "IP" ? 1 : 0);
+  let g = "";
+  for (let t = 0; t <= 2; t++) {
+    const v = lo + (hi - lo) * t / 2, y = Y(v);
+    g += '<line x1="' + L + '" y1="' + y.toFixed(1) + '" x2="' + (W - R) + '" y2="' + y.toFixed(1) + '" stroke="var(--line)" stroke-width="1"/>'
+      + '<text x="' + (L - 4) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end" font-size="7" fill="var(--ink-soft)">' + esc(fmt(v)) + "</text>";
+  }
+  // a faint tick wherever a new season starts, so stretches can be placed in time
+  for (let k = 1; k < pts.length; k++) if (pts[k].season !== pts[k - 1].season) {
+    const x = X(k).toFixed(1);
+    g += '<line x1="' + x + '" y1="' + T + '" x2="' + x + '" y2="' + (T + ih) + '" stroke="var(--line)" stroke-dasharray="2 3"/>'
+      + '<text x="' + x + '" y="' + (H - 8) + '" text-anchor="middle" font-size="6.5" fill="var(--ink-soft)">' + esc(pts[k].season) + "</text>";
+  }
+  g += '<polyline fill="none" stroke="var(--red)" stroke-width="1.6" points="' + pts.map((p, k) => X(k).toFixed(1) + "," + Y(p.v).toFixed(1)).join(" ") + '"/>';
+  return '<svg viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block">' + g + "</svg>";
+}
+function rollingBlockHtml(p) {
+  const key = p ? mcKeyOf((p.name || "").trim(), p.pid || null) : null;
+  if (!key) return "";
+  const defs = rollGrp === "bat" ? ROLL_BAT : ROLL_PIT;
+  if (!defs.some(d => d[0] === rollStat)) rollStat = defs[0][0];
+  const R0 = rollingSeries(key, rollGrp, rollStat, rollWin);
+  if (!R0.games) return "";
+  const chip = (v, cur, attr, lbl) => '<button class="chip disp" style="font-size:10px;padding:2px 7px' + (String(cur) === String(v) ? ";background:var(--ink);color:var(--card)" : "") + '" data-' + attr + '="' + esc(v) + '">' + esc(lbl) + "</button>";
+  const vals = R0.pts.map(x => x.v);
+  const best = vals.length ? (rollStat === "ERA" || rollStat === "WHIP" ? Math.min.apply(null, vals) : Math.max.apply(null, vals)) : null;
+  const fmt = v => (rollStat === "AVG" || rollStat === "OBP" || rollStat === "OPS") ? b3(v) : (rollStat === "ERA" || rollStat === "WHIP") ? Number(v).toFixed(2) : Number(v).toFixed(rollStat === "IP" ? 1 : 0);
+  return '<details' + (rollOpen ? " open" : "") + ' data-rolldetails="1" style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83d\udcc9 Rolling form</summary>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">Your last-N-games line, slid across your whole career, so hot and cold stretches aren\u2019t averaged away. Dashed lines mark new seasons.</div>'
+    + '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:4px">' + ["bat", "pit"].map(g2 => chip(g2, rollGrp, "rollgrp", g2 === "bat" ? "Batting" : "Pitching")).join("") + "</div>"
+    + '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:4px">' + defs.map(d => chip(d[0], rollStat, "rollstat", d[1])).join("") + "</div>"
+    + '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:4px"><span class="hint" style="font-size:9px">window</span>' + [10, 20, 40, 81].map(n => chip(n, rollWin, "rollwin", n + " games")).join("") + "</div>"
+    + (best != null ? '<div class="hint" style="font-size:10px">Best ' + rollWin + "-game stretch: <b>" + esc(fmt(best)) + "</b> " + esc(rollStat) + " \u00b7 now: <b>" + esc(fmt(vals[vals.length - 1])) + "</b></div>" : "")
+    + rollingSvg(R0.pts, rollStat) + "</details>";
+}
+function countStats(key) {
+  const by = {}, tot = {};
+  for (const en of entries) {
+    if (en.sport !== "baseball" || modeOf(en) !== statsMode()) continue;
+    if (seasonExcluded(key, seasonOf(en))) continue;
+    const log = en.live && en.live.log; if (!log || !log.length) continue;
+    for (const le of log) {
+      const p = le.pit; if (!p || !p.cols) continue;
+      if (!(p.player || "").trim() || mcKeyOf(p.player.trim(), null) !== key) continue;
+      let pitch = null, str = false, sw = false, wh = false, k = false, ended = false, hit = false;
+      for (const c of p.cols) {
+        const n = String(c[0]);
+        if (n.indexOf("px:") === 0) pitch = n.slice(3);
+        else if (n === "STR") str = true;
+        else if (n.indexOf("psw:") === 0) sw = true;
+        else if (n.indexOf("pwh:") === 0) wh = true;
+        else if (n === "K") k = true;
+        else if (n === "H") hit = true;
+        else if (n.indexOf("po:") === 0) ended = true;
+      }
+      if (!pitch) continue;
+      const sn = le.snap || {};
+      const cnt = Math.min(3, sn.b || 0) + "-" + Math.min(2, sn.s || 0);
+      const C = by[cnt] = by[cnt] || {};
+      const t = C[pitch] = C[pitch] || { n: 0, str: 0, sw: 0, wh: 0, k: 0, e: 0, h: 0 };
+      t.n++; if (str) t.str++; if (sw) t.sw++; if (wh) t.wh++; if (k) t.k++; if (ended) t.e++; if (hit) t.h++;
+      tot[cnt] = (tot[cnt] || 0) + 1;
+    }
+  }
+  return { by: by, tot: tot };
+}
+function countBlockHtml(p) {
+  const key = p ? mcKeyOf((p.name || "").trim(), p.pid || null) : null;
+  if (!key) return "";
+  const S = countStats(key);
+  const all = Object.keys(S.tot).reduce((a, k) => a + S.tot[k], 0);
+  if (!all) return "";
+  const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "\u2014";
+  const top = cnt => { const C = S.by[cnt] || {}; let best = null; for (const pn in C) if (!best || C[pn].n > C[best].n) best = pn; return best; };
+  // the count grid: balls down, strikes across, the way a scoreboard reads
+  let grid = '<div style="display:grid;grid-template-columns:28px repeat(3,1fr);gap:3px;margin:4px 0">'
+    + '<span></span>' + [0, 1, 2].map(s => '<span class="hint" style="font-size:9px;text-align:center">' + s + " strike" + (s === 1 ? "" : "s") + "</span>").join("");
+  for (let b = 0; b <= 3; b++) {
+    grid += '<span class="hint" style="font-size:9px;align-self:center">' + b + " ball" + (b === 1 ? "" : "s") + "</span>";
+    for (let s = 0; s <= 2; s++) {
+      const cnt = b + "-" + s, n = S.tot[cnt] || 0, tp = top(cnt), sel = cnt === cntSel;
+      grid += '<button data-cntsel="' + cnt + '" style="border:1px solid var(--line);border-radius:5px;padding:3px 2px;font-size:10px;line-height:1.2;cursor:pointer;'
+        + (sel ? "background:var(--ink);color:var(--card);" : "background:var(--card);color:var(--ink);") + '">'
+        + '<b>' + cnt + "</b><br>" + (n ? esc(tp || "") + "<br><span style=\"opacity:.7\">" + n + "</span>" : '<span style="opacity:.5">\u2014</span>') + "</button>";
+    }
+  }
+  grid += "</div>";
+  // detail for the chosen count
+  const C = S.by[cntSel] || {}, nC = S.tot[cntSel] || 0;
+  const rows = Object.keys(C).map(pn => ({ pn: pn, v: C[pn] })).sort((a, b) => b.v.n - a.v.n).map(x => {
+    const v = x.v;
+    return '<div style="display:flex;gap:5px;font-size:11px;padding:2px 0;border-bottom:1px dashed var(--line)">'
+      + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(x.pn) + "</span>"
+      + '<b style="min-width:36px;text-align:right">' + pct(v.n, nC) + "</b>"
+      + '<span style="min-width:36px;text-align:right">' + pct(v.str, v.n) + "</span>"
+      + '<span style="min-width:40px;text-align:right">' + pct(v.wh, v.sw) + "</span>"
+      + '<span style="min-width:44px;text-align:right;color:var(--ink-soft)">' + (v.e ? v.k + "/" + v.e : "\u2014") + "</span></div>";
+  }).join("");
+  return '<details' + (cntOpen ? " open" : "") + ' data-cntdetails="1" style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83c\udfaf Pitching by count</summary>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">Each cell shows your most-thrown pitch in that count and how many pitches you have thrown there. Tap a count for the full breakdown.</div>'
+    + grid
+    + '<div class="grouplabel disp" style="margin-top:6px">In a ' + esc(cntSel) + " count \u2014 " + nC + " pitch" + (nC === 1 ? "" : "es") + "</div>"
+    + '<div style="display:flex;gap:5px;font-size:9px;color:var(--ink-soft);letter-spacing:.04em;border-bottom:1px solid var(--line);padding-bottom:2px">'
+    + '<span style="flex:1">PITCH</span><span style="min-width:36px;text-align:right">USED</span><span style="min-width:36px;text-align:right">STRIKE</span>'
+    + '<span style="min-width:40px;text-align:right">WHIFF</span><span style="min-width:44px;text-align:right">K / ENDED</span></div>'
+    + (rows || '<div class="hint" style="font-size:10px">No pitches logged in this count.</div>')
+    + '<div class="hint" style="font-size:9px;margin-top:3px">Used = share of pitches in this count. Strike = strikes of those thrown. Whiff = misses of those swung at. K / ended = strikeouts out of at-bats that pitch finished here.</div>'
+    + "</details>";
+}
 function seqBlockHtml(p) {
   const key = p ? mcKeyOf((p.name || "").trim(), p.pid || null) : null;
   if (!key) return "";
@@ -7848,7 +8191,7 @@ function analyticsTabHtml() {
     + '<select id="anaSel" class="inline" style="flex:1">'
     + pool.map(x => '<option value="' + esc(x.key) + '"' + (x.key === anaKey ? " selected" : "") + ">" + esc(x.name) + "</option>").join("")
     + "</select></div>";
-  return sel + trendBlockHtml(p, null) + splitsBlockHtml(p) + seqBlockHtml(p) + relBlockHtml(p);
+  return sel + trendBlockHtml(p, null) + rollingBlockHtml(p) + streakBlockHtml(p) + splitsBlockHtml(p) + seqBlockHtml(p) + countBlockHtml(p) + fatigueBlockHtml(p) + ttoBlockHtml(p) + relBlockHtml(p);
 }
 function wireAnalytics(out) {
   const s = out.querySelector("#anaSel");
@@ -8238,6 +8581,15 @@ function wireCompare(out) {
   out.querySelectorAll("[data-tstat]").forEach(b => b.addEventListener("click", () => { trendStat = b.dataset.tstat; renderStatsContent(); }));
   out.querySelectorAll("[data-trate]").forEach(b => b.addEventListener("click", () => { trendRate = b.dataset.trate === "1"; renderStatsContent(); }));
   out.querySelectorAll("[data-tpitch]").forEach(b => b.addEventListener("click", () => { trendPitch = b.dataset.tpitch; renderStatsContent(); }));
+  out.querySelectorAll("[data-streakdetails]").forEach(d => d.addEventListener("toggle", () => { streakOpen = d.open; }));
+  out.querySelectorAll("[data-fatdetails]").forEach(d => d.addEventListener("toggle", () => { fatOpen = d.open; }));
+  out.querySelectorAll("[data-ttodetails]").forEach(d => d.addEventListener("toggle", () => { ttoOpen = d.open; }));
+  out.querySelectorAll("[data-rolldetails]").forEach(d => d.addEventListener("toggle", () => { rollOpen = d.open; }));
+  out.querySelectorAll("[data-rollgrp]").forEach(b => b.addEventListener("click", () => { rollGrp = b.dataset.rollgrp; renderStatsContent(); }));
+  out.querySelectorAll("[data-rollstat]").forEach(b => b.addEventListener("click", () => { rollStat = b.dataset.rollstat; renderStatsContent(); }));
+  out.querySelectorAll("[data-rollwin]").forEach(b => b.addEventListener("click", () => { rollWin = num(b.dataset.rollwin); renderStatsContent(); }));
+  out.querySelectorAll("[data-cntdetails]").forEach(d => d.addEventListener("toggle", () => { cntOpen = d.open; }));
+  out.querySelectorAll("[data-cntsel]").forEach(b => b.addEventListener("click", () => { cntSel = b.dataset.cntsel; renderStatsContent(); }));
   out.querySelectorAll("[data-seqdetails]").forEach(d => d.addEventListener("toggle", () => { seqOpen = d.open; }));
   out.querySelectorAll("[data-seqadd]").forEach(b => b.addEventListener("click", () => { seqBuild.push(b.getAttribute("data-seqadd")); renderStatsContent(); }));
   out.querySelectorAll("[data-seqback]").forEach(b => b.addEventListener("click", () => { seqBuild.pop(); renderStatsContent(); }));
@@ -9250,27 +9602,7 @@ function renderRecordsContent() {
     iwasScope = b.dataset.iwscope; try { localStorage.setItem("sports-stat-iwas-scope", iwasScope); } catch (e) {}
     renderRecordsContent();
   }));
-  out.querySelectorAll("[data-mset]").forEach(d => d.addEventListener("toggle", () => { mileSetOpen = d.open; }));
-  out.querySelectorAll("[data-mtop]").forEach(inp => inp.addEventListener("change", () => {
-    const sc = inp.getAttribute("data-mtop"), v = inp.value.trim();
-    if (v === "" || num(v) <= 0) delete mileTop[sc]; else mileTop[sc] = String(Math.round(num(v)));
-    persistMileTop(); renderRecordsContent();
-  }));
-  out.querySelectorAll("[data-mstep]").forEach(sel => sel.addEventListener("change", () => {
-    const k = sel.getAttribute("data-mstep"), v = sel.value;
-    if (!v) delete mileStep[k]; else mileStep[k] = v;
-    persistMileStep(); renderRecordsContent();
-  }));
-  out.querySelectorAll("[data-mnear]").forEach(inp => inp.addEventListener("change", () => {
-    const k = inp.getAttribute("data-mnear"), v = inp.value.trim();
-    if (v === "" || num(v) <= 0) delete mileNear[k]; else mileNear[k] = String(Math.round(num(v)));
-    persistMileNear(); renderRecordsContent();
-  }));
-  out.querySelectorAll("[data-mtog]").forEach(b => b.addEventListener("click", () => {
-    const k = b.getAttribute("data-mtog");
-    if (mileOff[k]) delete mileOff[k]; else mileOff[k] = 1;
-    persistMileOff(); renderRecordsContent();
-  }));
+  wireMileSettings(out, renderRecordsContent);
   const witAdd = out.querySelector("[data-witadd]");
   if (witAdd) witAdd.addEventListener("click", () => { chaseAddOpen = !chaseAddOpen; renderRecordsContent(); });
   const witSave = out.querySelector("[data-witsave]");
