@@ -437,6 +437,7 @@ const STAT_GLOSSARY = {
   "R/G": "Runs scored per game, across the games you witnessed",
   "TB": "Total bases — plus extra bases taken (XBT) when tracked. SLG and ISO use the official hits-only version", "AVG": "Batting average: hits per at-bat",
   "uBB": "Unintentional walks: total walks minus intentional ones",
+  "GmSc": "Game Score: Bill James\u2019s single number for how good a start was. 50 is average, 90+ special, 100+ historic",
   "\u0394OBP": "OBP minus batting average: how much he reaches base beyond his hits, from walks and hit-by-pitches",
   "OBP": "On-base percentage: how often he reaches base", "SLG": "Slugging: total bases per at-bat", "OPS": "OBP + SLG. .800+ is a good hitter",
   "RISP": "Average with runners in scoring position: clutch hitting", "ISO": "Isolated power (SLG minus AVG): extra bases only",
@@ -458,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v237";
+const APP_VERSION = "v239";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1569,6 +1570,113 @@ function selBarHtml(shown) {
 // ── Settings ─────────────────────────────────────────────────────────
 // Everything that used to be scattered — the backup footer, the season manager, spoiler-free import,
 // the milestone grid — in one place. Existing buttons are reused rather than re-implemented.
+// ── Real-game results ────────────────────────────────────────────────
+// A partial import is a snapshot: 3-0 when you stopped watching says nothing about who won. The real
+// result comes from MLB and is kept separately (apiFinal), so the score you saw is never overwritten.
+function isPartialGame(e) { return e.partial === true || /Partial import/.test(e.notes || ""); }
+function gameResult(e) {
+  const F = e.apiFinal;
+  if (F && (F.winner === "away" || F.winner === "home")) return { winner: F.winner, away: F.away, home: F.home, src: "api" };
+  if (isPartialGame(e)) return { winner: null, src: "partial" };            // never trust a mid-game score
+  const f = v => String(v == null ? "" : v).trim() !== "";
+  if (!f(e.awayScore) || !f(e.homeScore)) return { winner: null, src: "none" };
+  const a = num(e.awayScore), hs = num(e.homeScore);
+  if (a === hs) return { winner: null, src: "tie" };
+  return { winner: a > hs ? "away" : "home", away: a, home: hs, src: "score" };
+}
+// The final, read out of one game object from MLB's schedule feed.
+function finalFromGame(g) {
+  const done = !!(g.status && (g.status.abstractGameState === "Final" || g.status.codedGameState === "F"));
+  const a = g.teams.away, hh = g.teams.home;
+  const winner = !done ? null : a.isWinner ? "away" : hh.isWinner ? "home" : (a.score > hh.score ? "away" : hh.score > a.score ? "home" : null);
+  return { away: a.score, home: hh.score, winner: winner, status: (g.status && g.status.detailedState) || "", done: done, gamePk: String(g.gamePk || ""), at: today() };
+}
+async function fetchFinal(gamePk, sportId) {
+  const r = await fetch("https://statsapi.mlb.com/api/v1/schedule?sportId=" + encodeURIComponent(sportId || "1") + "&gamePk=" + encodeURIComponent(gamePk));
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const d = await r.json();
+  const g = d.dates && d.dates[0] && d.dates[0].games && d.dates[0].games[0];
+  if (!g) throw new Error("not found");
+  return finalFromGame(g);
+}
+// Older imports never stored a game ID, so find the game by date and the two teams instead. A missing
+// level means an older game, which could be minor-league, so the lower levels get a try too.
+async function findFinalByDate(e, cache) {
+  const same = (x, y) => String(x || "").trim().toLowerCase() === String(y || "").trim().toLowerCase();
+  const ids = [];
+  for (const sid of [e.lvl || "1", "1", "11", "12", "13", "14"]) if (ids.indexOf(String(sid)) < 0) ids.push(String(sid));
+  for (const sid of ids) {
+    const ck = sid + "|" + e.date;
+    let games = cache[ck];
+    if (!games) {
+      const r = await fetch("https://statsapi.mlb.com/api/v1/schedule?sportId=" + encodeURIComponent(sid) + "&date=" + encodeURIComponent(e.date));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const d = await r.json();
+      games = cache[ck] = (d.dates && d.dates[0] && d.dates[0].games) || [];
+    }
+    const hits = games.filter(g => same(g.teams.away.team.name, e.away) && same(g.teams.home.team.name, e.home));
+    if (hits.length === 1) return finalFromGame(hits[0]);
+    if (hits.length > 1) throw new Error("doubleheader \u2014 can\u2019t tell which game");
+  }
+  throw new Error("no matching game on " + e.date);
+}
+async function fetchAllFinals(onLog) {
+  const log = onLog || function () {};
+  const todo = entries.filter(e => e.sport === "baseball" && modeOf(e) === "real" && !(e.apiFinal && e.apiFinal.done)
+    && (e.gamePk || (isPartialGame(e) && e.date && e.away && e.home)));
+  const cache = {};
+  let ok = 0, pending = 0, bad = 0, found = 0;
+  for (const e of todo) {
+    try {
+      const F = e.gamePk ? await fetchFinal(e.gamePk, e.lvl) : await findFinalByDate(e, cache);
+      if (!e.gamePk && F.gamePk) { e.gamePk = F.gamePk; found++; }      // next time it's a direct lookup
+      e.apiFinal = F;
+      if (F.done) ok++; else pending++;
+    } catch (err) { bad++; log(e.date + " " + e.away + " @ " + e.home + ": " + (err && err.message ? err.message : "failed")); }
+  }
+  if (ok || pending) persist();
+  return { tried: todo.length, ok: ok, pending: pending, bad: bad, found: found };
+}
+let trackTeam = "";
+function teamTrackerHtml() {
+  const R = entries.filter(e => e.sport === "baseball" && modeOf(e) === "real");
+  if (!R.length) return "";
+  const cnt = {};
+  for (const e of R) for (const t of [e.away, e.home]) if ((t || "").trim()) cnt[t] = (cnt[t] || 0) + 1;
+  const teams = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || a.localeCompare(b));
+  if (!teams.length) return "";
+  if (teams.indexOf(trackTeam) < 0) trackTeam = teams[0];                   // default to the team you watch most
+  let w = 0, l = 0, rs = 0, ra = 0, unknown = 0, fromApi = 0, partialsNeeding = 0;
+  const byVenue = {};
+  for (const e of R) {
+    const side = e.away === trackTeam ? "away" : e.home === trackTeam ? "home" : null;
+    if (!side) continue;
+    const res = gameResult(e);
+    if (!res.winner) { unknown++; if (res.src === "partial") partialsNeeding++; continue; }
+    if (res.src === "api") fromApi++;
+    const won = res.winner === side;
+    if (won) w++; else l++;
+    rs += side === "away" ? res.away : res.home; ra += side === "away" ? res.home : res.away;
+    const vk = e.venue || "tv", V = byVenue[vk] = byVenue[vk] || { w: 0, l: 0 };
+    if (won) V.w++; else V.l++;
+  }
+  const pct = w + l ? (w / (w + l)).toFixed(3).replace(/^0/, "") : "\u2014";
+  const vLbl = { tv: "\ud83d\udcfa On TV", radio: "\ud83d\udcfb Radio", "in-person": "\ud83c\udfdf In person" };
+  const venues = Object.keys(byVenue).map(k => '<span style="margin-right:10px">' + (vLbl[k] || esc(k)) + " <b>" + byVenue[k].w + "\u2013" + byVenue[k].l + "</b></span>").join("");
+  const diff = rs - ra;
+  return '<div class="card" style="margin-bottom:10px">'
+    + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><span class="disp" style="font-weight:700;font-size:14px">\ud83c\udfdf Your team</span>'
+    + '<select id="trackSel" class="inline" style="flex:1;min-width:0">' + teams.map(t => '<option value="' + esc(t) + '"' + (t === trackTeam ? " selected" : "") + ">" + esc(t) + " (" + cnt[t] + ")</option>").join("") + "</select></div>"
+    + '<div style="display:flex;gap:14px;align-items:baseline;flex-wrap:wrap">'
+    + '<div><span class="disp" style="font-size:26px;font-weight:800">' + w + "\u2013" + l + '</span> <span class="hint">' + pct + "</span></div>"
+    + '<div class="hint" style="font-size:12px">Runs ' + rs + "\u2013" + ra + " (" + (diff > 0 ? "+" : "") + diff + ")</div></div>"
+    + (venues ? '<div class="hint" style="font-size:11px;margin-top:4px">' + venues + "</div>" : "")
+    + '<div class="hint" style="font-size:10px;margin-top:4px">In the games you logged. ' + (fromApi ? fromApi + " result" + (fromApi === 1 ? "" : "s") + " from MLB. " : "")
+    + (unknown ? "<b>" + unknown + "</b> without a known result" + (partialsNeeding ? " \u2014 " + partialsNeeding + " are partial imports whose final you haven\u2019t fetched" : "") + "." : "") + "</div>"
+    + (partialsNeeding || R.some(e => (e.gamePk || isPartialGame(e)) && !(e.apiFinal && e.apiFinal.done))
+        ? '<button class="lbtn soft" id="fetchFinals" style="font-size:11px;margin-top:6px">\ud83c\udfc1 Get final results from MLB</button>' : "")
+    + "</div>";
+}
 function openSettings() {
   let w = document.getElementById("setWrap");
   if (!w) {
@@ -5765,7 +5873,7 @@ async function mlbPullPart(gamePk, venueName, innSet, innLabel, an, hn) {
     const entry = { ...emptyForm(), date: document.getElementById("miDate").value, mode: "real", lvl: mlvl,
       away: an || "Away",
       home: hn || "Home",
-      awayScore: finA, homeScore: finH, place: "", venue: "tv", imported: true, gamePk: String(gamePk), final: false, box: rows,
+      awayScore: finA, homeScore: finH, place: "", venue: "tv", imported: true, gamePk: String(gamePk), final: false, partial: true, box: rows,
       live: { line: lineFromPlays(plays) },
       notes: "\ud83d\udce5 Partial import \u2014 stats from " + innLabel + " only." + ([...innSet].some(u => miSel.starts[u] != null || miSel.ends[u] != null) ? " Caught only part of an inning." : "") };
     if (miMergeTarget) {
@@ -7994,6 +8102,50 @@ function rollingBlockHtml(p) {
     + (best != null ? '<div class="hint" style="font-size:10px">Best ' + rollWin + "-game stretch: <b>" + esc(fmt(best)) + "</b> " + esc(rollStat) + " \u00b7 now: <b>" + esc(fmt(vals[vals.length - 1])) + "</b></div>" : "")
     + rollingSvg(R0.pts, rollStat) + "</details>";
 }
+// ── Game Score ───────────────────────────────────────────────────────
+// Pitching uses Bill James's Game Score: start at 50, +1 per out, +2 per full inning after the 4th,
+// +1 per strikeout, -2 per hit, -4 per earned run, -2 per unearned run, -1 per walk.
+function gameScorePit(s) {
+  const outs = ipOutsOf(s.IP); if (!outs) return null;
+  const er = num(s.ER), r = num(s.R);
+  return 50 + outs + 2 * Math.max(0, Math.floor(outs / 3) - 4) + num(s.K)
+    - 2 * num(s.H) - 4 * er - 2 * Math.max(0, r - er) - num(s.BB);
+}
+// Who he was playing, from which side of the box his row sat on.
+function gameOpponent(e, key, grp) {
+  for (const r of (e.box || [])) {
+    if (playerRowGrp(r, key) !== grp) continue;
+    return r.team === "home" ? { opp: e.away || "?", at: "vs" } : { opp: e.home || "?", at: "@" };
+  }
+  return { opp: "?", at: "" };
+}
+let gsOpen = false, gsWorst = false;
+function bestGamesHtml(p) {
+  const key = p ? mcKeyOf((p.name || "").trim(), p.pid || null) : null;
+  if (!key) return "";
+  const games = playerGames(key, "pit");
+  if (!games.length) return "";
+  const scored = games.map(g => ({ g: g, sc: gameScorePit(g.s) })).filter(x => x.sc != null);
+  if (!scored.length) return "";
+  scored.sort((a, b) => gsWorst ? a.sc - b.sc : b.sc - a.sc);
+  const avg = scored.reduce((t, x) => t + x.sc, 0) / scored.length;
+  const line = s => (s.IP || "0") + " IP, " + num(s.H) + " H, " + num(s.ER) + " ER, " + num(s.BB) + " BB, " + num(s.K) + " K";
+  const chip = (v, lbl) => '<button class="chip disp" style="font-size:10px;padding:2px 7px' + ((gsWorst ? "1" : "0") === v ? ";background:var(--ink);color:var(--card)" : "") + '" data-gsworst="' + v + '">' + lbl + "</button>";
+  const rows = scored.slice(0, 10).map((x, i) => {
+    const o = gameOpponent(x.g.e, key, "pit");
+    return '<div data-openid="' + esc(x.g.e.id) + '" style="display:flex;gap:6px;align-items:baseline;font-size:11px;padding:4px 0;border-bottom:1px dashed var(--line);cursor:pointer">'
+      + '<span style="min-width:16px;color:var(--ink-soft)">' + (i + 1) + "</span>"
+      + '<b class="disp" style="min-width:34px;text-align:right;font-size:14px">' + Math.round(x.sc) + "</b>"
+      + '<span style="flex:1;min-width:0"><span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(line(x.g.s)) + "</span>"
+      + '<span class="hint" style="font-size:10px">' + esc(o.at + " " + o.opp) + " \u00b7 " + esc(seasonOf(x.g.e) || "") + "</span></span></div>";
+  }).join("");
+  return '<details' + (gsOpen ? " open" : "") + ' data-gsdetails="1" style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83c\udfc5 Best starts \u2014 Game Score</summary>'
+    + '<div style="display:flex;gap:5px;flex-wrap:wrap;margin:5px 0">' + chip("0", "Best") + chip("1", "Worst") + "</div>"
+    + '<div class="hint" style="font-size:10px;margin-bottom:3px">' + scored.length + " start" + (scored.length === 1 ? "" : "s") + " \u00b7 average Game Score <b>" + Math.round(avg) + "</b>. Tap a start to open it.</div>"
+    + rows
+    + '<div class="hint" style="font-size:9px;margin-top:4px">Bill James\u2019s Game Score: starts at 50; +1 per out, +2 per full inning after the 4th, +1 per strikeout; \u22122 per hit, \u22124 per earned run, \u22122 per unearned run, \u22121 per walk. 90+ is special; 100+ is historic.</div>'
+    + "</details>";
+}
 function countStats(key) {
   const by = {}, tot = {};
   for (const en of entries) {
@@ -8213,7 +8365,7 @@ function analyticsTabHtml() {
     + seasonsList.map(s => '<option value="' + esc(s) + '"' + (s === anaSeason ? " selected" : "") + ">" + esc(s) + tag(s) + "</option>").join("")
     + "</select></div>"
     + (anaSeason ? '<div class="hint" style="font-size:10px;margin:-4px 0 6px">Everything below is <b>' + esc(anaSeason) + "</b> only, except the season-by-season trend, which always spans your career.</div>" : "");
-  return sel + seaSel + trendBlockHtml(p, null) + rollingBlockHtml(p) + streakBlockHtml(p) + splitsBlockHtml(p) + seqBlockHtml(p) + countBlockHtml(p) + fatigueBlockHtml(p) + ttoBlockHtml(p) + relBlockHtml(p);
+  return sel + seaSel + trendBlockHtml(p, null) + bestGamesHtml(p) + rollingBlockHtml(p) + streakBlockHtml(p) + splitsBlockHtml(p) + seqBlockHtml(p) + countBlockHtml(p) + fatigueBlockHtml(p) + ttoBlockHtml(p) + relBlockHtml(p);
 }
 function wireAnalytics(out) {
   const s = out.querySelector("#anaSel");
@@ -8605,6 +8757,12 @@ function wireCompare(out) {
   out.querySelectorAll("[data-tstat]").forEach(b => b.addEventListener("click", () => { trendStat = b.dataset.tstat; renderStatsContent(); }));
   out.querySelectorAll("[data-trate]").forEach(b => b.addEventListener("click", () => { trendRate = b.dataset.trate === "1"; renderStatsContent(); }));
   out.querySelectorAll("[data-tpitch]").forEach(b => b.addEventListener("click", () => { trendPitch = b.dataset.tpitch; renderStatsContent(); }));
+  out.querySelectorAll("[data-gsdetails]").forEach(d => d.addEventListener("toggle", () => { gsOpen = d.open; }));
+  out.querySelectorAll("[data-gsworst]").forEach(b => b.addEventListener("click", () => { gsWorst = b.dataset.gsworst === "1"; renderStatsContent(); }));
+  out.querySelectorAll("[data-openid]").forEach(b => b.addEventListener("click", () => {
+    const e = entries.find(x => x.id === b.dataset.openid);
+    if (e) { switchView("games"); openForm(e); }
+  }));
   out.querySelectorAll("[data-streakdetails]").forEach(d => d.addEventListener("toggle", () => { streakOpen = d.open; }));
   out.querySelectorAll("[data-fatdetails]").forEach(d => d.addEventListener("toggle", () => { fatOpen = d.open; }));
   out.querySelectorAll("[data-ttodetails]").forEach(d => d.addEventListener("toggle", () => { ttoOpen = d.open; }));
@@ -8823,10 +8981,11 @@ function renderStatsContent() {
         + g.cards.join("") + "</details>";
     }
   } else {
+    if (appMode === "real") html += teamTrackerHtml();
     const list = Object.values(agg.teams)
       .filter(t => !q || t.name.toLowerCase().includes(q))
       .sort((a, b) => b.gp - a.gp || a.name.localeCompare(b.name));
-    if (!list.length) html = '<div class="empty">No team stats yet' + (venueF !== "all" ? " for that filter" : "") + ".</div>";
+    if (!list.length) html += '<div class="empty">No team stats yet' + (venueF !== "all" ? " for that filter" : "") + ".</div>";
     for (const t of list) {
       const rec = (t.w + t.l) ? t.w + "–" + t.l + " in games you watched" : "";
       const splitsHtml = teamSplitsHtml(t);
@@ -8861,6 +9020,24 @@ function renderStatsContent() {
     const e = entries.find(x => x.id === b.dataset.openid);
     if (e) { switchView("games"); openForm(e); }
   }));
+  const ts = out.querySelector("#trackSel");
+  if (ts) ts.addEventListener("change", () => { trackTeam = ts.value; renderStatsContent(); });
+  const ff = out.querySelector("#fetchFinals");
+  if (ff) ff.addEventListener("click", () => {
+    const go = async () => {
+      ff.textContent = "\u2026 checking MLB"; ff.disabled = true;
+      const lines = [];
+      const r = await fetchAllFinals(m => lines.push(m));
+      appConfirm("Checked " + r.tried + " game" + (r.tried === 1 ? "" : "s") + ": " + r.ok + " final" + (r.ok === 1 ? "" : "s") + " saved"
+        + (r.pending ? ", " + r.pending + " still in progress" : "") + (r.bad ? ", " + r.bad + " couldn\u2019t be matched" : "") + "."
+        + (r.found ? " " + r.found + " older game" + (r.found === 1 ? " was" : "s were") + " found by date and teams, and will look up directly from now on." : "")
+        + (lines.length ? "\n\n" + lines.slice(0, 6).join("\n") : ""), () => renderStatsContent());
+      renderStatsContent();
+    };
+    // Finals are exactly what spoiler-free is protecting, so ask before revealing them.
+    if (noSpoilers()) appConfirm("Spoiler-free is on. Fetching final results will reveal who won every imported game, including ones you may still be watching. Go ahead?", go);
+    else go();
+  });
 }
 function splitPlayerByTeam(pname) {
   const base = "x" + Date.now().toString(36); const idForTeam = {}; let n = 0, changed = 0;
