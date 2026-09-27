@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v239";
+const APP_VERSION = "v240";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -8459,6 +8459,24 @@ function videoCareerPlayers() {
   for (const key in manualCareer) if (!map[key]) map[key] = { name: manualCareer[key].name || key.replace(/^nm:/, ""), bat: {}, pit: {} };
   return map;
 }
+// ── Your fan career ──────────────────────────────────────────────────
+// Everything you've watched, summed as though it were one player, so it can sit on the real boards.
+// Real games carry no season label, but their date is the actual game day, so its year is the season.
+function fanYear(e) { return String(seasonOf(e) || (e.date || "").slice(0, 4)); }
+function fanTotals(vf, year) {
+  const bat = {}, pit = {};
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== "real") continue;
+    if (typeof passesLevel === "function" && !passesLevel(e)) continue;
+    if (vf && vf !== "all" && e.venue !== vf) continue;
+    if (year && fanYear(e) !== year) continue;
+    for (const r of (e.box || [])) {
+      if (r.group === "batting") addAgg(bat, r.stats, "batting");
+      else if (r.group === "pitching") addAgg(pit, r.stats, "pitching");
+    }
+  }
+  return { bat: aggToStats(bat, "batting"), pit: aggToStats(pit, "pitching") };
+}
 function leaderMineRows(cat, scope) {
   const asc = !!cat.asc, floorVal = cat.list.length ? cat.list[cat.list.length - 1][1] : null;
   const betterEq = v => floorVal === null ? true : (asc ? v <= floorVal : v >= floorVal);
@@ -8495,6 +8513,22 @@ function leaderMineRows(cat, scope) {
         consider(map[key].name, seasonResolvedStats(key, sk, "bat"), seasonResolvedStats(key, sk, "pit"), sk);
       }
   }
+  // Only counting boards: "the batting average of everyone you've watched" isn't a number about you.
+  if (appMode === "real" && (!cat.type || cat.type === "count")) {
+    const vEl = document.getElementById("sVenue");
+    const vf = vEl ? vEl.value : "all";
+    const push = (T, tag) => {
+      const v = catNumeric(cat, T.bat, T.pit);
+      if (!(v > 0)) return;
+      (betterEq(v) ? onBoard : chasing).push({ name: "You (seen)", value: v, mine: true, fan: true, tag: tag });
+    };
+    if (scope === "career") push(fanTotals(vf, ""), "");
+    else if (scope === "season") {
+      const yrs = {};
+      for (const e of entries) if (e.sport === "baseball" && modeOf(e) === "real") { const y = fanYear(e); if (/^\d{4}$/.test(y)) yrs[y] = 1; }
+      for (const y of Object.keys(yrs)) push(fanTotals(vf, y), y);
+    }
+  }
   return { onBoard, chasing, unqualified, asc, floorVal };
 }
 let leaderAward = "MVP";
@@ -8521,14 +8555,14 @@ function awardsTabHtml() {
   let lastVal = null, lastRank = 0;
   const body = rows.slice(0, 30).map((r, i) => {
     const rank = (r.value === lastVal) ? lastRank : (lastRank = i + 1, lastVal = r.value, lastRank);
-    return '<div class="lbrow' + (r.mine ? " mine" : "") + '"><span class="lbrank">' + rank + '</span><span class="lbname">' + (r.mine ? "🎮 " : "") + esc(r.name) + '</span><span class="lbval">' + r.value + "</span></div>";
+    return '<div class="lbrow' + (r.mine ? " mine" : "") + '"><span class="lbrank">' + rank + '</span><span class="lbname">' + (r.fan ? "👁 " : r.mine ? "🎮 " : "") + esc(r.name) + '</span><span class="lbval">' + r.value + "</span></div>";
   }).join("");
   chasing.sort((a, b) => b.value - a.value);
   const lowName = hasBoard ? cat.list[cat.list.length - 1][0] : "";
   const chaseHtml = (hasBoard && chasing.length) ? '<div class="sclabel" style="margin-top:10px">Your players chasing the board</div>'
-    + chasing.slice(0, 15).map(c => '<div class="recrow" style="font-size:12px">🎮 <b>' + esc(c.name) + "</b> " + c.value + ' <span style="color:var(--ink-soft)">\u00b7 ' + (floorVal - c.value) + " to reach #" + cat.list.length + " (" + esc(lowName) + " " + floorVal + ")</span></div>").join("") : "";
+    + chasing.slice(0, 15).map(c => '<div class="recrow" style="font-size:12px">' + (c.fan ? "👁 " : "🎮 ") + '<b>' + esc(c.name) + "</b> " + c.value + ' <span style="color:var(--ink-soft)">\u00b7 ' + (floorVal - c.value) + " to reach #" + cat.list.length + " (" + esc(lowName) + " " + floorVal + ")</span></div>").join("") : "";
   const mineList = hasBoard ? [] : mineOn.concat(chasing).sort((a, b) => b.value - a.value);
-  const mineHtml = mineList.length ? '<div class="sclabel" style="margin-top:10px">Your players</div>' + mineList.map(m => '<div class="recrow" style="font-size:12px">🎮 <b>' + esc(m.name) + "</b> " + m.value + "</div>").join("") : "";
+  const mineHtml = mineList.length ? '<div class="sclabel" style="margin-top:10px">Your players</div>' + mineList.map(m => '<div class="recrow" style="font-size:12px">' + (m.fan ? "👁 " : "🎮 ") + '<b>' + esc(m.name) + "</b> " + m.value + "</div>").join("") : "";
   const emptyMsg = hasBoard ? "" : '<div class="hint" style="padding:10px;text-align:center;border:1px dashed var(--line);border-radius:6px">No data on this board yet. Import one below.</div>';
   const ov = leaderOverrides.award && leaderOverrides.award[leaderAward];
   const srcNote = ov ? "Updated from your import on " + esc(ov.at) + " · " + cat.list.length + " deep." : (cat.lahmanRecent ? "Lahman/Chadwick through 2021 + recent winners from memory." : "Lahman/Chadwick through 2021 — import to add recent years.");
@@ -8557,7 +8591,7 @@ function leadersTabHtml() {
   const yr = t => t ? ' <span style="color:var(--ink-soft);font-size:10px">' + esc(t) + "</span>" : "";
   const body = rows.slice(0, 200).map((r, i) => {
     const rank = (r.value === lastVal) ? lastRank : (lastRank = i + 1, lastVal = r.value, lastRank);
-    return '<div class="lbrow' + (r.mine ? " mine" : "") + '"><span class="lbrank">' + rank + '</span><span class="lbname">' + (r.mine ? "🎮 " : "") + esc(r.name) + yr(r.mine ? r.tag : r.year) + '</span><span class="lbval">' + catFmt(cat, r.value) + "</span></div>";
+    return '<div class="lbrow' + (r.mine ? " mine" : "") + '"><span class="lbrank">' + rank + '</span><span class="lbname">' + (r.fan ? "👁 " : r.mine ? "🎮 " : "") + esc(r.name) + yr(r.mine ? r.tag : r.year) + '</span><span class="lbval">' + catFmt(cat, r.value) + "</span></div>";
   }).join("");
   chasing.sort((a, b) => asc ? a.value - b.value : b.value - a.value);
   const hasBoard = cat.list.length > 0;
