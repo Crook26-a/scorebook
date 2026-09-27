@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v240";
+const APP_VERSION = "v241";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -514,7 +514,7 @@ if (_bootFromIdb && document.body) {   // games live in IDB — veil the brief a
     if (!("indexedDB" in window)) return;                        // legacy localStorage mode, unchanged behavior
     if (_bootFromIdb) {
       const data = await idbGet("entries");
-      if (Array.isArray(data)) { entries = data; USE_IDB = true; }
+      if (Array.isArray(data)) { entries = data; USE_IDB = true; dataChanged(); }
       else if (entries.length) await migrateToIdb();             // marker without data: re-migrate the localStorage copy
       else USE_IDB = true;                                       // empty scorebook
     } else {
@@ -762,7 +762,24 @@ async function idbPump() {   // coalesce bursts: one write in flight, one traili
   _idbSaving = false;
   if (_idbDirty) idbPump();
 }
+// ── Result cache ─────────────────────────────────────────────────────
+// Career and analytics numbers are pure functions of the saved data, but a single screen asks for the
+// same ones many times over, and each walks every game (and often every logged pitch). So results are
+// kept until the data actually changes. Anything that writes goes through persist(), persistManualCareer,
+// persistLiveSince or persistPostSeasons, which clear it; replacing the entries array wholesale is caught
+// by identity, so a write that skips those can't serve stale numbers.
+let _memo = new Map(), _memoRef = null;
+function dataChanged() { _memo = new Map(); }
+function memo(ns, arg, fn) {
+  if (_memoRef !== entries) { _memo = new Map(); _memoRef = entries; }
+  const k = ns + "\u0001" + arg + "\u0001" + appMode + "\u0001" + (typeof statsMode === "function" ? statsMode() : "")
+    + "\u0001" + (typeof levelFilter === "undefined" ? "" : levelFilter);
+  let v = _memo.get(k);
+  if (v === undefined) { v = fn(); _memo.set(k, v); }
+  return v;
+}
 function persist() {
+  dataChanged();
   if (USE_IDB) { _idbDirty = true; idbPump(); return; }
   const err = document.getElementById("err");
   try { localStorage.setItem(KEY, JSON.stringify(entries)); err.classList.add("hidden"); return; }
@@ -1353,10 +1370,10 @@ const MCKEY = "sports-stat-vidcareer-v1";
 const LIVESINCEKEY = "sports-stat-livesince-v1";
 let liveSince = 0;
 try { liveSince = parseInt(localStorage.getItem(LIVESINCEKEY) || "0") || 0; } catch (e) { liveSince = 0; }
-function persistLiveSince() { try { localStorage.setItem(LIVESINCEKEY, String(liveSince)); } catch (e) {} }
+function persistLiveSince() { dataChanged(); try { localStorage.setItem(LIVESINCEKEY, String(liveSince)); } catch (e) {} }
 let manualCareer = {};
 try { manualCareer = JSON.parse(localStorage.getItem(MCKEY) || "{}") || {}; } catch (e) { manualCareer = {}; }
-function persistManualCareer() { try { localStorage.setItem(MCKEY, JSON.stringify(manualCareer)); } catch (e) { if (isQuotaErr(e)) { freeLookupCaches(); try { localStorage.setItem(MCKEY, JSON.stringify(manualCareer)); } catch (e2) {} } } }
+function persistManualCareer() { dataChanged(); try { localStorage.setItem(MCKEY, JSON.stringify(manualCareer)); } catch (e) { if (isQuotaErr(e)) { freeLookupCaches(); try { localStorage.setItem(MCKEY, JSON.stringify(manualCareer)); } catch (e2) {} } } }
 function mcKeyOf(name, pid) { return pid ? "id:" + pid : "nm:" + canonName(name); }
 function emptyMC() { return { name: "", bat: { lump: null, seasons: {} }, pit: { lump: null, seasons: {} }, awards: {}, noCareer: {} }; }
 // Career award count = number of seasons the player won it (new per-season shape {seasonKey:[ids]}),
@@ -1399,6 +1416,10 @@ const DERIVED_PIT = { SHO: 1, CG: 1, QS: 1, NH: 1, PG: 1, IMM: 1 };
 // Immaculate inning: three strikeouts on nine pitches in one inning. A box score can't show that, so
 // it's replayed from the game's pitch-by-pitch log, grouping pitches by the inning they came in.
 function gameImmaculateFor(e, key) {
+  const n = (e && e.live && e.live.log) ? e.live.log.length : 0;   // a live game grows, so its log length is in the key
+  return memo("imm", (e && e.id) + "|" + key + "|" + n, () => _gameImmaculateForRaw(e, key));
+}
+function _gameImmaculateForRaw(e, key) {
   const log = e.live && e.live.log; if (!log || !log.length) return 0;
   const byInn = {};
   for (const le of log) {
@@ -1484,7 +1505,8 @@ function derivedCutoff(key, grp, sk, statKey) {
   const mc = manualCareer[key];
   return Math.max(liveSince || 0, (mc && mc.since) || 0);
 }
-function derivedFeats(key, seasonKey) {
+function derivedFeats(key, seasonKey) { return Object.assign({}, memo("df", key + "|" + seasonKey, () => _derivedFeatsRaw(key, seasonKey))); }
+function _derivedFeatsRaw(key, seasonKey) {
   // Career is the sum of its counting seasons, each deciding for itself whether a typed number is
   // protecting it. Judging the whole career at once meant one typed CG in 2027 suppressed every
   // logged shutout in every other season.
@@ -1546,7 +1568,7 @@ let mcOpenSeasons = {};   // which season panels are expanded, so an edit does n
 const POSTKEY = "sports-stat-postseasons-v1";
 let postSeasons = {};
 try { postSeasons = JSON.parse(localStorage.getItem(POSTKEY) || "{}") || {}; } catch (e) { postSeasons = {}; }
-function persistPostSeasons() { try { localStorage.setItem(POSTKEY, JSON.stringify(postSeasons)); } catch (e) {} }
+function persistPostSeasons() { dataChanged(); try { localStorage.setItem(POSTKEY, JSON.stringify(postSeasons)); } catch (e) {} }
 function isPostSeason(sk) { return !!postSeasons[String(sk)]; }
 // Every season label in use, with how many games carry it.
 // Pick individual games and move just those. The label-wide rename in the season manager is the
@@ -1829,7 +1851,8 @@ function liveSeasonAgg(key, seasonKey, grp, since, bakedIds) {
   }
   return acc;
 }
-function seasonResolvedStats(key, seasonKey, grp) {
+function seasonResolvedStats(key, seasonKey, grp) { return Object.assign({}, memo("srs", key + "|" + seasonKey + "|" + grp, () => _seasonResolvedStatsRaw(key, seasonKey, grp))); }
+function _seasonResolvedStatsRaw(key, seasonKey, grp) {
   const mc = manualCareer[key];
   const s = mc && mc[grp] && mc[grp].seasons[seasonKey];
   const live = aggToStats(liveSeasonAgg(key, seasonKey, grp, mc && mc.since, seasonBakedIds(s)), grp === "bat" ? "batting" : "pitching");
@@ -1860,7 +1883,8 @@ function liveAllAgg(key, grp, since) {
   }
   return acc;
 }
-function careerResolvedStats(key, grp) {
+function careerResolvedStats(key, grp) { return Object.assign({}, memo("crs", key + "|" + grp, () => _careerResolvedStatsRaw(key, grp))); }
+function _careerResolvedStatsRaw(key, grp) {
   const mc = manualCareer[key];
   const seasonSum = seasonSumStats(key, grp);
   const lump = mc && mc[grp] && mc[grp].lump;
@@ -7798,7 +7822,8 @@ function relBlockHtml(pa) {
 let splGrp = "bat", splStat = "HR", splSort = "rate", splOpen = false;
 const SPL_BAT = [["HR", "HR"], ["H", "H"], ["RBI", "RBI"], ["R", "R"], ["2B", "2B"], ["SB", "SB"], ["AVG", "AVG"], ["OPS", "OPS"]];
 const SPL_PIT = [["K", "K"], ["W", "W"], ["IP", "IP"], ["SO", "K"], ["ERA", "ERA"], ["WHIP", "WHIP"]];
-function splitAgg(key, grp) {
+function splitAgg(key, grp) { return memo("sa", key + "|" + grp + "|" + anaSeason, () => _splitAggRaw(key, grp)); }
+function _splitAggRaw(key, grp) {
   const home = {}, away = {}, byOpp = {}, byPark = {};
   let hg = 0, ag = 0;
   for (const e of entries) {
@@ -7846,7 +7871,8 @@ function splFmt(stat, v) {
 // The live log records the pitch type and the count before every pitch, so at-bats can be rebuilt by
 // cutting wherever the count resets to 0-0. That gives real sequences and what each one ended in.
 let seqLen = 3, seqMin = 25, seqOpen = false, seqSort = "k", seqBuild = [];
-function pitchSequences(key) {
+function pitchSequences(key) { return memo("ps", key + "|" + anaSeason, () => _pitchSequencesRaw(key)); }
+function _pitchSequencesRaw(key) {
   const abList = [];
   for (const en of entries) {
     if (en.sport !== "baseball" || modeOf(en) !== statsMode()) continue;
@@ -7913,7 +7939,8 @@ function seqLookup(abList, arr) {
 let cntSel = "0-2", cntOpen = false;
 // ── Game-order engine: streaks + rolling form ─────────────────────────
 // A player's games in the order he played them, one row per game with that game's line.
-function playerGames(key, grp) {
+function playerGames(key, grp) { return memo("pg", key + "|" + grp + "|" + anaSeason, () => _playerGamesRaw(key, grp)).slice(); }
+function _playerGamesRaw(key, grp) {
   const out = [];
   for (const en of entries) {
     if (en.sport !== "baseball" || modeOf(en) !== statsMode()) continue;
@@ -7938,7 +7965,8 @@ function runOf(games, test) {
 // ── Pitch-log engine: fatigue + times through the order ────────────────
 // Walks each game's pitches in order, numbering pitches and the batters he faced.
 const FAT_BUCKETS = [[1, 25], [26, 50], [51, 75], [76, 100], [101, 999]];
-function pitchWalk(key) {
+function pitchWalk(key) { return memo("pw", key + "|" + anaSeason, () => _pitchWalkRaw(key)); }
+function _pitchWalkRaw(key) {
   const fat = FAT_BUCKETS.map(b => ({ lo: b[0], hi: b[1], n: 0, str: 0, sw: 0, wh: 0, pa: 0, k: 0, h: 0 }));
   const tto = [0, 1, 2, 3].map(() => ({ pa: 0, k: 0, h: 0, bb: 0 }));
   let games = 0;
@@ -8146,7 +8174,8 @@ function bestGamesHtml(p) {
     + '<div class="hint" style="font-size:9px;margin-top:4px">Bill James\u2019s Game Score: starts at 50; +1 per out, +2 per full inning after the 4th, +1 per strikeout; \u22122 per hit, \u22124 per earned run, \u22122 per unearned run, \u22121 per walk. 90+ is special; 100+ is historic.</div>'
     + "</details>";
 }
-function countStats(key) {
+function countStats(key) { return memo("cs", key + "|" + anaSeason, () => _countStatsRaw(key)); }
+function _countStatsRaw(key) {
   const by = {}, tot = {};
   for (const en of entries) {
     if (en.sport !== "baseball" || modeOf(en) !== statsMode()) continue;
@@ -8495,18 +8524,18 @@ function leaderMineRows(cat, scope) {
     (betterEq(v) ? onBoard : chasing).push({ name, value: v, mine: true, tag });
   };
   if (scope === "career") {
-    const map = videoCareerPlayers();
+    const map = appMode === "real" ? {} : videoCareerPlayers();   // real mode ranks only you
     for (const key in map) consider(map[key].name, careerResolvedStats(key, "bat"), careerResolvedStats(key, "pit"), "");
   } else if (scope === "post") {
-    const map = videoCareerPlayers();                                  // career postseason totals
+    const map = appMode === "real" ? {} : videoCareerPlayers();   // real mode ranks only you                                  // career postseason totals
     for (const key in map) consider(map[key].name, postseasonStats(key, "bat"), postseasonStats(key, "pit"), "");
   } else if (scope === "postrun") {
-    const map = videoCareerPlayers();                                  // one row per October
+    const map = appMode === "real" ? {} : videoCareerPlayers();   // real mode ranks only you                                  // one row per October
     for (const key in map)
       for (const sk of postSeasonKeys(key))
         consider(map[key].name, seasonResolvedStats(key, sk, "bat"), seasonResolvedStats(key, sk, "pit"), sk);
   } else {
-    const map = videoCareerPlayers();
+    const map = appMode === "real" ? {} : videoCareerPlayers();   // real mode ranks only you
     for (const key in map)
       for (const sk of playerSeasonKeys(key)) {
         if (isPostSeason(sk)) continue;                                // a playoff run isn't a single season
@@ -8515,8 +8544,7 @@ function leaderMineRows(cat, scope) {
   }
   // Only counting boards: "the batting average of everyone you've watched" isn't a number about you.
   if (appMode === "real" && (!cat.type || cat.type === "count")) {
-    const vEl = document.getElementById("sVenue");
-    const vf = vEl ? vEl.value : "all";
+    const vf = fanVenue;
     const push = (T, tag) => {
       const v = catNumeric(cat, T.bat, T.pit);
       if (!(v > 0)) return;
@@ -8534,7 +8562,7 @@ function leaderMineRows(cat, scope) {
 let leaderAward = "MVP";
 function awardsScopeToggle() {
   return '<div style="display:flex;gap:6px;margin-bottom:8px">'
-    + ['career', 'season', 'post', 'postrun', 'award'].map(s => '<button class="chip disp' + (leaderScope === s ? " active" : "") + '" data-lscope="' + s + '">' + (s === "career" ? "Career" : s === "season" ? "Single-season" : s === "post" ? "🏆 Post career" : s === "postrun" ? "🏆 Post run" : "🏅 Awards") + "</button>").join("") + "</div>";
+    + (appMode === "real" ? ['career', 'season'] : ['career', 'season', 'post', 'postrun', 'award']).map(s => '<button class="chip disp' + (leaderScope === s ? " active" : "") + '" data-lscope="' + s + '">' + (s === "career" ? "Career" : s === "season" ? "Single-season" : s === "post" ? "🏆 Post career" : s === "postrun" ? "🏆 Post run" : "🏅 Awards") + "</button>").join("") + "</div>";
 }
 function awardsTabHtml() {
   const ids = Object.keys(BBREF_AWARD);
@@ -8575,14 +8603,20 @@ function awardsTabHtml() {
     + '<div class="hint" style="margin-bottom:6px"><b>' + esc(cat.label) + "</b> — all-time counts, your players 🎮 slotted in by how many you\u2019ve recorded. " + srcNote + "</div>" + note
     + (hasBoard ? '<div class="lbtable">' + body + "</div>" + chaseHtml : emptyMsg + mineHtml) + updaters;
 }
+let fanVenue = "all";
 function leadersTabHtml() {
+  // A fan's career only makes sense on the career and single-season boards.
+  if (appMode === "real" && leaderScope !== "career" && leaderScope !== "season") leaderScope = "career";
   if (leaderScope === "award") return awardsTabHtml();
   const DS = leaderScope === "postrun" ? BBREF_POST_RUN : leaderScope === "post" ? BBREF_POST : leaderScope === "season" ? BBREF_SEASON : BBREF_CAREER;
   const cats = Object.keys(DS);
   if (!DS[leaderStat]) leaderStat = cats[0];
   const cat = effCat(leaderScope, leaderStat) || DS[leaderStat];
   const scopeToggle = '<div style="display:flex;gap:6px;margin-bottom:8px">'
-    + ['career', 'season', 'post', 'postrun', 'award'].map(s => '<button class="chip disp' + (leaderScope === s ? " active" : "") + '" data-lscope="' + s + '">' + (s === "career" ? "Career" : s === "season" ? "Single-season" : s === "post" ? "🏆 Post career" : s === "postrun" ? "🏆 Post run" : "🏅 Awards") + "</button>").join("") + "</div>";
+    + (appMode === "real" ? ['career', 'season'] : ['career', 'season', 'post', 'postrun', 'award']).map(s => '<button class="chip disp' + (leaderScope === s ? " active" : "") + '" data-lscope="' + s + '">' + (s === "career" ? "Career" : s === "season" ? "Single-season" : s === "post" ? "🏆 Post career" : s === "postrun" ? "🏆 Post run" : "🏅 Awards") + "</button>").join("") + "</div>";
+  const fanVenueHtml = appMode !== "real" ? "" : '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:-2px 0 8px"><span class="hint" style="font-size:10px">\ud83d\udc41 You, from</span>'
+    + [["all", "everything"], ["tv", "\ud83d\udcfa TV"], ["radio", "\ud83d\udcfb radio"], ["in-person", "\ud83c\udfdf in person"]]
+        .map(v => '<button class="chip disp" style="font-size:10px;padding:2px 7px' + (fanVenue === v[0] ? ";background:var(--ink);color:var(--card)" : "") + '" data-fanven="' + v[0] + '">' + v[1] + "</button>").join("") + "</div>";
   const chips = cats.map(id => '<button class="chip disp' + (leaderStat === id ? " active" : "") + '" data-lstat="' + id + '">' + esc((DS[id] || BBREF_CAREER[id]).label.replace(" (P)", "")) + "</button>").join("");
   const { onBoard, chasing, unqualified, asc, floorVal } = leaderMineRows(cat, leaderScope);
   const rows = cat.list.map(e => ({ name: e[0], value: e[1], year: e[2], mine: false })).concat(onBoard);
@@ -8597,8 +8631,8 @@ function leadersTabHtml() {
   const hasBoard = cat.list.length > 0;
   const lowName = hasBoard ? cat.list[cat.list.length - 1][0] : "";
   const gapStr = v => { const d = Math.abs((floorVal ?? 0) - v); return (cat.isIP) ? d.toFixed(1) : (cat.type === "war" || cat.type === "era" || cat.type === "k9") ? d.toFixed(cat.type === "war" ? 1 : 2) : (cat.type ? d.toFixed(3).replace(/^0\./, ".") : d); };
-  const chaseHtml = (hasBoard && chasing.length) ? '<div class="sclabel" style="margin-top:10px">' + (leaderScope === "game" ? "Your best games (below the record)" : "Your " + (leaderScope === "season" ? "player-seasons" : "players") + " chasing the board") + "</div>"
-    + chasing.slice(0, 15).map(c => '<div class="recrow" style="font-size:12px">🎮 <b>' + esc(c.name) + "</b>" + yr(c.tag) + " " + catFmt(cat, c.value) + ' <span style="color:var(--ink-soft)">\u00b7 ' + gapStr(c.value) + (asc ? " above" : " from") + " #" + cat.list.length + " (" + esc(lowName) + " " + catFmt(cat, floorVal) + ")</span></div>").join("") : "";
+  const chaseHtml = (hasBoard && chasing.length) ? '<div class="sclabel" style="margin-top:10px">' + (appMode === "real" ? "Chasing the board" : leaderScope === "game" ? "Your best games (below the record)" : "Your " + (leaderScope === "season" ? "player-seasons" : "players") + " chasing the board") + "</div>"
+    + chasing.slice(0, 15).map(c => '<div class="recrow" style="font-size:12px">' + (c.fan ? "👁 " : "🎮 ") + '<b>' + esc(c.name) + "</b>" + yr(c.tag) + " " + catFmt(cat, c.value) + ' <span style="color:var(--ink-soft)">\u00b7 ' + gapStr(c.value) + (asc ? " above" : " from") + " #" + cat.list.length + " (" + esc(lowName) + " " + catFmt(cat, floorVal) + ")</span></div>").join("") : "";
   const unqHtml = unqualified.length ? '<div class="sclabel" style="margin-top:10px">Not enough playing time to qualify</div>'
     + unqualified.map(u => { const need = cat.min.key === "PA" ? cat.min.val - catPA(u.C) : cat.min.val - Math.floor(ipOutsOf(u.C.IP) / 3); return '<div class="recrow" style="font-size:12px">🎮 <b>' + esc(u.name) + "</b>" + yr(u.tag) + ' <span style="color:var(--ink-soft)">needs ' + Math.max(0, Math.round(need)) + " more " + cat.min.key + " (min " + cat.min.val + ")</span></div>"; }).join("") : "";
   const canMLB = leaderScope !== "game" && !!MLB_LEADER_CAT[leaderStat];
@@ -8613,11 +8647,12 @@ function leadersTabHtml() {
     + (leaderScope === "post" ? '<button class="lbtn soft" data-lbmlb="1" style="font-size:11px">\ud83d\udd04 Refresh from MLB</button>' : "")
     + (cat.ovSource ? '<button class="lbtn soft" data-lbreset="1" style="font-size:11px">↩︎ Restore bundled</button>' : "")
     + '</div><div id="lbUpdStatus" class="mono" style="font-size:11px;margin-top:5px"></div>';
-  return scopeToggle + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' + chips + "</div>"
+  return scopeToggle + fanVenueHtml + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' + chips + "</div>"
     + '<div class="hint" style="margin-bottom:6px">' + (leaderScope === "season" ? "Single-season" : leaderScope === "game" ? "Single-game" : "All-time") + " <b>" + esc(cat.label) + "</b> " + (leaderScope === "game" ? "records" : "leaders") + (leaderScope !== "career" ? " · 1920\u2013present" : "") + (cat.min ? " · min " + cat.min.val + " " + cat.min.key + (leaderScope === "season" ? "" : " career") : "") + (asc ? " · lower is better" : "") + ". " + srcNote + "</div>"
     + (hasBoard ? '<div class="lbtable">' + body + "</div>" + chaseHtml + unqHtml : emptyMsg + mineHtml) + updaters;
 }
 function wireLeaders(out) {
+  out.querySelectorAll("[data-fanven]").forEach(b => b.addEventListener("click", () => { fanVenue = b.dataset.fanven; renderStatsContent(); }));
   out.querySelectorAll("[data-lscope]").forEach(b => b.addEventListener("click", () => { leaderScope = b.dataset.lscope; renderStatsContent(); }));
   out.querySelectorAll("[data-lstat]").forEach(b => b.addEventListener("click", () => { leaderStat = b.dataset.lstat; renderStatsContent(); }));
   out.querySelectorAll("[data-laward]").forEach(b => b.addEventListener("click", () => { leaderAward = b.dataset.laward; renderStatsContent(); }));
@@ -8874,7 +8909,7 @@ function renderStatsView() {
     + '<button class="chip disp' + (statsTab === "teams" ? " active" : "") + '" data-stab="teams">Teams</button>'
     + '<button class="chip disp' + (statsTab === "career" ? " active" : "") + '" data-stab="career">Career</button>'
     + '<button class="chip disp' + (statsTab === "compare" ? " active" : "") + '" data-stab="compare">🆚 Compare</button>'
-    + (appMode === "video" ? '<button class="chip disp' + (statsTab === "leaders" ? " active" : "") + '" data-stab="leaders">🏆 Leaders</button>' : "")
+    + '<button class="chip disp' + (statsTab === "leaders" ? " active" : "") + '" data-stab="leaders">🏆 Leaders</button>'
     + '<button class="chip disp' + (statsTab === "analytics" ? " active" : "") + '" data-stab="analytics">📈 Analytics</button>'
         + (statsTab === "compare" || statsTab === "leaders" || statsTab === "analytics" ? "" : '<select id="sVenue" class="inline">' + venueFilterOptionsHtml() + "</select>"
     + '<select id="sYear" class="inline">' + yearOptionsHtml() + "</select>"
