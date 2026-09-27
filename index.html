@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v241";
+const APP_VERSION = "v242";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -769,6 +769,7 @@ async function idbPump() {   // coalesce bursts: one write in flight, one traili
 // persistLiveSince or persistPostSeasons, which clear it; replacing the entries array wholesale is caught
 // by identity, so a write that skips those can't serve stale numbers.
 let _memo = new Map(), _memoRef = null;
+let LAZY_BODIES = [];   // per-render: builders for player-card bodies, run when a card is first opened
 function dataChanged() { _memo = new Map(); }
 function memo(ns, arg, fn) {
   if (_memoRef !== entries) { _memo = new Map(); _memoRef = entries; }
@@ -8925,7 +8926,21 @@ function renderStatsView() {
   renderStatsContent();
 }
 
+function wireCardBody(root) {
+  root.querySelectorAll("[data-splitp]").forEach(b => b.addEventListener("click", () => {
+    const pname = b.dataset.splitp;
+    const teams = []; const seen = {};
+    for (const e of entries) { if (e.sport !== "baseball") continue; for (const r of (e.box || [])) { if (!r.pid && r.player && r.player.trim().toLowerCase() === pname) { const tn = rowTeam(r, e) || "(no team)"; if (!seen[tn]) { seen[tn] = 1; teams.push(tn); } } } }
+    appConfirm("Split this player into separate people, one per team (" + teams.join(", ") + ")? Their stats will stop combining. You can re-split or re-import later if needed.", () => splitPlayerByTeam(pname));
+  }));
+  root.querySelectorAll("[data-mccareer]").forEach(b => b.addEventListener("click", () => openCareerEditor(b.dataset.mcname, b.dataset.mcpid || null)));
+  root.querySelectorAll("[data-openid]").forEach(b => b.addEventListener("click", () => {
+    const e = entries.find(x => x.id === b.dataset.openid);
+    if (e) { switchView("games"); openForm(e); }
+  }));
+}
 function renderStatsContent() {
+  LAZY_BODIES = [];
   const v = document.getElementById("view-stats");
   const vEl = v.querySelector("#sVenue"), yEl = v.querySelector("#sYear");
   const venueF = vEl ? vEl.value : "all";
@@ -8982,6 +8997,7 @@ function renderStatsContent() {
       if (!g || g.label !== label) { g = { label, cards: [] }; groups.push(g); }
       return g;
     };
+    LAZY_BODIES = [];
     for (const p of list) {
       const gp = Object.keys(p.games).length;
       const pkeyName = p.name.trim().toLowerCase();
@@ -9008,12 +9024,10 @@ function renderStatsContent() {
       }
       const quick = qparts.join(" / ");
       const pinned = isPinned(p);
-      groupFor(p).cards.push('<details class="card" style="padding:10px 14px"><summary style="cursor:pointer;list-style:none">'
-        + '<button class="pinbtn" data-pinnm="' + esc((p.name || "").trim().toLowerCase()) + '" data-pinid="' + esc(p.pid || "") + '" title="' + (pinned ? "Unpin" : "Pin to top") + '" style="float:right;background:none;border:none;font-size:17px;line-height:1;cursor:pointer;padding:0 0 4px 6px;opacity:' + (pinned ? "1" : ".28") + '">\ud83d\udccc</button>'
-        + '<span class="disp" style="font-size:15px;font-weight:700">' + esc(p.name) + "</span>"
-        + '<span class="mono" style="font-size:11px;color:var(--ink-soft)"> &nbsp;' + gp + " GP" + (quick ? " · " + quick : "") + "</span>"
-        + (teamNames ? '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">' + esc(teamNames) + "</div>" : "")
-        + "</summary>"
+      // The card's insides are built the first time it's opened. With hundreds of players (every one you've
+      // watched in real games) building them all up front took seconds, for cards nobody had opened.
+      const lazyIdx = LAZY_BODIES.length;
+      LAZY_BODIES.push(() => ""
         + (function () {
             const sp = splitPostseason(p);
             const pitG = p.gGames ? Object.keys(p.gGames.pit).length : 0;
@@ -9041,6 +9055,14 @@ function renderStatsContent() {
         + (appMode === "video" ? careerCardHtml(p) + recordBookHtml(p) : "")
         + (yearF === "all" ? playerExtrasHtml(p.name.trim().toLowerCase(), venueF, p.pid) : "")
         + ((!p.pid && Object.keys(p.teams).length > 1) ? '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)"><div style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">This line spans ' + Object.keys(p.teams).length + " teams (" + esc(Object.keys(p.teams).join(", ")) + "). If those are different people who happen to share a name, split them so their stats stop combining.</div><button class=\"lbtn soft\" data-splitp=\"" + esc(p.name.trim().toLowerCase()) + "\" style=\"width:100%\">\u2934 Different people \u2014 split by team</button></div>" : "")
+      );
+      groupFor(p).cards.push('<details class="card" data-lazy="' + lazyIdx + '" style="padding:10px 14px"><summary style="cursor:pointer;list-style:none">'
+        + '<button class="pinbtn" data-pinnm="' + esc((p.name || "").trim().toLowerCase()) + '" data-pinid="' + esc(p.pid || "") + '" title="' + (pinned ? "Unpin" : "Pin to top") + '" style="float:right;background:none;border:none;font-size:17px;line-height:1;cursor:pointer;padding:0 0 4px 6px;opacity:' + (pinned ? "1" : ".28") + '">\ud83d\udccc</button>'
+        + '<span class="disp" style="font-size:15px;font-weight:700">' + esc(p.name) + "</span>"
+        + '<span class="mono" style="font-size:11px;color:var(--ink-soft)"> &nbsp;' + gp + " GP" + (quick ? " · " + quick : "") + "</span>"
+        + (teamNames ? '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">' + esc(teamNames) + "</div>" : "")
+        + "</summary>"
+        + '<div class="lazybody"></div>'
         + "</details>");
     }
     for (const g of groups) {
@@ -9057,19 +9079,25 @@ function renderStatsContent() {
     if (!list.length) html += '<div class="empty">No team stats yet' + (venueF !== "all" ? " for that filter" : "") + ".</div>";
     for (const t of list) {
       const rec = (t.w + t.l) ? t.w + "–" + t.l + " in games you watched" : "";
-      const splitsHtml = teamSplitsHtml(t);
-      const undec = (t.undec || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-      const undecHtml = undec.length ? '<details class="smore" style="margin-top:8px"><summary>\u2696\ufe0e ' + undec.length + " undecided game" + (undec.length === 1 ? "" : "s") + " \u2014 tap to resolve</summary>"
-        + '<div class="hint" style="margin:4px 0 6px">These have no winner and no decisive score, so they\u2019re left out of the record. Open one to enter the score or set a winner.</div>'
-        + undec.map(e => '<div class="zrow" data-openid="' + esc(e.id) + '" style="padding:5px 6px;cursor:pointer;font-size:12px">' + esc(e.date || "?") + " \u00b7 " + esc(e.away || "?") + " @ " + esc(e.home || "?") + (filled(e.awayScore) || filled(e.homeScore) ? " \u00b7 " + esc(e.awayScore || "\u2013") + "\u2013" + esc(e.homeScore || "\u2013") : "") + "</div>").join("") + "</details>" : "";
-      html += '<details class="card" style="padding:10px 14px"><summary style="cursor:pointer;list-style:none">'
+      // Built when the card is opened, like player cards.
+      const tIdx = LAZY_BODIES.length;
+      LAZY_BODIES.push(() => {
+        const splitsHtml = teamSplitsHtml(t);
+        const undec = (t.undec || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+        const undecHtml = undec.length ? '<details class="smore" style="margin-top:8px"><summary>\u2696\ufe0e ' + undec.length + " undecided game" + (undec.length === 1 ? "" : "s") + " \u2014 tap to resolve</summary>"
+          + '<div class="hint" style="margin:4px 0 6px">These have no winner and no decisive score, so they\u2019re left out of the record. Open one to enter the score or set a winner.</div>'
+          + undec.map(e => '<div class="zrow" data-openid="' + esc(e.id) + '" style="padding:5px 6px;cursor:pointer;font-size:12px">' + esc(e.date || "?") + " \u00b7 " + esc(e.away || "?") + " @ " + esc(e.home || "?") + (filled(e.awayScore) || filled(e.homeScore) ? " \u00b7 " + esc(e.awayScore || "\u2013") + "\u2013" + esc(e.homeScore || "\u2013") : "") + "</div>").join("") + "</details>" : "";
+          return groupDetailHtml(t.bat, "bat", t.gp) + groupDetailHtml(t.pit, "pit", t.gp) + groupDetailHtml(t.fld, "fld", t.gp)
+          + splitsHtml
+          + undecHtml
+        ;
+      });
+      html += '<details class="card" data-lazy="' + tIdx + '" style="padding:10px 14px"><summary style="cursor:pointer;list-style:none">'
         + '<span class="disp" style="font-size:15px;font-weight:700">' + esc(t.name) + "</span>"
         + '<span class="mono" style="font-size:11px;color:var(--ink-soft)"> &nbsp;' + t.gp + " GP" + (t.ip ? " · " + t.ip + (appMode === "video" ? " played" : " in person") : "") + "</span>"
         + (rec ? '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">' + esc(rec) + "</div>" : "")
         + "</summary>"
-        + groupDetailHtml(t.bat, "bat", t.gp) + groupDetailHtml(t.pit, "pit", t.gp) + groupDetailHtml(t.fld, "fld", t.gp)
-        + splitsHtml
-        + undecHtml
+        + '<div class="lazybody"></div>'
         + "</details>";
     }
   }
@@ -9078,17 +9106,19 @@ function renderStatsContent() {
     ev.preventDefault(); ev.stopPropagation();
     togglePin({ name: b.dataset.pinnm, pid: b.dataset.pinid || null }); renderStatsContent();
   }));
-  out.querySelectorAll("[data-splitp]").forEach(b => b.addEventListener("click", () => {
-    const pname = b.dataset.splitp;
-    const teams = []; const seen = {};
-    for (const e of entries) { if (e.sport !== "baseball") continue; for (const r of (e.box || [])) { if (!r.pid && r.player && r.player.trim().toLowerCase() === pname) { const tn = rowTeam(r, e) || "(no team)"; if (!seen[tn]) { seen[tn] = 1; teams.push(tn); } } } }
-    appConfirm("Split this player into separate people, one per team (" + teams.join(", ") + ")? Their stats will stop combining. You can re-split or re-import later if needed.", () => splitPlayerByTeam(pname));
-  }));
-  out.querySelectorAll("[data-mccareer]").forEach(b => b.addEventListener("click", () => openCareerEditor(b.dataset.mcname, b.dataset.mcpid || null)));
-  out.querySelectorAll("[data-openid]").forEach(b => b.addEventListener("click", () => {
-    const e = entries.find(x => x.id === b.dataset.openid);
-    if (e) { switchView("games"); openForm(e); }
-  }));
+  wireCardBody(out);
+  // Fill a player card the first time it opens, then wire what's inside it.
+  const fillCard = d => {
+    if (d.dataset.filled) return;
+    const fn = LAZY_BODIES[+d.dataset.lazy]; if (!fn) return;
+    const slot = d.querySelector(".lazybody"); if (!slot) return;
+    slot.innerHTML = fn(); d.dataset.filled = "1";
+    wireCardBody(slot);
+  };
+  out.querySelectorAll("details.card[data-lazy]").forEach(d => {
+    if (d.open) fillCard(d);
+    d.addEventListener("toggle", () => { if (d.open) fillCard(d); });
+  });
   const ts = out.querySelector("#trackSel");
   if (ts) ts.addEventListener("change", () => { trackTeam = ts.value; renderStatsContent(); });
   const ff = out.querySelector("#fetchFinals");
