@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v242";
+const APP_VERSION = "v243";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1720,7 +1720,8 @@ function renderSettings() {
     + '<div class="disp" style="font-weight:700;font-size:16px;border-bottom:2px solid var(--ink);padding-bottom:3px">\u2699 Settings<button class="lbtn soft" id="setClose" style="float:right;font-size:11px;padding:2px 8px">Done</button></div>'
     + sec("Appearance", btn("setTheme", "\ud83c\udf19 Toggle dark mode"))
     + sec("Seasons", '<div class="hint" style="font-size:11px">Current season: <b>' + esc(cur) + "</b></div>" + btn("setSeasons", "\ud83d\uddd3 Manage seasons") + btn("setSeasonPick", "\ud83d\udcc5 Change current season"))
-    + sec("Scoring", tog("setMile", milestonesOn(), "\u26a1 MLB milestone alerts while scoring", "Looks up real players\u2019 career totals online during real games."))
+    + sec("Scoring", tog("setMile", milestonesOn(), "\u26a1 MLB milestone alerts while scoring", "Looks up real players\u2019 career totals online during real games.")
+        + tog("setXRun", extraRunnerOn(), "\ud83c\udfc3 Automatic runner on 2nd in extra innings", "From the 10th, each half starts with a runner on second, as in MLB\u2019s regular season. Skipped in postseason games."))
     + sec("Importing", tog("setSpoil", noSpoilers(), "\ud83d\ude48 Spoiler-free import", "Hides scores in the game list and doesn\u2019t import them."))
     + sec("Milestone watch", mileTogglesHtml())
     + sec("Your data", btn("setBackup", "\u2b07 Back up to a file") + btn("setRestore", "\u2b06 Restore from backup") + btn("setFixSplit", "\ud83d\udd17 Fix split players")
@@ -1741,6 +1742,8 @@ function wireSettings(w) {
   on("setFixSplit", () => click("fixSplitBtn"));
   const mt = w.querySelector("#setMile");
   if (mt) mt.addEventListener("change", () => { const old = document.getElementById("mileToggle"); if (old) { old.checked = mt.checked; old.dispatchEvent(new Event("change")); } });
+  const xrt = w.querySelector("#setXRun");
+  if (xrt) xrt.addEventListener("change", () => { try { localStorage.setItem(XRUN_KEY, xrt.checked ? "1" : "0"); } catch (e) {} });
   const sp = w.querySelector("#setSpoil");
   if (sp) sp.addEventListener("change", () => setNoSpoilers(sp.checked));
   wireMileSettings(w, renderSettings);
@@ -2185,13 +2188,14 @@ function snap() {
   return { ia: L.teams.away.idx, ih: L.teams.home.idx, b: L.balls, s: L.strikes, ap: L.abPit, o: L.outs, h: L.half, i: L.inning,
            pa: L.teams.away.pitcher, ph: L.teams.home.pitcher,
            b1: L.bases.first, b2: L.bases.second, b3v: L.bases.third,
-           ls: L.line ? JSON.stringify(L.line) : null };
+           ls: L.line ? JSON.stringify(L.line) : null, xr: L.xRunner ? Object.assign({}, L.xRunner) : null };
 }
 function restore(s) {
   const L = form.live;
   L.teams.away.idx = s.ia; L.teams.home.idx = s.ih; L.balls = s.b; L.strikes = s.s; L.abPit = s.ap || 0;
   L.outs = s.o; L.half = s.h; L.inning = s.i; L.teams.away.pitcher = s.pa; L.teams.home.pitcher = s.ph;
   L.bases = { first: s.b1, second: s.b2, third: s.b3v };
+  L.xRunner = s.xr ? Object.assign({}, s.xr) : null;
   if (s.ls) L.line = JSON.parse(s.ls);
 }
 function curBatter() {
@@ -2436,9 +2440,34 @@ function resolvePrediction(o, entry) {
   o.flash = (o.flash ? o.flash + " · " : "") + (ok ? "🎯 " : "✗ ") + tail;
 }
 
+// ── Extra-innings automatic runner ───────────────────────────────────
+// MLB regular season, 10th inning on: each half starts with a runner on second — the batter just
+// ahead of that half's leadoff man. MLB's postseason plays extras straight, so playoff games skip it.
+const XRUN_KEY = "sports-stat-xrunner";
+function extraRunnerOn() { try { return localStorage.getItem(XRUN_KEY) !== "0"; } catch (e) { return true; } }
+function placeExtraRunner(L) {
+  L.xRunner = null;
+  if (!extraRunnerOn() || L.solo || L.inning < 10) return "";
+  if (typeof isPostSeason === "function" && isPostSeason(seasonOf(form))) return "";
+  const bt = battingTeam(), T = L.teams[bt], n = (T && T.order) ? T.order.length : 0;
+  if (!n) return "";
+  const name = String(T.order[(T.idx - 1 + n) % n] || "").trim();
+  if (!name) return "";
+  L.bases.second = name;
+  L.xRunner = { name: name, team: bt, inning: L.inning, half: L.half };
+  return name;
+}
 function doAction(o) {
   const L = form.live;
   const entry = { snap: snap(), bats: [], pit: null, fld: null, note: null };
+  // The extra-innings runner is placed as though he reached on an error: if he scores, the run counts
+  // for the team and he gets a run scored, but it isn't an earned run against the pitcher.
+  const xr = L.xRunner;
+  if (xr && xr.inning === L.inning && xr.half === L.half
+      && (o.bats || []).some(b => b.team === xr.team && nkey(b.player) === nkey(xr.name) && (b.cols || []).some(c => c[0] === "R" && num(c[1]) > 0))) {
+    o.pitCols = (o.pitCols || []).map(c => c[0] === "ER" ? ["ER", num(c[1]) - 1] : c).filter(c => !(c[0] === "ER" && c[1] <= 0));
+    L.xRunner = null;                                    // scored; anyone else this half is judged normally
+  }
   if (L.opts.pitchType) {
     const ap = activePitch();
     if (ap) {
@@ -2517,6 +2546,11 @@ function doAction(o) {
       if (L.half === "top") L.half = "bottom"; else { L.half = "top"; L.inning++; }
       stampInning(battingTeam());
       flash += " · side retired → " + halfLabel();
+      const autoR = placeExtraRunner(L);
+      if (autoR) {
+        flash += " · " + autoR + " starts on 2nd";
+        form.pbp.push({ h: L.half, i: L.inning, t: "Automatic runner: " + autoR + " placed on second." });
+      }
       form.pbp.push({ h: entry.snap.h, i: entry.snap.i, t: "Side retired — end of " + (entry.snap.h === "top" ? "the top" : "the bottom") + " of " + entry.snap.i + ". " + teamLabel("away") + " " + lineRuns("away") + ", " + teamLabel("home") + " " + lineRuns("home") + "." });
       entry.pbpN = (entry.pbpN || 0) + 1;
     }
