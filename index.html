@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v244";
+const APP_VERSION = "v245";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1720,7 +1720,11 @@ function renderSettings() {
     + '<div class="disp" style="font-weight:700;font-size:16px;border-bottom:2px solid var(--ink);padding-bottom:3px">\u2699 Settings<button class="lbtn soft" id="setClose" style="float:right;font-size:11px;padding:2px 8px">Done</button></div>'
     + sec("Appearance", btn("setTheme", "\ud83c\udf19 Toggle dark mode"))
     + sec("Seasons", '<div class="hint" style="font-size:11px">Current season: <b>' + esc(cur) + "</b></div>" + btn("setSeasons", "\ud83d\uddd3 Manage seasons") + btn("setSeasonPick", "\ud83d\udcc5 Change current season"))
-    + sec("Scoring", tog("setMile", milestonesOn(), "\u26a1 MLB milestone alerts while scoring", "Looks up real players\u2019 career totals online during real games.")
+    + sec("Scoring", tog("setMile", milestonesOn(), "\u26a1 Milestone alerts while scoring", "Video games use your own career totals. Real games look up MLB career totals online.")
+        + '<div style="font-size:12px;margin:6px 0 3px">Show milestones as</div><div style="display:flex;flex-wrap:wrap;gap:4px">'
+        + [["banner", "\u26a1 Upcoming banner"], ["pop", "\ud83c\udf89 Pop-up when it happens"], ["both", "Both"]].map(([v, l]) =>
+            '<button class="chip disp' + (mileDisp() === v ? " active" : "") + '" data-mdisp="' + v + '" style="font-size:11px;padding:3px 9px">' + l + "</button>").join("")
+        + '</div><div class="hint" style="font-size:10px;margin-top:3px">The banner shows what\u2019s coming up; the pop-up is the TV-style graphic the moment a milestone falls or a player passes someone on the all-time list.</div>'
         + tog("setXRun", extraRunnerOn(), "\ud83c\udfc3 Automatic runner on 2nd in extra innings", "From the 10th, each half starts with a runner on second, as in MLB\u2019s regular season. Skipped in postseason games."))
     + sec("Importing", tog("setSpoil", noSpoilers(), "\ud83d\ude48 Spoiler-free import", "Hides scores in the game list and doesn\u2019t import them."))
     + sec("Milestone watch", mileTogglesHtml())
@@ -1746,6 +1750,7 @@ function wireSettings(w) {
   if (xrt) xrt.addEventListener("change", () => { try { localStorage.setItem(XRUN_KEY, xrt.checked ? "1" : "0"); } catch (e) {} });
   const sp = w.querySelector("#setSpoil");
   if (sp) sp.addEventListener("change", () => setNoSpoilers(sp.checked));
+  w.querySelectorAll("[data-mdisp]").forEach(b => b.addEventListener("click", () => { try { localStorage.setItem(MILEDISP_KEY, b.dataset.mdisp); } catch (e) {} renderSettings(); }));
   wireMileSettings(w, renderSettings);
 }
 function openSeasonManager() {
@@ -4062,9 +4067,9 @@ function refreshCareersFromEntry(entry) {
     if (_career[pid] && _career[pid] !== "none" && _career[pid] !== "pending") loadCareer(pid, true);
   }
 }
-// Video-career milestones for the live banner — same "career going in + what he's done today" shape
-// as the MLB version, but sourced from your own season/career totals instead of an MLB lookup.
-function videoMileBannerLines(nm, team, isPit) {
+// The totals a player's live video milestones are measured on: for each context, where he stood going
+// into this game (pre) and what he's added in it (tod). The banner and the pop-ups both read these.
+function vMileSources(nm, team, isPit) {
   const grp = isPit ? "pit" : "bat";
   const row = boxRowFor(nm, team, isPit ? "pitching" : "batting");
   const key = mcKeyOf(nm, (row && row.pid) || null);
@@ -4082,52 +4087,154 @@ function videoMileBannerLines(nm, team, isPit) {
     if (playerRowGrp(r, key) !== grp) continue;
     for (const c in r.stats) if (filled(r.stats[c])) back[c] = (back[c] || 0) + num(r.stats[c]);
   }
-  const out = [], seen = new Set();
-  // A game in an exhibition/playoff season (⊘ not in career) doesn't move career totals, so it must
-  // not move career milestones either — otherwise the banner climbs all game and resets on save.
+  const pre = base => { const m = {}; for (const c in base) m[c] = num(base[c]) - num(back[c]); return m; };
+  const rec = isPit ? VREC_SEASON_PIT : VREC_SEASON_BAT;
   const gsea = seasonOf(form) || currentSeason();
-  const todayCar = seasonExcluded(key, gsea) ? {} : today;
-  const roll = (base, defs, tag, tod, ctx) => {
-    for (const d of defs) {
-      if (!mileOn(d.key, ctx)) continue;
-      const v = num(base[d.key]) - num(back[d.key]), g = num(tod[d.key]), eff = v + g;
+  if (isPostSeason(gsea)) {
+    // A playoff game can't move the regular career or season, so it swaps to October numbers:
+    // the postseason career and this postseason run, each against its own round numbers and board.
+    return [
+      { pre: pre(postseasonStats(key, grp)), tod: today, defs: isPit ? VMILE_POST_PIT : VMILE_POST_BAT, rec, ctx: "roundp", scope: "post", tag: "postseason" },
+      { pre: pre(seasonResolvedStats(key, gsea, grp)), tod: today, defs: isPit ? VMILE_RUN_PIT : VMILE_RUN_BAT, rec, ctx: "roundr", scope: "postrun", tag: gsea }
+    ];
+  }
+  // A game in an exhibition season (⊘ not in career) doesn't move career totals, so it must not move
+  // career milestones either — otherwise the banner climbs all game and resets on save.
+  const out = [{ pre: pre(careerResolvedStats(key, grp)), tod: seasonExcluded(key, gsea) ? {} : today, defs: isPit ? VMILE_CAREER_PIT : VMILE_CAREER_BAT, rec, ctx: "roundc", scope: "career", tag: "career" }];
+  if (gsea) out.push({ pre: pre(seasonResolvedStats(key, gsea, grp)), tod: today, defs: isPit ? VMILE_SEASON_PIT : VMILE_SEASON_BAT, rec, ctx: "rounds", scope: "season", tag: gsea });   // the season this game belongs to, not whatever the season bar says
+  return out;
+}
+function vMileNow(S) { const m = {}; for (const c in S.pre) m[c] = num(S.pre[c]); for (const c in S.tod) m[c] = (m[c] || 0) + num(S.tod[c]); return m; }
+// Video-career milestones for the live banner — same "career going in + what he's done today" shape
+// as the MLB version, but sourced from your own season/career totals instead of an MLB lookup.
+function videoMileBannerLines(nm, team, isPit) {
+  const out = [], seen = new Set();
+  const pushRec = r => { const sig = "rec:" + r.text; if (seen.has(sig)) return; seen.add(sig); out.push({ away: r.away, text: "🏆 " + r.text }); };
+  for (const S of vMileSources(nm, team, isPit)) {
+    for (const d of S.defs) {
+      if (!mileOn(d.key, S.ctx)) continue;
+      const v = num(S.pre[d.key]), g = num(S.tod[d.key]), eff = v + g;
       if (!eff) continue;
-      const st = mileStepFor(d.key, ctx, d.step);
+      const st = mileStepFor(d.key, S.ctx, d.step);
       const n = nextMile(eff, st, Math.min(d.min, st)), away = n - eff;
-      const near = mileNearFor(d.key, ctx, d.near);          // your setting, else the built-in default
+      const near = mileNearFor(d.key, S.ctx, d.near);          // your setting, else the built-in default
       if (away <= 0 || away > near) continue;
       const sig = d.key + "@" + n; if (seen.has(sig)) continue; seen.add(sig);   // career and season often chase the same number
-      out.push({ away: away, text: away + " " + d.label + " from " + n + ' <span style="color:var(--ink-soft)">(' + esc(tag) + " " + v + (g ? " + " + g + " today" : "") + ")</span>" });
+      out.push({ away: away, text: away + " " + d.label + " from " + n + ' <span style="color:var(--ink-soft)">(' + esc(S.tag) + " " + v + (g ? " + " + g + " today" : "") + ")</span>" });
     }
-  };
-  const pushRec = r => { const sig = "rec:" + r.text; if (seen.has(sig)) return; seen.add(sig); out.push({ away: r.away, text: "🏆 " + r.text }); };
-  const merge = (base, tod) => { const m = {}; for (const c in base) m[c] = num(base[c]) - num(back[c]); for (const c in tod) m[c] = (m[c] || 0) + tod[c]; return m; };
-  if (isPostSeason(gsea)) {
-    // A playoff game can't move the regular career or season, so the banner swaps to October numbers:
-    // the postseason career and this postseason run, each against its own round numbers and board.
-    const pc = postseasonStats(key, grp);
-    roll(pc, isPit ? VMILE_POST_PIT : VMILE_POST_BAT, "postseason", today, "roundp");
-    for (const r of vRecordLines(merge(pc, today), isPit ? VREC_SEASON_PIT : VREC_SEASON_BAT, "post")) pushRec(r);
-    const run = seasonResolvedStats(key, gsea, grp);
-    roll(run, isPit ? VMILE_RUN_PIT : VMILE_RUN_BAT, gsea, today, "roundr");
-    for (const r of vRecordLines(merge(run, today), isPit ? VREC_SEASON_PIT : VREC_SEASON_BAT, "postrun")) pushRec(r);
-    return out.sort((a, b) => a.away - b.away).slice(0, 6).map(o => o.text);
-  }
-  const car = careerResolvedStats(key, grp);
-  roll(car, isPit ? VMILE_CAREER_PIT : VMILE_CAREER_BAT, "career", todayCar, "roundc");
-  for (const r of vRecordLines(merge(car, todayCar), isPit ? VREC_CAREER_PIT : VREC_CAREER_BAT, "career")) pushRec(r);
-  if (gsea) {                                                          // the season this game belongs to, not whatever the season bar says
-    const sea = seasonResolvedStats(key, gsea, grp);
-    roll(sea, isPit ? VMILE_SEASON_PIT : VMILE_SEASON_BAT, gsea, today, "rounds");
-    for (const r of vRecordLines(merge(sea, today), isPit ? VREC_SEASON_PIT : VREC_SEASON_BAT, "season")) pushRec(r);
+    for (const r of vRecordLines(vMileNow(S), S.rec, S.scope)) pushRec(r);
   }
   return out.sort((a, b) => a.away - b.away).slice(0, 6).map(o => o.text);
+}
+// ── Milestone pop-ups: the broadcast graphic when one actually falls ──
+// "banner" = only the upcoming-milestone strip, "pop" = only the pop-ups, "both" = the two together.
+const MILEDISP_KEY = "sports-stat-miledisp";
+function mileDisp() { try { const v = localStorage.getItem(MILEDISP_KEY); return v === "banner" || v === "pop" ? v : "both"; } catch (e) { return "both"; } }
+function mileBannerOn() { return mileDisp() !== "pop"; }
+function milePopOn() { return mileDisp() !== "banner"; }
+const MILE_NOUN = { H: ["hit", "hits"], HR: ["home run", "home runs"], RBI: ["RBI", "RBI"], R: ["run", "runs"], "2B": ["double", "doubles"], "3B": ["triple", "triples"], SB: ["stolen base", "stolen bases"],
+  K: ["strikeout", "strikeouts"], W: ["win", "wins"], SV: ["save", "saves"], SHO: ["shutout", "shutouts"], CG: ["complete game", "complete games"], NH: ["no-hitter", "no-hitters"], PG: ["perfect game", "perfect games"], IMM: ["immaculate inning", "immaculate innings"] };
+const mileNoun = (k, n) => (MILE_NOUN[k] || [k, k])[n === 1 ? 0 : 1];
+function ordinal(n) { const s = ["th", "st", "nd", "rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+// What crossed since the last look. Each stat remembers the highest total already announced, so a
+// second homer announces only what the second one did, and an undo-redo doesn't re-announce. The
+// first look of a live session just takes the baseline, so resuming a game doesn't replay old pop-ups.
+function checkVideoMilestones() {
+  const L = form.live; if (!L) return;
+  const baseline = !L._mileLast; if (baseline) L._mileLast = {};
+  for (const r of (form.box || [])) {
+    const isPit = r.group === "pitching"; if (!isPit && r.group !== "batting") continue;
+    const nm = (r.player || "").trim(); if (!nm) continue;
+    const said = new Set();          // a first season's 30th HR is also the career 30th — announce it once
+    for (const S of vMileSources(nm, r.team, isPit)) {
+      const step = (sig, k, fn) => {
+        const pre = num(S.pre[k]), cur = pre + num(S.tod[k]);
+        const last = L._mileLast[sig] != null ? L._mileLast[sig] : pre;
+        if (cur > last && !baseline) fn(last, cur);
+        if (baseline || cur > last) L._mileLast[sig] = cur;
+      };
+      for (const d of S.defs) {
+        if (!mileOn(d.key, S.ctx)) continue;
+        step(nkey(nm) + "|" + S.ctx + "|" + d.key, d.key, (lo, cur) => {
+          const st = mileStepFor(d.key, S.ctx, d.step);
+          let n = nextMile(lo, st, Math.min(d.min, st)), top = 0;
+          while (n <= cur) { top = n; n += st; }
+          if (top && !said.has(d.key + "@" + top)) { said.add(d.key + "@" + top); queueMilePop({ kind: "round", player: nm, key: d.key, n: top, ctx: S.ctx, tag: S.tag }); }
+        });
+      }
+      for (const [cat] of S.rec) {
+        if (!mileOn(cat, S.scope)) continue;
+        step(nkey(nm) + "|" + S.scope + "|board|" + cat, cat, (lo, cur) => {
+          let c = null; try { c = effCat(S.scope, cat); } catch (e) { c = null; }
+          let list = c && c.list; if (!list || !list.length) return;
+          const lim = mileTopFor(S.scope); if (lim && list.length > lim) list = list.slice(0, lim);
+          let passed = null, tied = null;
+          for (const it of list) {
+            const v = num(it[1]);
+            if (v >= lo && v < cur && (!passed || v > num(passed[1]))) passed = it;   // you pass someone by going one past them
+            if (v === cur && v > lo && !tied) tied = it;                               // matching them is a tie, not a pass
+          }
+          if (!passed && !tied) return;
+          const low = num(list[list.length - 1][1]);
+          queueMilePop({ kind: "board", player: nm, key: cat, scope: S.scope, tag: S.tag, v: cur, passed, tied, rank: rankInBoard(list, cur).rank, cracked: lo < low && cur >= low ? list.length : 0 });
+        });
+      }
+    }
+  }
+}
+let _milePops = [], _milePopTimer = null;
+function queueMilePop(p) { _milePops.push(p); if (!_milePopTimer && !document.getElementById("milePop")) showNextMilePop(); }
+function milePopHtml(p) {
+  const kickers = { roundc: "Career milestone", rounds: p.tag + " season", roundp: "Postseason milestone", roundr: p.tag,
+    career: "All-time career list", season: "All-time single-season list", post: "All-time postseason list", postrun: "Single-postseason list" };
+  let head, sub;
+  if (p.kind === "round") {
+    head = ordinal(p.n) + " " + (p.ctx === "roundc" ? "career " : p.ctx === "roundp" ? "postseason " : "") + mileNoun(p.key, 1)
+      + (p.ctx === "rounds" || p.ctx === "roundr" ? " of " + p.tag : "");
+    sub = "";
+  } else {
+    const nm = it => it[0] + (it[2] ? " (" + it[2] + ")" : "");
+    // A tie is always with someone higher than anyone just passed, so it leads when there's both.
+    head = p.cracked ? "Cracks the top " + p.cracked : p.tied ? "Ties " + nm(p.tied) : "Passes " + nm(p.passed);
+    const also = p.cracked ? (p.tied ? "ties " + nm(p.tied) : "passes " + nm(p.passed)) : p.passed && p.tied ? "passes " + nm(p.passed) : "";
+    const where = p.scope === "career" ? "career" : p.scope === "post" ? "postseason" : "in " + p.tag;
+    sub = p.v + " " + (p.scope === "career" || p.scope === "post" ? where + " " + mileNoun(p.key, p.v) : mileNoun(p.key, p.v) + " " + where)
+      + " · " + (p.passed && !p.tied ? "now #" : "#") + p.rank + (p.tied ? " (tied)" : "") + (also ? " · " + also : "");
+  }
+  return '<div class="mp-kick">' + esc(kickers[p.ctx || p.scope] || "Milestone") + '</div><div class="mp-name">' + esc(p.player) + '</div><div class="mp-head">' + esc(head) + "</div>"
+    + (sub ? '<div class="mp-sub">' + esc(sub) + "</div>" : "");
+}
+function showNextMilePop() {
+  const p = _milePops.shift(); if (!p) return;
+  if (!document.getElementById("milePopCss")) {
+    const st = document.createElement("style"); st.id = "milePopCss";
+    st.textContent = "#milePop{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:calc(100% - 32px);max-width:420px;z-index:10050;background:#0b1f3a;color:#fff;border-left:6px solid #d9a400;border-radius:6px;padding:10px 14px 11px;box-shadow:0 6px 24px rgba(0,0,0,.45);cursor:pointer;animation:mpIn .35s ease-out}"
+      + "#milePop.out{animation:mpOut .3s ease-in forwards}"
+      + "#milePop .mp-kick{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#f3c63f;font-weight:700}"
+      + "#milePop .mp-name{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:2px;opacity:.9}"
+      + "#milePop .mp-head{font-size:20px;font-weight:800;line-height:1.15;margin-top:1px}"
+      + "#milePop .mp-sub{font-size:12px;opacity:.8;margin-top:3px}"
+      + "@keyframes mpIn{from{opacity:0;transform:translate(-50%,40px)}to{opacity:1;transform:translate(-50%,0)}}"
+      + "@keyframes mpOut{to{opacity:0;transform:translate(-50%,40px)}}";
+    document.head.appendChild(st);
+  }
+  const el = document.createElement("div"); el.id = "milePop"; el.innerHTML = milePopHtml(p);
+  document.body.appendChild(el);
+  const close = () => {
+    if (_milePopTimer) { clearTimeout(_milePopTimer); _milePopTimer = null; }
+    if (!el.parentNode) return;
+    el.classList.add("out");
+    setTimeout(() => { el.remove(); showNextMilePop(); }, 300);
+  };
+  el.addEventListener("click", close);
+  _milePopTimer = setTimeout(close, 7000);
 }
 function milestoneBannerHtml() {
   if (!form.live) return "";
   checkWitnessedLive();
+  if (milestonesOn() && milePopOn() && modeOf(form) === "video") { try { checkVideoMilestones(); } catch (e) {} }
   const flash = witnessFlashHtml();
-  if (!milestonesOn()) return flash;
+  if (!milestonesOn() || !mileBannerOn()) return flash;
   const lines = [];
   const consider = (name, team, isPit) => {
     const nm = (name || "").trim(); if (!nm) return;
@@ -4331,9 +4438,14 @@ function vRecordLines(stats, defs, scope) {
     if (!R.inBoard) {
       const target = num(R.low[1]), away = target - v;
       if (away > 0 && away <= win(target, cat)) out.push({ away: away, text: away + " " + label + " from the all-time " + word + " top " + R.len });
-    } else if (R.next) {
-      const target = num(R.next[1]), away = target - v;
-      if (away > 0 && away <= win(target, cat)) out.push({ away: away, text: away + " " + label + " from passing " + esc(R.next[0]) + " (" + target + ") for #" + Math.max(1, R.rank - 1) });
+    } else {
+      // Reaching someone's number only ties them; it takes one more to pass. Already level with
+      // someone? Then one more is all it takes, and that's the nearest thing on the board.
+      if (R.passed && num(R.passed[1]) === v) out.push({ away: 1, text: "1 " + label + " from passing " + esc(R.passed[0]) + " — tied at " + v + " for #" + R.rank });
+      if (R.next) {
+        const target = num(R.next[1]), away = target - v;
+        if (away > 0 && away <= win(target, cat)) out.push({ away: away, text: away + " " + label + " from tying " + esc(R.next[0]) + " (" + target + ") for #" + rankInBoard(list, target).rank + ", " + (away + 1) + " to pass" });
+      }
     }
   }
   return out.sort((a, b) => a.away - b.away);
@@ -4627,7 +4739,10 @@ function checkWitnessedLive() {
       const careerVal = num(career[d.key]); if (careerVal <= 0) continue;
       let M = nextMile(careerVal, d.step, d.min);
       while (M <= careerVal + inGame) {
-        if (addWitnessed({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), player: nm, label: d.label, n: M, date: form.date || today(), auto: true })) L._witFlash = { player: nm, label: d.label, n: M };
+        if (addWitnessed({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), player: nm, label: d.label, n: M, date: form.date || today(), auto: true })) {
+          L._witFlash = { player: nm, label: d.label, n: M };
+          if (milePopOn()) queueMilePop({ kind: "round", player: nm, key: WIT_BOXKEY[d.key], n: M, ctx: "roundc", tag: "career" });
+        }
         M += d.step;
       }
     }
@@ -4649,6 +4764,7 @@ function checkWitnessedLive() {
 }
 function witnessFlashHtml() {
   const f = form.live && form.live._witFlash; if (!f) return "";
+  if (!f.first && milePopOn()) return "";                     // the pop-up already announced it
   const body = f.first
     ? (f.career ? "\ud83e\udd47 You witnessed " + esc(f.player) + "\u2019s 1st career " + esc(f.label) + "!" : "\ud83e\udd47 First " + esc(f.label) + " you\u2019ve seen from " + esc(f.player) + "!")
     : "\ud83c\udf89 You witnessed " + esc(f.player) + "\u2019s " + f.n + "th " + esc(f.label) + "!";
@@ -10223,7 +10339,8 @@ document.getElementById("exportBtn").addEventListener("click", async () => {
     prefs: {
       theme: localStorage.getItem("sports-stat-theme") || "",
       mode: localStorage.getItem("sports-stat-mode") || "",
-      season: localStorage.getItem("sports-stat-season") || ""
+      season: localStorage.getItem("sports-stat-season") || "",
+      mileDisp: localStorage.getItem(MILEDISP_KEY) || ""
     }
   }, null, 2);
   const blob = new Blob([payload], { type: "application/json" });
@@ -10347,7 +10464,7 @@ document.getElementById("importFile").addEventListener("change", ev => {
           for (const pid in data.debut) { const r = data.debut[pid]; if (r && r.v && r.v !== "pending" && (!_debut[pid] || _debut[pid] === "none" || !_debut[pid].v)) _debut[pid] = r; }
           persistDebut();
         }
-        if (data.prefs) for (const [pk, lk] of [["theme", "sports-stat-theme"], ["mode", "sports-stat-mode"], ["season", "sports-stat-season"]])
+        if (data.prefs) for (const [pk, lk] of [["theme", "sports-stat-theme"], ["mode", "sports-stat-mode"], ["season", "sports-stat-season"], ["mileDisp", MILEDISP_KEY]])
           try { if (data.prefs[pk] && !localStorage.getItem(lk)) localStorage.setItem(lk, data.prefs[pk]); } catch (e4) {}
       }
       persist(); persistTeams(); persistParks(); renderTally(); renderList();
