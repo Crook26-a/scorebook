@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v246";
+const APP_VERSION = "v247";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -4112,7 +4112,7 @@ function videoMileBannerLines(nm, team, isPit) {
   const pushRec = r => { const sig = "rec:" + r.text; if (seen.has(sig)) return; seen.add(sig); out.push({ away: r.away, text: "🏆 " + r.text }); };
   for (const S of vMileSources(nm, team, isPit)) {
     for (const d of S.defs) {
-      if (!mileOn(d.key, S.ctx) || !mileBannerOn(d.key)) continue;
+      if (!mileOn(d.key, S.ctx) || !mileBannerOn(d.key, S.ctx)) continue;
       const v = num(S.pre[d.key]), g = num(S.tod[d.key]), eff = v + g;
       if (!eff) continue;
       const st = mileStepFor(d.key, S.ctx, d.step);
@@ -4122,7 +4122,7 @@ function videoMileBannerLines(nm, team, isPit) {
       const sig = d.key + "@" + n; if (seen.has(sig)) continue; seen.add(sig);   // career and season often chase the same number
       out.push({ away: away, text: away + " " + d.label + " from " + n + ' <span style="color:var(--ink-soft)">(' + esc(S.tag) + " " + v + (g ? " + " + g + " today" : "") + ")</span>" });
     }
-    for (const r of vRecordLines(vMileNow(S), S.rec.filter(([cat]) => mileBannerOn(cat)), S.scope)) pushRec(r);
+    for (const r of vRecordLines(vMileNow(S), S.rec.filter(([cat]) => mileBannerOn(cat, S.scope)), S.scope)) pushRec(r);
   }
   return out.sort((a, b) => a.away - b.away).slice(0, 6).map(o => o.text);
 }
@@ -4130,14 +4130,27 @@ function videoMileBannerLines(nm, team, isPit) {
 // "banner" = only the upcoming-milestone strip, "pop" = only the pop-ups, "both" = the two together.
 const MILEDISP_KEY = "sports-stat-miledisp";
 function mileDisp() { try { const v = localStorage.getItem(MILEDISP_KEY); return v === "banner" || v === "pop" ? v : "both"; } catch (e) { return "both"; } }
-// Each stat can also go its own way (HR as a pop-up, K on the banner); unset stats follow the setting above.
+// Each stat in each context can also go its own way (HR round numbers as a pop-up, the HR record chase
+// on the banner), keyed "ctx|stat" like the rest of the milestone grid. Unset ones follow the setting above.
 const MILEDISPSTAT_KEY = "sports-stat-miledisp-stat-v1";
+const MILEDISP_CTXS = ["roundc", "rounds", "career", "season", "roundp", "roundr", "post", "postrun"];
 let mileDispStat = {};
 try { mileDispStat = JSON.parse(localStorage.getItem(MILEDISPSTAT_KEY) || "{}") || {}; } catch (e) { mileDispStat = {}; }
 function persistMileDispStat() { try { localStorage.setItem(MILEDISPSTAT_KEY, JSON.stringify(mileDispStat)); } catch (e) {} }
-function mileDispFor(k) { const v = k && mileDispStat[k]; return v === "banner" || v === "pop" || v === "both" ? v : mileDisp(); }
-function mileBannerOn(k) { return mileDispFor(k) !== "pop"; }
-function milePopOn(k) { return mileDispFor(k) !== "banner"; }
+function fixMileDispStat() {   // v246 set one choice per stat — spread it across every context
+  let changed = false;
+  for (const k of Object.keys(mileDispStat)) {
+    if (k.indexOf("|") >= 0) continue;
+    for (const c of MILEDISP_CTXS) if (!mileDispStat[c + "|" + k]) mileDispStat[c + "|" + k] = mileDispStat[k];
+    delete mileDispStat[k]; changed = true;
+  }
+  if (changed) persistMileDispStat();
+}
+fixMileDispStat();
+function mileDispSet(k, ctx) { const v = mileDispStat[ctx + "|" + k]; return v === "banner" || v === "pop" || v === "both" ? v : ""; }
+function mileDispFor(k, ctx) { return mileDispSet(k, ctx) || mileDisp(); }
+function mileBannerOn(k, ctx) { return mileDispFor(k, ctx) !== "pop"; }
+function milePopOn(k, ctx) { return mileDispFor(k, ctx) !== "banner"; }
 const MILE_NOUN = { H: ["hit", "hits"], HR: ["home run", "home runs"], RBI: ["RBI", "RBI"], R: ["run", "runs"], "2B": ["double", "doubles"], "3B": ["triple", "triples"], SB: ["stolen base", "stolen bases"],
   K: ["strikeout", "strikeouts"], W: ["win", "wins"], SV: ["save", "saves"], SHO: ["shutout", "shutouts"], CG: ["complete game", "complete games"], NH: ["no-hitter", "no-hitters"], PG: ["perfect game", "perfect games"], IMM: ["immaculate inning", "immaculate innings"] };
 const mileNoun = (k, n) => (MILE_NOUN[k] || [k, k])[n === 1 ? 0 : 1];
@@ -4160,7 +4173,7 @@ function checkVideoMilestones() {
         if (baseline || cur > last) L._mileLast[sig] = cur;
       };
       for (const d of S.defs) {
-        if (!mileOn(d.key, S.ctx) || !milePopOn(d.key)) continue;
+        if (!mileOn(d.key, S.ctx) || !milePopOn(d.key, S.ctx)) continue;
         step(nkey(nm) + "|" + S.ctx + "|" + d.key, d.key, (lo, cur) => {
           const st = mileStepFor(d.key, S.ctx, d.step);
           let n = nextMile(lo, st, Math.min(d.min, st)), top = 0;
@@ -4169,7 +4182,7 @@ function checkVideoMilestones() {
         });
       }
       for (const [cat] of S.rec) {
-        if (!mileOn(cat, S.scope) || !milePopOn(cat)) continue;
+        if (!mileOn(cat, S.scope) || !milePopOn(cat, S.scope)) continue;
         step(nkey(nm) + "|" + S.scope + "|board|" + cat, cat, (lo, cur) => {
           let c = null; try { c = effCat(S.scope, cat); } catch (e) { c = null; }
           let list = c && c.list; if (!list || !list.length) return;
@@ -4254,7 +4267,7 @@ function milestoneBannerHtml() {
     if (c === "pending") return;
     const bcts = _careerStore[pid] && _careerStore[pid].ts;                     // stale baseline? show it, refresh behind the scenes
     if (bcts && Date.now() - bcts > 6 * 3600 * 1000) loadCareer(pid, true);
-    const defs = (isPit ? MILE_PIT : MILE_BAT).filter(d => mileBannerOn(WIT_BOXKEY[d.key]));
+    const defs = (isPit ? MILE_PIT : MILE_BAT).filter(d => mileBannerOn(WIT_BOXKEY[d.key], "roundc"));   // MLB alerts are career round numbers
     const grp = isPit ? "pitching" : "batting";
     const row = boxRowFor(nm, team, grp);
     const game = {};
@@ -4486,9 +4499,10 @@ function mileToggleList() {
 // Shared by the Records tab and the Settings page, so the milestone grid behaves the same in both.
 function wireMileSettings(root, rerender) {
   root.querySelectorAll("[data-mset]").forEach(d => d.addEventListener("toggle", () => { mileSetOpen = d.open; }));
-  root.querySelectorAll("[data-mdisps]").forEach(sel => sel.addEventListener("change", () => {
-    const k = sel.getAttribute("data-mdisps");
-    if (!sel.value) delete mileDispStat[k]; else mileDispStat[k] = sel.value;
+  root.querySelectorAll("[data-mdisps]").forEach(b => b.addEventListener("click", () => {
+    const k = b.getAttribute("data-mdisps"), order = ["", "banner", "pop", "both"];
+    const next = order[(order.indexOf(mileDispStat[k] || "") + 1) % order.length];
+    if (!next) delete mileDispStat[k]; else mileDispStat[k] = next;
     persistMileDispStat(); rerender();
   }));
   root.querySelectorAll("[data-mpost]").forEach(b => b.addEventListener("click", () => { mileSetPost = b.getAttribute("data-mpost") === "1"; rerender(); }));
@@ -4523,21 +4537,24 @@ function mileTogglesHtml() {
   const steps = post ? MILE_STEPS_POST : MILE_STEPS;
   let off = 0;
   for (const [k] of list) for (const c of MILE_CTX_ALL) if (!mileOn(k, c[0])) off++;
+  // How this one shows while scoring; tap to cycle default → banner → pop-up → both. Faded = the default.
+  const DISP_ICON = { banner: "⚡", pop: "🎉", both: "⚡🎉" }, DISP_WORD = { banner: "banner", pop: "pop-up", both: "banner and pop-up" };
+  const dispBtn = (k, ctx) => {
+    const set = mileDispSet(k, ctx), v = set || mileDisp();
+    return '<button class="mono" data-mdisps="' + esc(ctx + "|" + k) + '" title="Shows as ' + DISP_WORD[v] + (set ? "" : " (default)") + ' — tap to change" style="font-size:9px;padding:0 2px;border:0;background:none;cursor:pointer;min-width:0;white-space:nowrap;flex-shrink:0' + (set ? "" : ";opacity:.4") + '">' + DISP_ICON[v] + "</button>";
+  };
   const cell = (k, ctx) => {
     const on = mileOn(k, ctx);
-    return '<span style="display:inline-flex;align-items:center;gap:1px">'
-      + '<button class="chip disp" style="font-size:9px;padding:1px 5px;min-width:0' + (on ? ";background:var(--ink);color:var(--card)" : ";opacity:.4;text-decoration:line-through") + '" data-mtog="' + esc(ctx + "|" + k) + '">' + esc((MILE_CTX_ALL.find(c => c[0] === ctx) || ["", ctx])[1]) + "</button>"
+    return '<span style="display:inline-flex;align-items:center;gap:1px;flex-shrink:0">'
+      + '<button class="chip disp" style="font-size:9px;padding:1px 5px;min-width:0;flex-shrink:0' + (on ? ";background:var(--ink);color:var(--card)" : ";opacity:.4;text-decoration:line-through") + '" data-mtog="' + esc(ctx + "|" + k) + '">' + esc((MILE_CTX_ALL.find(c => c[0] === ctx) || ["", ctx])[1]) + "</button>"
       + (on ? '<input class="mono" data-mnear="' + esc(ctx + "|" + k) + '" inputmode="numeric" value="' + esc(mileNearSet(k, ctx) ? mileNear[ctx + "|" + k] : "") + '" placeholder="' + mileNearFor(k, ctx, mileDefaultNear(k, ctx)) + '" style="width:26px;text-align:center;padding:1px;font-size:9px">' : "")
       + (on && (ctx === "roundc" || ctx === "rounds" || ctx === "roundp" || ctx === "roundr") ? '<select class="mono" data-mstep="' + esc(ctx + "|" + k) + '" style="font-size:9px;padding:0;max-width:46px">'
           + '<option value="">/' + mileStepFor(k, ctx, mileDefaultStep(k, ctx)) + "</option>"
           + steps.map(s => '<option value="' + s + '"' + (num(mileStep[ctx + "|" + k]) === s ? " selected" : "") + ">/" + s + "</option>").join("")
           + "</select>" : "")
+      + (on ? dispBtn(k, ctx) : "")
       + "</span>";
   };
-  const DISP = { banner: "⚡ banner", pop: "🎉 pop-up", both: "⚡🎉 both" };
-  const dispSel = k => '<select class="mono" data-mdisps="' + esc(k) + '" title="How this stat shows while scoring" style="font-size:9px;padding:0;max-width:92px;margin-left:auto' + (mileDispStat[k] ? ";font-weight:700" : "") + '">'
-    + '<option value="">' + DISP[mileDisp()] + " (default)</option>"
-    + ["banner", "pop", "both"].map(v => '<option value="' + v + '"' + (mileDispStat[k] === v ? " selected" : "") + ">" + DISP[v] + "</option>").join("") + "</select>";
   const half = (v, label) => '<button class="chip disp' + (post === v ? " active" : "") + '" data-mpost="' + (v ? "1" : "0") + '" style="font-size:10px;padding:2px 8px">' + label + "</button>";
   const topIn = sc => '<input class="mono" data-mtop="' + sc + '" inputmode="numeric" value="' + esc(mileTopFor(sc) || "") + '" placeholder="all" style="width:34px;text-align:center;padding:1px;font-size:10px">';
   return '<details data-mset="1"' + (mileSetOpen ? " open" : "") + ' style="margin-top:4px"><summary class="disp" style="cursor:pointer;font-size:11px;color:var(--ink-soft)">\u2699 Which milestones to watch'
@@ -4548,10 +4565,10 @@ function mileTogglesHtml() {
         + '<div class="hint" style="font-size:10px;margin:3px 0">Used in games whose season is marked \ud83c\udfc6. <b>RC</b> postseason career round numbers \u00b7 <b>RS</b> this-postseason round numbers \u00b7 <b>BC</b> postseason career board \u00b7 <b>BS</b> single-postseason board. Tap a letter to switch that one off; the box next to it is how close you have to be before it shows (blank = default). The /5 dropdown on RC and RS picks which round numbers count.</div>'
       : '<div class="hint" style="font-size:10px;margin:3px 0">Chase only the top ' + topIn("career") + " of the career board and the top " + topIn("season") + " of the season board. Blank means the whole board.</div>"
         + '<div class="hint" style="font-size:10px;margin:3px 0"><b>RC</b> career round numbers \u00b7 <b>RS</b> season round numbers \u00b7 <b>BC</b> career board \u00b7 <b>BS</b> season board. Tap a letter to switch that one off; the box next to it is how close you have to be before it shows (blank = default). The /100 dropdown on RC and RS picks which round numbers count.</div>')
-    + '<div class="hint" style="font-size:10px;margin:3px 0">The dropdown at the end of each row is how that stat shows while you’re scoring: on the upcoming banner, as a pop-up when it happens, or both. “Default” follows Settings → Scoring.</div>'
+    + '<div class="hint" style="font-size:10px;margin:3px 0">The icon after each one is how it shows while you’re scoring: ⚡ upcoming banner, 🎉 pop-up when it happens, ⚡🎉 both. Tap it to cycle. A faded icon is the default from Settings → Scoring.</div>'
     + '<div style="display:flex;flex-direction:column;gap:3px">'
     + list.map(([k]) => '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap"><span class="mono" style="min-width:34px;font-size:10px;font-weight:700">' + esc(k) + "</span>"
-        + ctxs.map(c => cell(k, c[0])).join("") + dispSel(k) + "</div>").join("")
+        + ctxs.map(c => cell(k, c[0])).join("") + "</div>").join("")
     + "</div></details>";
 }
 function videoMilestonesHtml() {
@@ -4757,7 +4774,7 @@ function checkWitnessedLive() {
       while (M <= careerVal + inGame) {
         if (addWitnessed({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), player: nm, label: d.label, n: M, date: form.date || today(), auto: true })) {
           L._witFlash = { player: nm, label: d.label, n: M, key: WIT_BOXKEY[d.key] };
-          if (milePopOn(WIT_BOXKEY[d.key])) queueMilePop({ kind: "round", player: nm, key: WIT_BOXKEY[d.key], n: M, ctx: "roundc", tag: "career" });
+          if (milePopOn(WIT_BOXKEY[d.key], "roundc")) queueMilePop({ kind: "round", player: nm, key: WIT_BOXKEY[d.key], n: M, ctx: "roundc", tag: "career" });
         }
         M += d.step;
       }
@@ -4780,7 +4797,7 @@ function checkWitnessedLive() {
 }
 function witnessFlashHtml() {
   const f = form.live && form.live._witFlash; if (!f) return "";
-  if (!f.first && milePopOn(f.key)) return "";                     // the pop-up already announced it
+  if (!f.first && milePopOn(f.key, "roundc")) return "";                     // the pop-up already announced it
   const body = f.first
     ? (f.career ? "\ud83e\udd47 You witnessed " + esc(f.player) + "\u2019s 1st career " + esc(f.label) + "!" : "\ud83e\udd47 First " + esc(f.label) + " you\u2019ve seen from " + esc(f.player) + "!")
     : "\ud83c\udf89 You witnessed " + esc(f.player) + "\u2019s " + f.n + "th " + esc(f.label) + "!";
@@ -10469,7 +10486,7 @@ document.getElementById("importFile").addEventListener("change", ev => {
         if (data.mileNear && typeof data.mileNear === "object") { mileNear = data.mileNear; persistMileNear(); }
         if (data.mileTop && typeof data.mileTop === "object") { mileTop = data.mileTop; persistMileTop(); }
         if (data.mileStep && typeof data.mileStep === "object") { mileStep = data.mileStep; persistMileStep(); }
-        if (data.mileDispStat && typeof data.mileDispStat === "object") { mileDispStat = data.mileDispStat; persistMileDispStat(); }
+        if (data.mileDispStat && typeof data.mileDispStat === "object") { mileDispStat = data.mileDispStat; fixMileDispStat(); persistMileDispStat(); }
         if (data.playerHand && typeof data.playerHand === "object") { for (const k in data.playerHand) if (!playerHand[k]) playerHand[k] = data.playerHand[k]; persistPlayerHand(); }
         if (data.leaderOverrides && typeof data.leaderOverrides === "object") { for (const sc in data.leaderOverrides) { leaderOverrides[sc] = leaderOverrides[sc] || {}; for (const cid in data.leaderOverrides[sc]) leaderOverrides[sc][cid] = data.leaderOverrides[sc][cid]; } persistLeaderOverrides(); }
         if (data.mileWatch) {
