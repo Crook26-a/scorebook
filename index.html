@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v243";
+const APP_VERSION = "v244";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -4102,6 +4102,17 @@ function videoMileBannerLines(nm, team, isPit) {
   };
   const pushRec = r => { const sig = "rec:" + r.text; if (seen.has(sig)) return; seen.add(sig); out.push({ away: r.away, text: "🏆 " + r.text }); };
   const merge = (base, tod) => { const m = {}; for (const c in base) m[c] = num(base[c]) - num(back[c]); for (const c in tod) m[c] = (m[c] || 0) + tod[c]; return m; };
+  if (isPostSeason(gsea)) {
+    // A playoff game can't move the regular career or season, so the banner swaps to October numbers:
+    // the postseason career and this postseason run, each against its own round numbers and board.
+    const pc = postseasonStats(key, grp);
+    roll(pc, isPit ? VMILE_POST_PIT : VMILE_POST_BAT, "postseason", today, "roundp");
+    for (const r of vRecordLines(merge(pc, today), isPit ? VREC_SEASON_PIT : VREC_SEASON_BAT, "post")) pushRec(r);
+    const run = seasonResolvedStats(key, gsea, grp);
+    roll(run, isPit ? VMILE_RUN_PIT : VMILE_RUN_BAT, gsea, today, "roundr");
+    for (const r of vRecordLines(merge(run, today), isPit ? VREC_SEASON_PIT : VREC_SEASON_BAT, "postrun")) pushRec(r);
+    return out.sort((a, b) => a.away - b.away).slice(0, 6).map(o => o.text);
+  }
   const car = careerResolvedStats(key, grp);
   roll(car, isPit ? VMILE_CAREER_PIT : VMILE_CAREER_BAT, "career", todayCar, "roundc");
   for (const r of vRecordLines(merge(car, todayCar), isPit ? VREC_CAREER_PIT : VREC_CAREER_BAT, "career")) pushRec(r);
@@ -4202,6 +4213,33 @@ const VMILE_SEASON_PIT = [
   { key: "W", label: "wins", step: 5, min: 10, near: 2 },
   { key: "SV", label: "saves", step: 5, min: 20, near: 2 }
 ];
+// Postseason: the October career and a single October run. Same stats, far smaller numbers — the
+// all-time postseason HR leader has 29, and 10 in one postseason is the record.
+const VMILE_POST_BAT = [
+  { key: "H", label: "hits", step: 25, min: 25, near: 5 },
+  { key: "HR", label: "HR", step: 5, min: 10, near: 2 },
+  { key: "RBI", label: "RBI", step: 10, min: 20, near: 3 },
+  { key: "R", label: "runs", step: 10, min: 20, near: 3 },
+  { key: "2B", label: "2B", step: 5, min: 10, near: 2 },
+  { key: "SB", label: "SB", step: 5, min: 10, near: 2 }
+];
+const VMILE_POST_PIT = [
+  { key: "K", label: "K", step: 25, min: 50, near: 5 },
+  { key: "W", label: "wins", step: 5, min: 5, near: 1 },
+  { key: "SV", label: "saves", step: 5, min: 5, near: 1 }
+];
+const VMILE_RUN_BAT = [
+  { key: "HR", label: "HR", step: 5, min: 5, near: 2 },
+  { key: "H", label: "hits", step: 10, min: 20, near: 3 },
+  { key: "RBI", label: "RBI", step: 5, min: 10, near: 2 },
+  { key: "R", label: "runs", step: 5, min: 10, near: 2 },
+  { key: "SB", label: "SB", step: 5, min: 5, near: 2 }
+];
+const VMILE_RUN_PIT = [
+  { key: "K", label: "K", step: 10, min: 30, near: 4 },
+  { key: "W", label: "wins", step: 2, min: 4, near: 1 },
+  { key: "SV", label: "saves", step: 2, min: 4, near: 1 }
+];
 // Stats you can only add one of per game - a win, a shutout, a no-hitter. Being "5 wins away" means
 // five more starts, which isn't upcoming, so these only surface when you're one away.
 const GAME_STATS = { W: 1, SV: 1, SHO: 1, CG: 1, NH: 1, PG: 1, IMM: 1 };
@@ -4213,6 +4251,9 @@ const VREC_CAREER_BAT = VREC_SEASON_BAT, VREC_CAREER_PIT = VREC_SEASON_PIT;
 // Which milestones you want watched, per stat AND per context: round numbers, the career board, and
 // the single-season board are three different kinds of alert, so they're set independently.
 const MILE_CTX = [["roundc", "RC", "career round numbers"], ["rounds", "RS", "season round numbers"], ["career", "BC", "career board"], ["season", "BS", "season board"]];
+// The postseason mirror of those four: postseason career and this postseason, round numbers and boards.
+const MILE_CTX_POST = [["roundp", "RC", "postseason career round numbers"], ["roundr", "RS", "this-postseason round numbers"], ["post", "BC", "postseason career board"], ["postrun", "BS", "single-postseason board"]];
+const MILE_CTX_ALL = MILE_CTX.concat(MILE_CTX_POST);
 const MILEOFF_KEY = "sports-stat-mileoff-v1", MILENEAR_KEY = "sports-stat-milenear-v1";
 let mileOff = null, mileNear = {};
 try { mileOff = JSON.parse(localStorage.getItem(MILEOFF_KEY) || "null"); } catch (e) { mileOff = null; }
@@ -4222,7 +4263,7 @@ if (!mileOff || typeof mileOff !== "object") mileOff = { SHO: 1, CG: 1, NH: 1, P
   const fix = o => {
     const out = {};
     for (const k in o) {
-      if (k.indexOf("|") < 0) { for (const c of MILE_CTX) out[c[0] + "|" + k] = o[k]; continue; }
+      if (k.indexOf("|") < 0) { for (const c of MILE_CTX_ALL) out[c[0] + "|" + k] = o[k]; continue; }
       const p = k.split("|");
       if (p[0] === "round") { out["roundc|" + p[1]] = o[k]; out["rounds|" + p[1]] = o[k]; }   // round numbers split in two
       else out[k] = o[k];
@@ -4272,9 +4313,13 @@ function vMileLines(stats, defs, ctx) {
 function vRecordLines(stats, defs, scope) {
   const out = [];
   if (!stats || typeof effCat !== "function") return out;
-  const sc = scope === "career" ? "career" : "season";
-  const word = sc === "career" ? "career" : "single-season";
-  const win = (t, cat) => mileNearSet(cat, sc) ? mileNearFor(cat, sc, 8) : (GAME_STATS[cat] ? 1 : Math.min(25, Math.max(8, Math.ceil(t * 0.08))));   // near enough to be a real chase, capped so 762 HR doesn't fire 60 out
+  const sc = scope === "career" || scope === "post" || scope === "postrun" ? scope : "season";
+  const word = { career: "career", season: "single-season", post: "postseason", postrun: "single-postseason" }[sc];
+  const isPost = sc === "post" || sc === "postrun";
+  const win = (t, cat) => mileNearSet(cat, sc) ? mileNearFor(cat, sc, 8)
+    : GAME_STATS[cat] ? 1
+    : isPost ? Math.min(10, Math.max(2, Math.ceil(t * 0.15)))        // October boards are small — 8 out of a 10-HR record is no chase
+    : Math.min(25, Math.max(8, Math.ceil(t * 0.08)));                 // near enough to be a real chase, capped so 762 HR doesn't fire 60 out
   for (const [cat, label] of defs) {
     if (!mileOn(cat, sc)) continue;
     const v = num(stats[cat]); if (!v) continue;
@@ -4301,25 +4346,29 @@ function vRecRow(r) {
   return '<div class="recrow" style="font-size:12px">🏆 <b>' + esc(r.name) + "</b> \u2014 " + r.text + "</div>";
 }
 function mileDefaultStep(k, ctx) {
-  const lists = ctx === "rounds" ? VMILE_SEASON_BAT.concat(VMILE_SEASON_PIT) : VMILE_CAREER_BAT.concat(VMILE_CAREER_PIT);
+  const lists = ctx === "rounds" ? VMILE_SEASON_BAT.concat(VMILE_SEASON_PIT) : ctx === "roundp" ? VMILE_POST_BAT.concat(VMILE_POST_PIT) : ctx === "roundr" ? VMILE_RUN_BAT.concat(VMILE_RUN_PIT) : VMILE_CAREER_BAT.concat(VMILE_CAREER_PIT);
   for (const d of lists) if (d.key === k) return d.step;
-  return 100;
+  return ctx === "roundp" || ctx === "roundr" ? 5 : 100;
 }
 function mileDefaultNear(k, ctx) {
-  const lists = ctx === "rounds" ? VMILE_SEASON_BAT.concat(VMILE_SEASON_PIT) : ctx === "roundc" ? VMILE_CAREER_BAT.concat(VMILE_CAREER_PIT) : VMILE_CAREER_BAT.concat(VMILE_SEASON_BAT, VMILE_CAREER_PIT, VMILE_SEASON_PIT);
+  const lists = ctx === "rounds" ? VMILE_SEASON_BAT.concat(VMILE_SEASON_PIT) : ctx === "roundc" ? VMILE_CAREER_BAT.concat(VMILE_CAREER_PIT)
+    : ctx === "roundp" ? VMILE_POST_BAT.concat(VMILE_POST_PIT) : ctx === "roundr" ? VMILE_RUN_BAT.concat(VMILE_RUN_PIT)
+    : ctx === "post" || ctx === "postrun" ? VMILE_POST_BAT.concat(VMILE_RUN_BAT, VMILE_POST_PIT, VMILE_RUN_PIT)
+    : VMILE_CAREER_BAT.concat(VMILE_SEASON_BAT, VMILE_CAREER_PIT, VMILE_SEASON_PIT);
   for (const d of lists) if (d.key === k) return GAME_STATS[k] ? 1 : d.near;
   return GAME_STATS[k] ? 1 : 8;
 }
 function mileToggleList() {
   const seen = {}, out = [];
   const add = (k, l) => { if (!seen[k]) { seen[k] = 1; out.push([k, l]); } };
-  for (const d of VMILE_CAREER_BAT.concat(VMILE_SEASON_BAT, VMILE_CAREER_PIT, VMILE_SEASON_PIT)) add(d.key, d.label);
+  for (const d of VMILE_CAREER_BAT.concat(VMILE_SEASON_BAT, VMILE_CAREER_PIT, VMILE_SEASON_PIT, VMILE_POST_BAT, VMILE_RUN_BAT, VMILE_POST_PIT, VMILE_RUN_PIT)) add(d.key, d.label);
   for (const p of VREC_SEASON_BAT.concat(VREC_SEASON_PIT)) add(p[0], p[1]);
   return out;
 }
 // Shared by the Records tab and the Settings page, so the milestone grid behaves the same in both.
 function wireMileSettings(root, rerender) {
   root.querySelectorAll("[data-mset]").forEach(d => d.addEventListener("toggle", () => { mileSetOpen = d.open; }));
+  root.querySelectorAll("[data-mpost]").forEach(b => b.addEventListener("click", () => { mileSetPost = b.getAttribute("data-mpost") === "1"; rerender(); }));
   root.querySelectorAll("[data-mtop]").forEach(inp => inp.addEventListener("change", () => {
     const sc = inp.getAttribute("data-mtop"), v = inp.value.trim();
     if (v === "" || num(v) <= 0) delete mileTop[sc]; else mileTop[sc] = String(Math.round(num(v)));
@@ -4341,38 +4390,48 @@ function wireMileSettings(root, rerender) {
     persistMileOff(); rerender();
   }));
 }
+// Which half of the grid is showing. null = follow the season bar, so a playoff label opens on \ud83c\udfc6.
+let mileSetPost = null;
+const MILE_STEPS_POST = [1, 2, 5, 10, 25, 50];
 function mileTogglesHtml() {
   const list = mileToggleList();
+  const post = mileSetPost == null ? isPostSeason(currentSeason()) : mileSetPost;
+  const ctxs = post ? MILE_CTX_POST : MILE_CTX;
+  const steps = post ? MILE_STEPS_POST : MILE_STEPS;
   let off = 0;
-  for (const [k] of list) for (const c of MILE_CTX) if (!mileOn(k, c[0])) off++;
+  for (const [k] of list) for (const c of MILE_CTX_ALL) if (!mileOn(k, c[0])) off++;
   const cell = (k, ctx) => {
     const on = mileOn(k, ctx);
     return '<span style="display:inline-flex;align-items:center;gap:1px">'
-      + '<button class="chip disp" style="font-size:9px;padding:1px 5px;min-width:0' + (on ? ";background:var(--ink);color:var(--card)" : ";opacity:.4;text-decoration:line-through") + '" data-mtog="' + esc(ctx + "|" + k) + '">' + esc((MILE_CTX.find(c => c[0] === ctx) || ["", ctx])[1]) + "</button>"
+      + '<button class="chip disp" style="font-size:9px;padding:1px 5px;min-width:0' + (on ? ";background:var(--ink);color:var(--card)" : ";opacity:.4;text-decoration:line-through") + '" data-mtog="' + esc(ctx + "|" + k) + '">' + esc((MILE_CTX_ALL.find(c => c[0] === ctx) || ["", ctx])[1]) + "</button>"
       + (on ? '<input class="mono" data-mnear="' + esc(ctx + "|" + k) + '" inputmode="numeric" value="' + esc(mileNearSet(k, ctx) ? mileNear[ctx + "|" + k] : "") + '" placeholder="' + mileNearFor(k, ctx, mileDefaultNear(k, ctx)) + '" style="width:26px;text-align:center;padding:1px;font-size:9px">' : "")
-      + (on && (ctx === "roundc" || ctx === "rounds") ? '<select class="mono" data-mstep="' + esc(ctx + "|" + k) + '" style="font-size:9px;padding:0;max-width:46px">'
+      + (on && (ctx === "roundc" || ctx === "rounds" || ctx === "roundp" || ctx === "roundr") ? '<select class="mono" data-mstep="' + esc(ctx + "|" + k) + '" style="font-size:9px;padding:0;max-width:46px">'
           + '<option value="">/' + mileStepFor(k, ctx, mileDefaultStep(k, ctx)) + "</option>"
-          + MILE_STEPS.map(s => '<option value="' + s + '"' + (num(mileStep[ctx + "|" + k]) === s ? " selected" : "") + ">/" + s + "</option>").join("")
+          + steps.map(s => '<option value="' + s + '"' + (num(mileStep[ctx + "|" + k]) === s ? " selected" : "") + ">/" + s + "</option>").join("")
           + "</select>" : "")
       + "</span>";
   };
+  const half = (v, label) => '<button class="chip disp' + (post === v ? " active" : "") + '" data-mpost="' + (v ? "1" : "0") + '" style="font-size:10px;padding:2px 8px">' + label + "</button>";
+  const topIn = sc => '<input class="mono" data-mtop="' + sc + '" inputmode="numeric" value="' + esc(mileTopFor(sc) || "") + '" placeholder="all" style="width:34px;text-align:center;padding:1px;font-size:10px">';
   return '<details data-mset="1"' + (mileSetOpen ? " open" : "") + ' style="margin-top:4px"><summary class="disp" style="cursor:pointer;font-size:11px;color:var(--ink-soft)">\u2699 Which milestones to watch'
     + (off ? " (" + off + " off)" : "") + "</summary>"
-    + '<div class="hint" style="font-size:10px;margin:3px 0">Chase only the top <input class="mono" data-mtop="career" inputmode="numeric" value="'
-    + esc(mileTopFor("career") || "") + '" placeholder="all" style="width:34px;text-align:center;padding:1px;font-size:10px"> of the career board and the top <input class="mono" data-mtop="season" inputmode="numeric" value="'
-    + esc(mileTopFor("season") || "") + '" placeholder="all" style="width:34px;text-align:center;padding:1px;font-size:10px"> of the season board. Blank means the whole board.</div>'
-    + '<div class="hint" style="font-size:10px;margin:3px 0"><b>RC</b> career round numbers \u00b7 <b>RS</b> season round numbers \u00b7 <b>BC</b> career board \u00b7 <b>BS</b> season board. Tap a letter to switch that one off; the box next to it is how close you have to be before it shows (blank = default). The /100 dropdown on RC and RS picks which round numbers count.</div>'
+    + '<div style="display:flex;gap:4px;margin:4px 0">' + half(false, "Regular season") + half(true, "\ud83c\udfc6 Postseason") + "</div>"
+    + (post
+      ? '<div class="hint" style="font-size:10px;margin:3px 0">Chase only the top ' + topIn("post") + " of the postseason career board and the top " + topIn("postrun") + " of the single-postseason board. Blank means the whole board.</div>"
+        + '<div class="hint" style="font-size:10px;margin:3px 0">Used in games whose season is marked \ud83c\udfc6. <b>RC</b> postseason career round numbers \u00b7 <b>RS</b> this-postseason round numbers \u00b7 <b>BC</b> postseason career board \u00b7 <b>BS</b> single-postseason board. Tap a letter to switch that one off; the box next to it is how close you have to be before it shows (blank = default). The /5 dropdown on RC and RS picks which round numbers count.</div>'
+      : '<div class="hint" style="font-size:10px;margin:3px 0">Chase only the top ' + topIn("career") + " of the career board and the top " + topIn("season") + " of the season board. Blank means the whole board.</div>"
+        + '<div class="hint" style="font-size:10px;margin:3px 0"><b>RC</b> career round numbers \u00b7 <b>RS</b> season round numbers \u00b7 <b>BC</b> career board \u00b7 <b>BS</b> season board. Tap a letter to switch that one off; the box next to it is how close you have to be before it shows (blank = default). The /100 dropdown on RC and RS picks which round numbers count.</div>')
     + '<div style="display:flex;flex-direction:column;gap:3px">'
     + list.map(([k]) => '<div style="display:flex;align-items:center;gap:5px"><span class="mono" style="min-width:34px;font-size:10px;font-weight:700">' + esc(k) + "</span>"
-        + MILE_CTX.map(c => cell(k, c[0])).join("") + "</div>").join("")
+        + ctxs.map(c => cell(k, c[0])).join("") + "</div>").join("")
     + "</div></details>";
 }
 function videoMilestonesHtml() {
   const map = videoCareerPlayers();
   const keys = Object.keys(map);
   if (!keys.length) return "";
-  const cur = currentSeason();
-  const careerRows = [], seasonRows = [];
+  const cur = currentSeason(), curPost = !!cur && isPostSeason(cur);
+  const careerRows = [], seasonRows = [], postRows = [];
   for (const key of keys) {
     const nm = map[key].name || key.replace(/^nm:/, "");
     const cb = vMileLines(careerResolvedStats(key, "bat"), VMILE_CAREER_BAT, "roundc");
@@ -4381,7 +4440,14 @@ function videoMilestonesHtml() {
     const crb = vRecordLines(careerResolvedStats(key, "bat"), VREC_CAREER_BAT, "career");
     const crp = vRecordLines(careerResolvedStats(key, "pit"), VREC_CAREER_PIT, "career");
     for (const m of crb.concat(crp)) careerRows.push({ name: nm, isRec: true, ...m });
-    if (cur) {
+    if (curPost) {                                       // a 🏆 season: October career + this run, on October numbers
+      const pb = postseasonStats(key, "bat"), pp = postseasonStats(key, "pit");
+      for (const m of vMileLines(pb, VMILE_POST_BAT, "roundp").concat(vMileLines(pp, VMILE_POST_PIT, "roundp"))) postRows.push({ name: nm, ...m });
+      for (const m of vRecordLines(pb, VREC_SEASON_BAT, "post").concat(vRecordLines(pp, VREC_SEASON_PIT, "post"))) postRows.push({ name: nm, isRec: true, ...m });
+      const rb = seasonResolvedStats(key, cur, "bat"), rp = seasonResolvedStats(key, cur, "pit");
+      for (const m of vMileLines(rb, VMILE_RUN_BAT, "roundr").concat(vMileLines(rp, VMILE_RUN_PIT, "roundr"))) seasonRows.push({ name: nm, ...m });
+      for (const m of vRecordLines(rb, VREC_SEASON_BAT, "postrun").concat(vRecordLines(rp, VREC_SEASON_PIT, "postrun"))) seasonRows.push({ name: nm, isRec: true, ...m });
+    } else if (cur) {
       const sbStats = seasonResolvedStats(key, cur, "bat"), spStats = seasonResolvedStats(key, cur, "pit");
       const sb = vMileLines(sbStats, VMILE_SEASON_BAT, "rounds"), sp = vMileLines(spStats, VMILE_SEASON_PIT, "rounds");
       for (const m of sb.concat(sp)) seasonRows.push({ name: nm, ...m });
@@ -4391,13 +4457,16 @@ function videoMilestonesHtml() {
   }
   careerRows.sort((a, b) => a.away - b.away);
   seasonRows.sort((a, b) => a.away - b.away);
+  postRows.sort((a, b) => a.away - b.away);
   const toggles = mileTogglesHtml();
-  if (!careerRows.length && !seasonRows.length) {
+  if (!careerRows.length && !seasonRows.length && !postRows.length) {
     return toggles + '<div class="hint">No one\u2019s closing in yet — milestones show up here as your players approach the round numbers (career: every 50 HR / 100 hits, RBI, runs; season: 30 HR, 100 RBI, 20 wins and the like).</div>';
   }
   let html = toggles;
-  if (careerRows.length) html += '<div class="grouplabel disp">Career</div>' + careerRows.slice(0, 20).map(r => r.isRec ? vRecRow(r) : vMileRow(r, "")).join("");
-  if (seasonRows.length) html += '<div class="grouplabel disp">' + esc(cur) + " season</div>" + seasonRows.slice(0, 20).map(r => r.isRec ? vRecRow(r) : vMileRow(r, "")).join("");
+  const rows = list => list.slice(0, 20).map(r => r.isRec ? vRecRow(r) : vMileRow(r, "")).join("");
+  if (careerRows.length) html += '<div class="grouplabel disp">Career</div>' + rows(careerRows);
+  if (postRows.length) html += '<div class="grouplabel disp">🏆 Postseason career</div>' + rows(postRows);
+  if (seasonRows.length) html += '<div class="grouplabel disp">' + esc(cur) + (curPost ? " 🏆" : " season") + "</div>" + rows(seasonRows);
   return html;
 }
 let _chaseTimer = null;
