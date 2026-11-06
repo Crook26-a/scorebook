@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v248";
+const APP_VERSION = "v249";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -9416,8 +9416,9 @@ function tbOf(s) {
 
 // A single-pitcher game has no line score, but its pitch log tags every entry with the inning and the
 // stats it added, so the tracked pitcher's completed innings can be rebuilt for the scoreless / no-hit /
-// perfect records. A baserunner is a hit, a walk, an entry flagged as reaching (HBP, error, dropped 3rd
-// strike), or anyone shown on the base board during the inning.
+// perfect records. A baserunner is a hit, a walk, a hit batter, a strikeout with no out (dropped 3rd
+// strike), or an entry flagged as reaching (HBP, error, dropped 3rd strike). The base board is NOT used:
+// a runner tapped on and straight back off would wrongly spoil a perfect inning.
 function soloPitchInnings(e) {
   const L = e.live, S = L && L.solo;
   if (!S || S.type !== "pitcher" || !(S.player || "").trim() || !L.log || !L.log.length) return null;
@@ -9425,18 +9426,19 @@ function soloPitchInnings(e) {
   for (const le of L.log) {
     const inn = le.snap && le.snap.inn; if (!inn) continue;
     const b = byInn[inn] = byInn[inn] || { r: 0, h: 0, br: 0, k: 0, o: 0 };
-    const bz = le.snap.bz;
-    if (bz && (bz.first || bz.second || bz.third)) b.br++;
-    if (le.reach) b.br++;
     const pp = le.pit;
     if (!pp || (pp.player || "").trim().toLowerCase() !== key) continue;
+    let reached = !!le.reach, k = 0;
     for (const c of (pp.cols || [])) {
-      const v = num(c[1]);
-      if (c[0] === "R") b.r += v;
-      else if (c[0] === "H") { b.h += v; b.br += v; }
-      else if (c[0] === "BB" || c[0] === "HBP") b.br += v;
-      else if (c[0] === "K") b.k += v;
+      const v = num(c[1]), s = String(c[0]);
+      if (s === "R") b.r += v;
+      else if (s === "H") { b.h += v; reached = true; }
+      else if (s === "BB" || s === "HBP" || /^po:.*:HBP$/.test(s)) reached = true;
+      else if (s === "K") k += v;
     }
+    if (k && !num(pp.outs)) reached = true;                       // strikeout with no out = dropped 3rd strike, batter reached
+    b.k += k;
+    if (reached) b.br++;
     b.o += num(pp.outs);
   }
   const innings = Object.keys(byInn).map(Number).sort((a, b) => a - b).map(i => byInn[i]).filter(b => b.o >= 3);   // only innings he finished
@@ -10041,7 +10043,7 @@ function renderRecordsContent() {
     cardParks = card("🏟 Ballparks visited", parksHtml);
   }
   // ── streaks (witnessed, chronological) ──
-  const chron = games.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const chron = games.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : idMs(a.id) - idMs(b.id)));
   const hitS = {};
   for (const e of chron) {
     const seen = {};
