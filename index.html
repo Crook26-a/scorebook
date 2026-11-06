@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v247";
+const APP_VERSION = "v248";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -3224,6 +3224,7 @@ function soloCount(kind) {
 function soloOutcome(kind) {
   const L = form.live, np = L.abPit + 1;
   const e = { snap: soloSnap(), bats: [], pit: null };
+  if (kind === "dropk" || kind === "hbp" || kind === "roe") e.reach = 1;   // batter reached — breaks a perfect inning
   L.log.push(e);
   if (kind === "dropk") {                                  // dropped third strike — pitcher gets the K, no out, batter reaches (board places him)
     const bc = [["SO", 1], ["AB", 1], ["PIT", np], ["PK", np]];
@@ -4625,8 +4626,8 @@ const MWKEY = "sports-stat-milewatch-v1";
 let mileWatch = { players: [], teams: [] };
 try { const _w = JSON.parse(localStorage.getItem(MWKEY) || "null"); if (_w) mileWatch = { players: _w.players || [], teams: _w.teams || [] }; } catch (e) {}
 function persistMileWatch() { try { localStorage.setItem(MWKEY, JSON.stringify(mileWatch)); } catch (e) {} }
-function loggedPlayerNames() { const s = {}; for (const e of entries) for (const r of (e.box || [])) { const k = (r.player || "").trim(); if (k) s[k.toLowerCase()] = k; } return Object.values(s).sort((a, b) => a.localeCompare(b)); }
-function loggedTeamNames() { const s = {}; for (const e of entries) for (const t of [e.away, e.home]) { const k = (t || "").trim(); if (k) s[k.toLowerCase()] = k; } return Object.values(s).sort((a, b) => a.localeCompare(b)); }
+function loggedPlayerNames() { const s = {}; for (const e of entries) if (modeOf(e) === appMode) for (const r of (e.box || [])) { const k = (r.player || "").trim(); if (k) s[k.toLowerCase()] = k; } return Object.values(s).sort((a, b) => a.localeCompare(b)); }
+function loggedTeamNames() { const s = {}; for (const e of entries) if (modeOf(e) === appMode) for (const t of [e.away, e.home]) { const k = (t || "").trim(); if (k) s[k.toLowerCase()] = k; } return Object.values(s).sort((a, b) => a.localeCompare(b)); }
 // Players to check = explicitly watched + everyone who appeared on a watched team in your games.
 function watchedPlayerNames() {
   const set = {};
@@ -9413,6 +9414,34 @@ function tbOf(s) {
   return (h - d - t - hr) + 2 * d + 3 * t + 4 * hr + num(s.XBT);
 }
 
+// A single-pitcher game has no line score, but its pitch log tags every entry with the inning and the
+// stats it added, so the tracked pitcher's completed innings can be rebuilt for the scoreless / no-hit /
+// perfect records. A baserunner is a hit, a walk, an entry flagged as reaching (HBP, error, dropped 3rd
+// strike), or anyone shown on the base board during the inning.
+function soloPitchInnings(e) {
+  const L = e.live, S = L && L.solo;
+  if (!S || S.type !== "pitcher" || !(S.player || "").trim() || !L.log || !L.log.length) return null;
+  const name = S.player.trim(), key = name.toLowerCase(), byInn = {};
+  for (const le of L.log) {
+    const inn = le.snap && le.snap.inn; if (!inn) continue;
+    const b = byInn[inn] = byInn[inn] || { r: 0, h: 0, br: 0, k: 0, o: 0 };
+    const bz = le.snap.bz;
+    if (bz && (bz.first || bz.second || bz.third)) b.br++;
+    if (le.reach) b.br++;
+    const pp = le.pit;
+    if (!pp || (pp.player || "").trim().toLowerCase() !== key) continue;
+    for (const c of (pp.cols || [])) {
+      const v = num(c[1]);
+      if (c[0] === "R") b.r += v;
+      else if (c[0] === "H") { b.h += v; b.br += v; }
+      else if (c[0] === "BB" || c[0] === "HBP") b.br += v;
+      else if (c[0] === "K") b.k += v;
+    }
+    b.o += num(pp.outs);
+  }
+  const innings = Object.keys(byInn).map(Number).sort((a, b) => a - b).map(i => byInn[i]).filter(b => b.o >= 3);   // only innings he finished
+  return innings.length ? { name, innings } : null;
+}
 function inningStreaks(chron) {
   const Q = { scoreless: r => r.r === 0, nohit: r => r.h === 0, perfect: r => r.br === 0, sots: r => (r.k || 0) >= 3 };
   const out = {};
@@ -9423,7 +9452,12 @@ function inningStreaks(chron) {
   };
   for (const e of chron) {
     const det = e.live && e.live.line && e.live.line.det;
-    if (!det) { for (const q in Q) out[q].both.cur = 0; continue; }
+    if (!det) {
+      for (const q in Q) out[q].both.cur = 0;
+      const sp = soloPitchInnings(e);                               // single-pitcher games: rebuilt from the pitch log
+      if (sp) for (const rec of sp.innings) for (const q in Q) bump(out[q].pit, sp.name.toLowerCase(), sp.name, Q[q](rec));
+      continue;
+    }
     const n = Math.max(det.a.length, det.h.length);
     for (let i = 0; i < n; i++) {
       for (const [half, fldName] of [["a", e.home], ["h", e.away]]) {
