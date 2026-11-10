@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v251";
+const APP_VERSION = "v252";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -7389,6 +7389,8 @@ const BBREF_POST = _cats(null, null);
 for (const k in SEED_POST) if (BBREF_POST[k]) BBREF_POST[k].list = SEED_POST[k];
 const BBREF_POST_RUN = _cats(null, null);
 for (const k in SEED_POST_RUN) if (BBREF_POST_RUN[k]) BBREF_POST_RUN[k].list = SEED_POST_RUN[k];
+// Inning-record boards for the postseason too (career October totals, and one October at a time).
+for (const DSx of [BBREF_POST, BBREF_POST_RUN]) for (const k of ["PFI", "NHI", "SLI"]) DSx[k] = { ...BBREF_SEASON[k], list: [] };
 // ═══════════════════════════════════════════════════════════════════════════
 //  SEED LEADERBOARD DATA  —  the app's built-in ("out of the box") boards.
 //  This is the ONLY place to edit to add/replace leaderboard data. Do not touch
@@ -9029,6 +9031,15 @@ function leaderMineRows(cat, scope) {
         if (isPostSeason(sk)) continue;                                // a playoff run isn't a single season
         for (const o of Object.values(R[sk][cat.inn].pit)) if (o.tot > 0) onBoard.push({ name: o.name, value: o.tot, mine: true, tag: sk + (o.best ? " · " + o.best + " straight" : "") });
       }
+    } else if (scope === "postrun" && appMode !== "real") {           // one row per pitcher per October
+      const R = inningSeasonRecs("all");
+      for (const sk in R) {
+        if (!isPostSeason(sk)) continue;
+        for (const o of Object.values(R[sk][cat.inn].pit)) if (o.tot > 0) onBoard.push({ name: o.name, value: o.tot, mine: true, tag: sk + (o.best ? " · " + o.best + " straight" : "") });
+      }
+    } else if (scope === "post" && appMode !== "real") {              // postseason career: every October together
+      const P = inningPostRecs("all");
+      for (const o of Object.values(P[cat.inn].pit)) if (o.tot > 0) onBoard.push({ name: o.name, value: o.tot, mine: true, tag: o.best ? o.best + " straight" : "" });
     }
     return { onBoard, chasing, unqualified, asc: false, floorVal: null };
   }
@@ -9158,7 +9169,7 @@ function leadersTabHtml() {
   const unqHtml = unqualified.length ? '<div class="sclabel" style="margin-top:10px">Not enough playing time to qualify</div>'
     + unqualified.map(u => { const need = cat.min.key === "PA" ? cat.min.val - catPA(u.C) : cat.min.val - Math.floor(ipOutsOf(u.C.IP) / 3); return '<div class="recrow" style="font-size:12px">🎮 <b>' + esc(u.name) + "</b>" + yr(u.tag) + ' <span style="color:var(--ink-soft)">needs ' + Math.max(0, Math.round(need)) + " more " + cat.min.key + " (min " + cat.min.val + ")</span></div>"; }).join("") : "";
   const canMLB = leaderScope !== "game" && !!MLB_LEADER_CAT[leaderStat];
-  const srcNote = innBoard ? "MLB doesn\u2019t keep this stat, so the board is your own pitchers\u2019 seasons: finished innings from live-scored games, with the longest streak that season beside the year." : cat.ovSource ? "Updated from " + (cat.ovSource === "mlb" ? "MLB" : "your import") + " on " + esc(cat.ovAt) + " · " + cat.list.length + " deep." : (hasBoard ? cat.list.length + " on the board." : "No data yet — import a leaderboard below (paste, .csv, or .xlsx" + (canMLB ? ", or refresh from MLB" : "") + ").");
+  const srcNote = innBoard ? "MLB doesn\u2019t keep this stat, so the board is your own pitchers\u2019 " + (leaderScope === "post" ? "postseason careers (October games only)" : leaderScope === "postrun" ? "postseasons, one October at a time" : "seasons") + ": finished innings from live-scored games, with the longest streak beside " + (leaderScope === "post" ? "each name" : "the year") + "." : cat.ovSource ? "Updated from " + (cat.ovSource === "mlb" ? "MLB" : "your import") + " on " + esc(cat.ovAt) + " · " + cat.list.length + " deep." : (hasBoard ? cat.list.length + " on the board." : "No data yet — import a leaderboard below (paste, .csv, or .xlsx" + (canMLB ? ", or refresh from MLB" : "") + ").");
   const emptyMsg = hasBoard ? "" : '<div class="hint" style="padding:10px;text-align:center;border:1px dashed var(--line);border-radius:6px">No reference data on this board yet.<br>Import one below and your players will slot in automatically.</div>';
   const mineList = hasBoard ? [] : onBoard.concat(chasing).sort((a, b) => asc ? a.value - b.value : b.value - a.value);
   const mineHtml = mineList.length ? '<div class="sclabel" style="margin-top:10px">Your players (no reference board yet)</div>'
@@ -9688,9 +9699,11 @@ function tbOf(s) {
 // perfect records. A baserunner is a hit, a walk, a hit batter, a strikeout with no out (dropped 3rd
 // strike), or an entry flagged as reaching (HBP, error, dropped 3rd strike). The base board is NOT used:
 // a runner tapped on and straight back off would wrongly spoil a perfect inning.
+// Works for two-way games too: whichever side the game ended on, only the tracked player's own
+// pitching entries count (the opposing pitcher in his at-bats has a different name).
 function soloPitchInnings(e) {
   const L = e.live, S = L && L.solo;
-  if (!S || S.type !== "pitcher" || !(S.player || "").trim() || !L.log || !L.log.length) return null;
+  if (!S || !(S.player || "").trim() || !L.log || !L.log.length) return null;
   const name = S.player.trim(), key = name.toLowerCase(), byInn = {};
   for (const le of L.log) {
     const inn = le.snap && le.snap.inn; if (!inn) continue;
@@ -9769,6 +9782,14 @@ function inningSeasonRecs(venueF) {
     const out = {};
     for (const sk in bySea) out[sk] = inningStreaks(bySea[sk].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : idMs(a.id) - idMs(b.id))));
     return out;
+  });
+}
+// Postseason games only, in order, so October streaks and totals stand apart from the regular season.
+function inningPostRecs(venueF) {
+  return memo("innPost", venueF || "all", () => {
+    const g = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec && passesLevel(e)
+      && (!venueF || venueF === "all" || e.venue === venueF) && isPostSeason(seasonOf(e)));
+    return inningStreaks(g.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : idMs(a.id) - idMs(b.id))));
   });
 }
 const INN_REC_Q = [["perfect", "perfect"], ["nohit", "no-hit"], ["scoreless", "scoreless"]];
@@ -10408,6 +10429,26 @@ function renderRecordsContent() {
   }
   pitInnHtml += totTop(innS.sots.pit, "Most innings striking out the side");
   const cardPitInn = pitInnHtml ? card("🔥 Scoreless · no-hit · perfect innings", pitInnHtml) : "";
+  // Postseason only, in its own card: streaks that never leave October, career October totals, best single postseason.
+  let postInnHtml = "";
+  if (yearF === "all") {
+    const PR = inningPostRecs(venueF), RS = inningSeasonRecs(venueF);
+    for (const [q, lbl] of INNQ) {
+      const cons = consRows(topN(PR[q].pit, 3));
+      if (cons) postInnHtml += '<div class="grouplabel disp">Longest postseason ' + lbl + " streak</div>" + cons;
+      postInnHtml += totTop(PR[q].pit, "Most postseason " + lbl + " innings");
+      const rows = [];
+      for (const sk in RS) {
+        if (!isPostSeason(sk)) continue;
+        for (const o of Object.values(RS[sk][q].pit)) if (o.tot > 0) rows.push({ name: o.name, sk, tot: o.tot });
+      }
+      rows.sort((a, b) => b.tot - a.tot);
+      if (rows.length) postInnHtml += '<div class="grouplabel disp">Most ' + lbl + " innings in one postseason</div>"
+        + rows.slice(0, 3).map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + '.</span> <b>' + r.tot + "</b> \u2014 " + esc(r.name)
+          + ' <span style="color:var(--ink-soft);font-size:11px">(' + esc(r.sk) + ")</span></div>").join("");
+    }
+  }
+  const cardPostInn = postInnHtml ? card("🏆 Postseason · scoreless · no-hit · perfect innings", postInnHtml) : "";
 
   // ── HITTING streaks ──
   const cardHitStreak = hitRows.length ? card("🔥 Hitting streaks",
@@ -10492,7 +10533,7 @@ function renderRecordsContent() {
   // ── assemble the active tab ──
   const innHint = '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">Inning records build from games live-scored on this version onward.</div>';
   const htmlHit = cardCycles + cardSingleHit + cardCareerHit + cardHitStreak + firstHRcard;
-  const htmlPit = cardNoHit + cardSinglePit + cardCareerPit + cardDec + cardFeats + cardPitInn + (!cardPitInn && games.length ? innHint : "");
+  const htmlPit = cardNoHit + cardSinglePit + cardCareerPit + cardDec + cardFeats + cardPitInn + cardPostInn + (!cardPitInn && games.length ? innHint : "");
   const htmlTeam = teamSelect + (recordsTeam ? teamDrill : (cardTeamLead + cardWinStreak + cardTeamInn + cardGameRec + cardParks + cardFirsts));
   const pick = recordsTab === "hitters" ? htmlHit : recordsTab === "teams" ? htmlTeam
     : recordsTab === "challenges" ? challengesTabHtml(games) : recordsTab === "trophies" ? badgesTabHtml(games) : recordsTab === "firsts" ? firstsTabHtml() : recordsTab === "iwas" ? iwasTabHtml(yearF) : recordsTab === "prospects" ? prospectsTabHtml(yearF) : recordsTab === "milestones" ? milestonesTabHtml() : htmlPit;
