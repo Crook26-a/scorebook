@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v249";
+const APP_VERSION = "v250";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -967,6 +967,247 @@ function doMergeGames(targetId, srcId) {
   mergeFrom = null; persist(); renderTally(); openForm(merged); window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+// ── Splitting a single-player game in two ────────────────────────────
+// For when the next game got scored on top of the last one (forgot to start a new game, or swapped
+// sides instead of starting one). Every logged pitch carries the exact stats it added, so game 1 is the
+// box with everything after the split point taken back out (like pressing Undo back to that point) and
+// game 2 is built from just those entries. Nothing typed by hand is lost: game 1 keeps it all.
+const SPLIT_TERMINAL = { K: 1, SO: 1, PIO: 1, IPO: 1, PBB: 1, PH: 1, BB: 1, IBB: 1, HBP: 1, SF: 1, H: 1, AB: 1 };
+const SPLIT_EXTRA = { R: 1, SB: 1, XBT: 1, RBI: 1, CS: 1 };
+function splitColsOf(le) {
+  const out = [];
+  for (const b of (le.bats || [])) for (const c of (b.cols || [])) out.push(c[0]);
+  if (le.pit) for (const c of (le.pit.cols || [])) out.push(c[0]);
+  return out;
+}
+function splitIsTerminal(le) { return !!le.reach || splitColsOf(le).some(c => SPLIT_TERMINAL[c]); }
+function splitIsExtra(le) {                        // a run scoring, a steal, a base-board move — belongs to the at-bat before it
+  if (le.pit && (le.pit.cols || []).some(c => c[0] === "PC")) return false;
+  return splitColsOf(le).every(c => SPLIT_EXTRA[c]);
+}
+function splitOutcome(le) {
+  const c = new Set(splitColsOf(le));
+  if (c.has("HR")) return "home run";
+  if (c.has("3B")) return "triple";
+  if (c.has("2B")) return "double";
+  if (c.has("H")) return "single";
+  if (c.has("IBB")) return "intentional walk";
+  if (c.has("BB")) return "walk";
+  if (c.has("HBP") || [...c].some(x => /^po:.*:HBP$/.test(x))) return "hit by pitch";
+  if (le.reach) return "reached base";
+  if (c.has("K") || c.has("SO")) return "strikeout";
+  if (c.has("SF")) return "sac fly";
+  if (c.has("PIO") || c.has("IPO") || c.has("AB")) return "out";
+  return "";
+}
+// At-bats in log order: { k (first log index), inn, role, outcome, pitches }
+function splitAtBats(e) {
+  const L = e.live, log = (L && L.log) || [], fallback = (L && L.solo && L.solo.type) || "";
+  const abs = [];
+  let cur = null, done = false;
+  for (let i = 0; i < log.length; i++) {
+    const le = log[i], sn = le.snap || {}, role = sn.role || fallback;
+    const extra = splitIsExtra(le);
+    if (!cur || (!extra && (done || role !== cur.role))) {
+      cur = { k: i, inn: sn.inn || 0, role, outcome: "", pitches: 0 };
+      abs.push(cur); done = false;
+    }
+    if (le.pit && (le.pit.cols || []).some(c => c[0] === "PC")) cur.pitches++;
+    if (!extra && splitIsTerminal(le)) { cur.outcome = splitOutcome(le); done = true; }
+  }
+  return abs;
+}
+function canSplit(e) { return !!(e && e.sport === "baseball" && e.live && e.live.solo && e.live.log && splitAtBats(e).length >= 2); }
+// moved = Set of log indices that go to the new game (game 2); everything else stays in game 1.
+function splitGame(e, moved) {
+  const src = JSON.parse(JSON.stringify(e));
+  const L = src.live, log = L.log;
+  const headIdx = [], tailIdx = [];
+  log.forEach((_, i) => (moved.has(i) ? tailIdx : headIdx).push(i));
+  const head = headIdx.map(i => log[i]), tail = tailIdx.map(i => log[i]);
+  const key = (team, group, player) => (team || "") + "|" + group + "|" + (player || "").trim().toLowerCase();
+  const boxA = (src.box || []).map(r => ({ ...r, stats: { ...r.stats } }));
+  const idxA = new Map(boxA.map(r => [key(r.team, r.group, r.player), r]));
+  const boxB = [], idxB = new Map(), touchedA = new Set(), clipped = new Set();
+  const rowB = (team, group, player) => {
+    const kk = key(team, group, player);
+    if (!idxB.has(kk)) {
+      const o = idxA.get(kk), r = { id: "sp" + Date.now().toString(36) + boxB.length, player: (player || "").trim(), team, group, stats: {} };
+      if (o && o.teamId) r.teamId = o.teamId;
+      if (o && o.pid) r.pid = o.pid;
+      boxB.push(r); idxB.set(kk, r);
+    }
+    return idxB.get(kk);
+  };
+  const move = (team, group, player, cols, outs) => {
+    const kk = key(team, group, player), a = idxA.get(kk), b = rowB(team, group, player);
+    for (const [c, d] of (cols || [])) {
+      b.stats[c] = String(num(b.stats[c]) + num(d));
+      if (a) {
+        const v = num(a.stats[c]) - num(d);
+        if (String(c).startsWith("rv:")) a.stats[c] = v === 0 ? "" : String(v);     // run values are signed
+        else { if (v < 0) clipped.add((player || "").trim() + " " + c); a.stats[c] = v <= 0 ? "" : String(v); }
+      } else if (num(d) > 0 && !String(c).startsWith("rv:")) clipped.add((player || "").trim() + " " + c);
+    }
+    if (outs) {
+      b.stats.IP = outsToIp(ipOutsOf(b.stats.IP) + outs);
+      if (a) { const o2 = ipOutsOf(a.stats.IP) - outs; if (o2 < 0) clipped.add((player || "").trim() + " IP"); a.stats.IP = outsToIp(Math.max(0, o2)); }
+    }
+    if (a) touchedA.add(kk);
+  };
+  for (const le of tail) {
+    for (const b of (le.bats || [])) move(b.team, "batting", b.player, b.cols, 0);
+    if (le.pit) move(le.pit.team, "pitching", le.pit.player, le.pit.cols, num(le.pit.outs));
+    if (le.fld) move(le.fld.team, "fielding", le.fld.player, le.fld.cols, 0);
+  }
+  // Challenges linked to a moved pitch go with it (older challenges have no link and stay in game 1).
+  const tailCh = new Set(tail.map(le => le.chT).filter(Boolean));
+  const chA = [], chB = [];
+  for (const ch of (src.challenges || [])) {
+    if (!tailCh.has(ch.t)) { chA.push(ch); continue; }
+    chB.push(ch);
+    move(ch.team, ch.by === "pitcher" ? "pitching" : "batting", ch.player, [["CHL", 1]].concat(ch.won ? [["CHW", 1]] : []), 0);
+  }
+  const unlinkedCh = (src.challenges || []).filter(ch => !ch.t || !log.some(le => le.chT === ch.t)).length;
+  // Decisions (W/L/SV/HLD/BS) are set by hand, not logged. They follow the pitcher's line: if every
+  // logged pitch of his moved, they move too; otherwise they stay in game 1.
+  const DEC = ["W", "L", "SV", "HLD", "BS"];
+  for (const rb of boxB) {
+    if (rb.group !== "pitching") continue;
+    const kk = key(rb.team, rb.group, rb.player), ra = idxA.get(kk), nm = (rb.player || "").trim().toLowerCase();
+    if (!ra || head.some(le => le.pit && (le.pit.player || "").trim().toLowerCase() === nm)) continue;
+    for (const dk of DEC) if (filled(ra.stats[dk])) { rb.stats[dk] = ra.stats[dk]; ra.stats[dk] = ""; }
+  }
+  // Consecutive strikeouts aren't in the log as a running count, so recount them for each game.
+  const hadCK = new Set(boxA.filter(r => r.group === "pitching" && filled(r.stats.CK)).map(r => (r.player || "").trim().toLowerCase()));
+  const recountCK = (lg, box) => {
+    const run = {}, best = {};
+    for (const le of lg) {
+      const p = le.pit; if (!p || !(p.player || "").trim()) continue;
+      const nm = p.player.trim().toLowerCase(), c = new Set((p.cols || []).map(x => x[0]));
+      if (c.has("K")) { run[nm] = (run[nm] || 0) + 1; best[nm] = Math.max(best[nm] || 0, run[nm]); }
+      else if (c.has("IBB")) continue;
+      else if (le.reach || ["PIO", "PBB", "PH", "BB", "H", "HBP"].some(x => c.has(x))) run[nm] = 0;
+    }
+    for (const r of box) {
+      if (r.group !== "pitching") continue;
+      const nm = (r.player || "").trim().toLowerCase();
+      if (!hadCK.has(nm)) continue;                                  // only the tracked pitcher keeps this count
+      const b = best[nm] || 0;
+      r.stats.CK = b ? String(b) : "";
+    }
+  };
+  recountCK(head, boxA); recountCK(tail, boxB);
+  const empty = r => !Object.values(r.stats || {}).some(v => String(v).trim());
+  const finalA = boxA.filter(r => !(touchedA.has(key(r.team, r.group, r.player)) && empty(r)));
+  // Each game's live state: as it is now if that game holds the last logged entry, otherwise as it
+  // stood right after that game's last entry. Innings are renumbered so each game starts at inning 1.
+  const liveFor = (idx, sub) => {
+    const lv = { ...L, log: sub, solo: { ...L.solo } };
+    const last = idx[idx.length - 1], lastRole = (log[last].snap && log[last].snap.role) || L.solo.type;
+    if (last !== log.length - 1) {
+      const s = log[last + 1].snap || {};
+      const same = (s.role || lastRole) === lastRole;
+      lv.balls = same ? s.b || 0 : 0; lv.strikes = same ? s.s || 0 : 0; lv.abPit = same ? s.ap || 0 : 0; lv.risp = same && !!s.r;
+      lv.bases = same && s.bz ? { ...s.bz } : { first: null, second: null, third: null };
+      lv.outs = same && s.o !== undefined ? s.o : 0;
+      if (s.inn !== undefined) lv.inning = s.inn;
+      lv.solo.type = lastRole;
+      delete lv.pred;
+    }
+    const first = Math.min(...sub.map(le => (le.snap && le.snap.inn) || Infinity));
+    const shift = isFinite(first) && first > 1 ? first - 1 : 0;
+    if (shift) {
+      lv.log = sub.map(le => le.snap && le.snap.inn ? { ...le, snap: { ...le.snap, inn: le.snap.inn - shift } } : le);
+      if (lv.inning) lv.inning = Math.max(1, lv.inning - shift);
+    }
+    return { lv, shift, ends: last === log.length - 1, role: lv.solo.type };
+  };
+  const A = liveFor(headIdx, head), B = liveFor(tailIdx, tail);
+  const a = { ...src, box: finalA, live: A.lv, challenges: chA };
+  const b = { ...src, box: boxB, live: B.lv, challenges: chB, awayScore: "", homeScore: "", scoreEdited: false, notes: "", preds: [] };
+  if (!A.ends) delete a.inProgress;
+  if (!B.ends) delete b.inProgress;
+  if (src.solo) { a.solo = { ...src.solo, type: A.role }; b.solo = { ...src.solo, type: B.role }; }
+  return { a, b, unlinkedCh, shiftA: A.shift, shiftB: B.shift, clipped: [...clipped] };
+}
+// Log indices covered by each at-bat (an at-bat runs from its first entry up to the next at-bat's first).
+function splitRanges(e, abs) {
+  const n = e.live.log.length;
+  return abs.map((ab, i) => { const end = i + 1 < abs.length ? abs[i + 1].k : n; const r = []; for (let j = ab.k; j < end; j++) r.push(j); return r; });
+}
+let splitSel = null, splitSide = "all";
+function openSplit(id) {
+  const e = entries.find(x => x.id === id);
+  if (!canSplit(e)) return;
+  const abs = splitAtBats(e), ranges = splitRanges(e, abs);
+  const roles = new Set(abs.map(a => a.role).filter(Boolean));
+  splitSel = null; splitSide = "all";
+  const wrap = document.createElement("div");
+  wrap.id = "splitPop";
+  wrap.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99";
+  const roleWord = r => r === "pitcher" ? "⚾ Pitching" : r === "batter" ? "🧢 Batting" : "";
+  let rows = "", lastHdr = "";
+  abs.forEach((ab, n) => {
+    const hdr = (ab.inn ? "Inning " + ab.inn : "") + (ab.role ? (ab.inn ? " · " : "") + roleWord(ab.role) : "");
+    if (hdr !== lastHdr) { rows += '<div class="grouplabel disp" style="margin-top:8px">' + esc(hdr) + "</div>"; lastHdr = hdr; }
+    rows += '<button class="lbtn soft" data-splitn="' + n + '" style="width:100%;margin-bottom:4px;text-align:left;font-size:12px">'
+      + '<span class="mono" style="color:var(--ink-soft)">#' + (n + 1) + "</span> " + esc(ab.outcome || "unfinished") + ' <span style="color:var(--ink-soft)">(' + ab.pitches + " pitch" + (ab.pitches === 1 ? "" : "es") + ")</span></button>";
+  });
+  const sideChips = roles.size > 1
+    ? '<div class="controls" style="margin-bottom:6px">'
+      + [["all", "Everything"], ["pitcher", "⚾ Pitching only"], ["batter", "🧢 Batting only"]].map(([v, l]) => '<button class="chip disp' + (v === "all" ? " active" : "") + '" data-splitside="' + v + '">' + l + "</button>").join("") + "</div>"
+    : "";
+  wrap.innerHTML = '<div class="card" style="max-width:420px;margin:16px;width:100%;max-height:86vh;display:flex;flex-direction:column">'
+    + '<div class="disp" style="font-weight:700;margin-bottom:4px">✂ Split this game</div>'
+    + '<div class="hint" style="margin-bottom:6px">' + esc(e.away || "?") + " @ " + esc(e.home || "?") + " · " + esc(e.date || "") + ". Tap the first at-bat that belongs to the <b>new</b> game. "
+    + (roles.size > 1 ? "Choose a side to move only your pitching or only your batting from there on (tap #1 to pull out all of it)." : "Everything from there on moves to a new game.") + "</div>"
+    + sideChips
+    + '<div id="splitList" style="overflow-y:auto;flex:1;min-height:0">' + rows + "</div>"
+    + '<div id="splitSum" class="hint" style="margin-top:8px">Nothing picked yet.</div>'
+    + '<div class="cardbtns" style="margin-top:6px"><button class="ebtn" id="splitCancel">Cancel</button><button class="savebtn disp" id="splitGo" disabled style="flex:1">Split</button></div></div>';
+  document.body.appendChild(wrap);
+  const sum = wrap.querySelector("#splitSum"), go = wrap.querySelector("#splitGo");
+  const movedAbs = n => abs.map((ab, i) => i >= n && (splitSide === "all" || ab.role === splitSide));
+  const movedSet = n => { const m = movedAbs(n), s = new Set(); m.forEach((on, i) => { if (on) for (const j of ranges[i]) s.add(j); }); return s; };
+  const refresh = () => {
+    const n = splitSel;
+    const m = n == null ? abs.map(() => false) : movedAbs(n);
+    wrap.querySelectorAll("[data-splitn]").forEach(x => { const i = +x.dataset.splitn; x.style.background = m[i] ? "var(--red-soft)" : ""; x.style.borderColor = i === n ? "var(--red)" : ""; });
+    if (n == null) { sum.textContent = "Nothing picked yet."; go.disabled = true; return; }
+    const nMove = m.filter(Boolean).length, nKeep = abs.length - nMove;
+    if (!nMove || !nKeep) { sum.innerHTML = nMove ? "That would move every at-bat — pick a later one." : "No " + (splitSide === "pitcher" ? "pitching" : "batting") + " at-bats from there on."; go.disabled = true; return; }
+    const by = r => abs.filter((ab, i) => m[i] && ab.role === r).length;
+    const r = splitGame(e, movedSet(n));
+    const parts = [];
+    if (by("batter")) parts.push(by("batter") + " batting");
+    if (by("pitcher")) parts.push(by("pitcher") + " pitching");
+    sum.innerHTML = "The new game gets <b>" + nMove + "</b> at-bat" + (nMove === 1 ? "" : "s") + (roles.size > 1 ? " (" + parts.join(", ") + ")" : "")
+      + "; this game keeps <b>" + nKeep + "</b>." + (r.shiftB ? " The new game’s innings are renumbered to start at 1." : "")
+      + (r.unlinkedCh ? " " + r.unlinkedCh + " older pitch challenge" + (r.unlinkedCh === 1 ? "" : "s") + " can’t be placed and stay" + (r.unlinkedCh === 1 ? "s" : "") + " in this game." : "")
+      + (r.clipped.length ? ' <span style="color:var(--red)">This game’s box was edited by hand below what was scored (' + esc(r.clipped.slice(0, 4).join(", ")) + (r.clipped.length > 4 ? "…" : "") + "), so the new game gets the scored numbers. Check both games after.</span>" : "");
+    go.disabled = false;
+  };
+  wrap.querySelectorAll("[data-splitn]").forEach(btn => btn.addEventListener("click", () => { splitSel = +btn.dataset.splitn; refresh(); }));
+  wrap.querySelectorAll("[data-splitside]").forEach(btn => btn.addEventListener("click", () => {
+    splitSide = btn.dataset.splitside;
+    wrap.querySelectorAll("[data-splitside]").forEach(x => x.classList.toggle("active", x === btn));
+    refresh();
+  }));
+  wrap.querySelector("#splitCancel").addEventListener("click", () => { splitSel = null; wrap.remove(); });
+  go.addEventListener("click", () => {
+    if (splitSel == null) return;
+    const r = splitGame(e, movedSet(splitSel));
+    let nid = Date.now().toString(36);
+    while (entries.some(x => x.id === nid)) nid = (parseInt(nid, 36) + 1).toString(36);
+    r.b.id = nid;
+    entries = entries.flatMap(x => x.id === e.id ? [r.a, r.b] : [x]);
+    sortEntries(); persist(); renderTally(); renderList();
+    splitSel = null; wrap.remove();
+    openForm(r.b); window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+}
+
 function renderList() {
   const venueFilter = document.getElementById("venueFilter").value;
   const q = document.getElementById("search").value.trim().toLowerCase();
@@ -1018,6 +1259,7 @@ function renderList() {
         + '<button class="ebtn" data-act="edit">✎ Edit</button>'
         + (e.sport === "baseball" ? '<button class="ebtn" data-act="share">📤 Share</button>' : "")
         + '<button class="ebtn" data-act="merge">⤵ Merge</button>'
+        + (canSplit(e) ? '<button class="ebtn" data-act="split" title="Split into two games">✂ Split</button>' : "")
         + '<button class="dbtn" data-act="del">🗑 Delete</button>'
       + "</div></div>";
   });
@@ -3379,7 +3621,11 @@ function resolveChallenge(call, won) {
     if (nm) {
       applyColsG(nm, team, group, chCols);
       form.challenges = form.challenges || [];
-      form.challenges.push({ call: isBall ? "ball" : "strike", won: !!won, by, player: nm, team: team || "", i: L.inning || 1, h: L.half || "", t: Date.now() });
+      const rec = { call: isBall ? "ball" : "strike", won: !!won, by, player: nm, team: team || "", i: L.inning || 1, h: L.half || "", t: Date.now() };
+      form.challenges.push(rec);
+      resolveCount();
+      if (L.solo && L.log.length) L.log[L.log.length - 1].chT = rec.t;   // ties the challenge to its pitch so a game split can move it
+      return;
     }
     resolveCount();
   };
@@ -5541,6 +5787,8 @@ document.getElementById("listArea").addEventListener("click", ev => {
     soloSeriesFromEntry(id, false);
   } else if (btn.dataset.act === "soloNew") {
     soloSeriesFromEntry(id, true);
+  } else if (btn.dataset.act === "split") {
+    openSplit(id);
   } else if (btn.dataset.act === "merge") {
     mergeFrom = id; renderList(); window.scrollTo({ top: 0, behavior: "smooth" });
   } else if (btn.dataset.act === "mergecancel") {
