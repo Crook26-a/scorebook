@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v252";
+const APP_VERSION = "v253";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -8519,6 +8519,45 @@ function _pitchWalkRaw(key) {
   }
   return { fat: fat, tto: tto, games: games };
 }
+// A pitcher's finished innings in the order he threw them (same rules as the Records inning streaks):
+// { sk: season, post: postseason?, r, h, br, shared } — shared = another pitcher also worked that inning.
+function playerInnings(key, pname) {
+  return memo("pinn", key + "|" + anaSeason, () => {
+    const me = nm => { const t = (nm || "").trim(); return !!t && (mcKeyOf(t, null) === key || canonName(t) === canonName(pname)); };
+    const out = [];
+    for (const g of playerGames(key, "pit")) {
+      const e = g.e, sk = seasonOf(e), post = isPostSeason(sk);
+      const det = e.live && e.live.line && e.live.line.det;
+      if (det) {
+        const n = Math.max(det.a.length, det.h.length);
+        for (let i = 0; i < n; i++) for (const half of ["a", "h"]) {
+          const rec = (det[half] || [])[i];
+          if (!rec || !rec.full || rec.partial) continue;
+          const ps = Object.values(rec.ps || {});
+          if (!ps.some(me)) continue;
+          out.push({ sk, post, r: rec.r, h: rec.h, br: rec.br, shared: ps.length > 1 });
+        }
+        continue;
+      }
+      const sp = soloPitchInnings(e);
+      if (sp && me(sp.name)) for (const rec of sp.innings) out.push({ sk, post, r: rec.r, h: rec.h, br: rec.br, shared: false });
+    }
+    return out;
+  });
+}
+// Same shape as runOf, over innings: a shared inning counts only when it breaks the streak.
+function innRunOf(list, test) {
+  let best = { len: 0 }, run = 0, start = null;
+  for (const x of list) {
+    const ok = test(x);
+    if (ok && x.shared) continue;
+    if (ok) {
+      if (!run) start = x; run++;
+      if (run > best.len) best = { len: run, from: start.sk, to: x.sk };
+    } else run = 0;
+  }
+  return { best: best, cur: run };
+}
 let streakOpen = false, fatOpen = false, ttoOpen = false, rollOpen = false, rollGrp = "bat", rollStat = "OPS", rollWin = 20;
 function streakBlockHtml(p) {
   const key = p ? mcKeyOf((p.name || "").trim(), p.pid || null) : null;
@@ -8543,8 +8582,16 @@ function streakBlockHtml(p) {
     + row("Scoreless outings", runOf(pg, s => ipOutsOf(s.IP) > 0 && num(s.R) === 0))
     + row("10+ strikeout games", runOf(pg, s => num(s.K) >= 10))
     + row("Walk-free outings", runOf(pg, s => ipOutsOf(s.IP) > 0 && num(s.BB) === 0));
+  if (pg.length) {
+    const inn = playerInnings(key, p.name || ""), postInn = inn.filter(x => x.post);
+    const innRows = list => row("Perfect innings", innRunOf(list, x => x.br === 0))
+      + row("No-hit innings", innRunOf(list, x => x.h === 0))
+      + row("Scoreless innings", innRunOf(list, x => x.r === 0));
+    if (inn.length) body += '<div class="grouplabel disp" style="margin-top:8px">Pitching \u00b7 by inning</div>' + hdr + innRows(inn);
+    if (postInn.length) body += '<div class="grouplabel disp" style="margin-top:8px">\ud83c\udfc6 Postseason \u00b7 by inning</div>' + hdr + innRows(postInn);
+  }
   return '<details' + (streakOpen ? " open" : "") + ' data-streakdetails="1" style="margin-top:12px"><summary class="disp" style="cursor:pointer;font-size:13px;color:var(--ink)">\ud83d\udd25 Streaks</summary>'
-    + '<div class="hint" style="font-size:10px;margin:4px 0">Longest runs in the order you played them. <b style="color:var(--red)">Now</b> is a streak that is still alive.</div>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">Longest runs in the order you played them. <b style="color:var(--red)">Now</b> is a streak that is still alive. Inning streaks count finished innings from live-scored games; postseason ones use October games only.</div>'
     + body + "</details>";
 }
 function fatigueBlockHtml(p) {
