@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v253";
+const APP_VERSION = "v254";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -8520,13 +8520,20 @@ function _pitchWalkRaw(key) {
   return { fat: fat, tto: tto, games: games };
 }
 // A pitcher's finished innings in the order he threw them (same rules as the Records inning streaks):
-// { sk: season, post: postseason?, r, h, br, shared } — shared = another pitcher also worked that inning.
-function playerInnings(key, pname) {
-  return memo("pinn", key + "|" + anaSeason, () => {
+// { sk: season, r, h, br, shared } — shared = another pitcher also worked that inning.
+// post = true: every postseason game he pitched in, whatever season analytics is showing (the career
+// view leaves October out, so the postseason rows need their own list).
+function playerInnings(key, pname, post) {
+  return memo("pinn", key + "|" + anaSeason + "|" + (post ? "post" : ""), () => {
     const me = nm => { const t = (nm || "").trim(); return !!t && (mcKeyOf(t, null) === key || canonName(t) === canonName(pname)); };
     const out = [];
-    for (const g of playerGames(key, "pit")) {
-      const e = g.e, sk = seasonOf(e), post = isPostSeason(sk);
+    const games = post
+      ? entries.filter(en => en.sport === "baseball" && modeOf(en) === statsMode() && isPostSeason(seasonOf(en))
+          && (en.box || []).some(r => playerRowGrp(r, key) === "pit" && rowActive(r)))
+          .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (idMs(a.id) - idMs(b.id)))
+      : playerGames(key, "pit").map(g => g.e);
+    for (const e of games) {
+      const sk = seasonOf(e);
       const det = e.live && e.live.line && e.live.line.det;
       if (det) {
         const n = Math.max(det.a.length, det.h.length);
@@ -8535,12 +8542,12 @@ function playerInnings(key, pname) {
           if (!rec || !rec.full || rec.partial) continue;
           const ps = Object.values(rec.ps || {});
           if (!ps.some(me)) continue;
-          out.push({ sk, post, r: rec.r, h: rec.h, br: rec.br, shared: ps.length > 1 });
+          out.push({ sk, r: rec.r, h: rec.h, br: rec.br, shared: ps.length > 1 });
         }
         continue;
       }
       const sp = soloPitchInnings(e);
-      if (sp && me(sp.name)) for (const rec of sp.innings) out.push({ sk, post, r: rec.r, h: rec.h, br: rec.br, shared: false });
+      if (sp && me(sp.name)) for (const rec of sp.innings) out.push({ sk, r: rec.r, h: rec.h, br: rec.br, shared: false });
     }
     return out;
   });
@@ -8583,7 +8590,7 @@ function streakBlockHtml(p) {
     + row("10+ strikeout games", runOf(pg, s => num(s.K) >= 10))
     + row("Walk-free outings", runOf(pg, s => ipOutsOf(s.IP) > 0 && num(s.BB) === 0));
   if (pg.length) {
-    const inn = playerInnings(key, p.name || ""), postInn = inn.filter(x => x.post);
+    const inn = playerInnings(key, p.name || "", false), postInn = anaSeason ? [] : playerInnings(key, p.name || "", true);   // one season picked: the rows above already are it
     const innRows = list => row("Perfect innings", innRunOf(list, x => x.br === 0))
       + row("No-hit innings", innRunOf(list, x => x.h === 0))
       + row("Scoreless innings", innRunOf(list, x => x.r === 0));
