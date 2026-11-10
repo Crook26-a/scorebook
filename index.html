@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v250";
+const APP_VERSION = "v251";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -7208,7 +7208,11 @@ function seasonBreakdownHtml(pname, venueF, pid) {
     const have = seas.filter(s => Object.keys(s[gkey]).length);
     if (have.length < 2) return "";
     const isP = gkey === "pit";
-    const heads = isP ? ["Season", "G", "W-L", "SV", "ERA", "WHIP", "IP", "H", "R", "ER", "BB", "K", "K/9"]
+    // Inning records (perfect / no-hit / scoreless) per season, shown as "total (longest streak)".
+    const innR = isP ? inningSeasonRecs(venueF) : null;
+    const innOf = sk => innR ? pitcherInningSeason(innR, sk, pname) : null;
+    const innCols = isP && have.some(s => innOf(s.label));
+    const heads = isP ? ["Season", "G", "W-L", "SV", "ERA", "WHIP", "IP", "H", "R", "ER", "BB", "K", "K/9"].concat(innCols ? ["Perf inn", "No-hit inn", "Scoreless inn"] : [])
       : ["Season", "G", "AVG", "OBP", "SLG", "OPS", "AB", "H", "2B", "3B", "HR", "RBI", "R", "BB", "SO", "SB"];
     const trs = have.map(s => {
       const gp2 = Object.keys(s.games).length;
@@ -7217,11 +7221,13 @@ function seasonBreakdownHtml(pname, venueF, pid) {
       const gv = k => { const f3 = m.find(x => x[0] === k); return f3 ? f3[1] : "—"; };
       const cells = isP
         ? [gp2, (num(o.W) || 0) + "-" + (num(o.L) || 0), num(o.SV) || 0, gv("ERA"), gv("WHIP"), o.IP || "0", o.H || 0, o.R || 0, o.ER || 0, o.BB || 0, o.K || 0, gv("K/9")]
+          .concat(innCols ? INN_REC_Q.map(([q]) => { const x = innOf(s.label); return x && x[q].tot ? x[q].tot + " (" + x[q].best + ")" : "0"; }) : [])
         : [gp2, gv("AVG"), gv("OBP"), gv("SLG"), gv("OPS"), o.AB || 0, o.H || 0, o["2B"] || 0, o["3B"] || 0, o.HR || 0, o.RBI || 0, o.R || 0, o.BB || 0, o.SO || 0, o.SB || 0];
       return "<tr><td>" + esc(s.label) + "</td>" + cells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
     }).join("");
     return '<div class="grouplabel disp" style="margin-top:10px">' + (isP ? "Pitching by season" : "Batting by season") + "</div>"
-      + '<div style="overflow-x:auto"><table class="seasontbl mono"><tr>' + heads.map(h => "<th>" + h + "</th>").join("") + "</tr>" + trs + "</table></div>";
+      + '<div style="overflow-x:auto"><table class="seasontbl mono"><tr>' + heads.map(h => "<th>" + h + "</th>").join("") + "</tr>" + trs + "</table></div>"
+      + (innCols ? '<div class="hint" style="font-size:10px;margin-top:2px">Inning columns: total for the season (longest streak that season). Finished innings from live-scored games only.</div>' : "");
   };
   return mkTable("bat") + mkTable("pit");
 }
@@ -7366,6 +7372,10 @@ function _cats(minPA, minIP) {
 }
 const BBREF_CAREER = _cats(_CAR_MIN_PA, _CAR_MIN_IP);
 const BBREF_SEASON = _cats(_SEA_MIN_PA, _SEA_MIN_IP);
+// Inning records: MLB doesn't publish these, so the boards are your own pitchers' seasons (video mode only).
+BBREF_SEASON.PFI = { label: "Perfect innings", grp: "pit", inn: "perfect", list: [] };
+BBREF_SEASON.NHI = { label: "No-hit innings", grp: "pit", inn: "nohit", list: [] };
+BBREF_SEASON.SLI = { label: "Scoreless innings", grp: "pit", inn: "scoreless", list: [] };
 // Postseason boards: same categories, no qualifying minimums (nobody gets 502 PA in October) and no
 // bundled reference data — these start as your own players and can be topped up by import.
 // Real all-time postseason leaders, computed from the Lahman BattingPost/PitchingPost tables
@@ -9012,6 +9022,16 @@ function leaderMineRows(cat, scope) {
   const asc = !!cat.asc, floorVal = cat.list.length ? cat.list[cat.list.length - 1][1] : null;
   const betterEq = v => floorVal === null ? true : (asc ? v <= floorVal : v >= floorVal);
   const onBoard = [], chasing = [], unqualified = [];
+  if (cat.inn) {                                                      // inning-record boards: one row per pitcher-season
+    if (scope === "season" && appMode !== "real") {
+      const R = inningSeasonRecs("all");
+      for (const sk in R) {
+        if (isPostSeason(sk)) continue;                                // a playoff run isn't a single season
+        for (const o of Object.values(R[sk][cat.inn].pit)) if (o.tot > 0) onBoard.push({ name: o.name, value: o.tot, mine: true, tag: sk + (o.best ? " · " + o.best + " straight" : "") });
+      }
+    }
+    return { onBoard, chasing, unqualified, asc: false, floorVal: null };
+  }
   const consider = (name, batC, pitC, tag) => {
     if (tag && /^\d{4}$/.test(String(tag)) && +tag < YEAR_CUTOFF) return;   // exclude pre-1920 player-seasons/games
     const C = cat.grp === "bat" ? batC : pitC;
@@ -9111,8 +9131,8 @@ function leadersTabHtml() {
   if (appMode === "real" && leaderScope !== "career" && leaderScope !== "season") leaderScope = "career";
   if (leaderScope === "award") return awardsTabHtml();
   const DS = leaderScope === "postrun" ? BBREF_POST_RUN : leaderScope === "post" ? BBREF_POST : leaderScope === "season" ? BBREF_SEASON : BBREF_CAREER;
-  const cats = Object.keys(DS);
-  if (!DS[leaderStat]) leaderStat = cats[0];
+  const cats = Object.keys(DS).filter(id => !(DS[id].inn && appMode === "real"));   // inning boards are video-only
+  if (!DS[leaderStat] || !cats.includes(leaderStat)) leaderStat = cats[0];
   const cat = effCat(leaderScope, leaderStat) || DS[leaderStat];
   const scopeToggle = '<div style="display:flex;gap:6px;margin-bottom:8px">'
     + (appMode === "real" ? ['career', 'season'] : ['career', 'season', 'post', 'postrun', 'award']).map(s => '<button class="chip disp' + (leaderScope === s ? " active" : "") + '" data-lscope="' + s + '">' + (s === "career" ? "Career" : s === "season" ? "Single-season" : s === "post" ? "🏆 Post career" : s === "postrun" ? "🏆 Post run" : "🏅 Awards") + "</button>").join("") + "</div>";
@@ -9130,7 +9150,7 @@ function leadersTabHtml() {
     return '<div class="lbrow' + (r.mine ? " mine" : "") + '"><span class="lbrank">' + rank + '</span><span class="lbname">' + (r.fan ? "👁 " : r.mine ? "🎮 " : "") + esc(r.name) + yr(r.mine ? r.tag : r.year) + '</span><span class="lbval">' + catFmt(cat, r.value) + "</span></div>";
   }).join("");
   chasing.sort((a, b) => asc ? a.value - b.value : b.value - a.value);
-  const hasBoard = cat.list.length > 0;
+  const hasBoard = cat.list.length > 0, innBoard = !!cat.inn;
   const lowName = hasBoard ? cat.list[cat.list.length - 1][0] : "";
   const gapStr = v => { const d = Math.abs((floorVal ?? 0) - v); return (cat.isIP) ? d.toFixed(1) : (cat.type === "war" || cat.type === "era" || cat.type === "k9") ? d.toFixed(cat.type === "war" ? 1 : 2) : (cat.type ? d.toFixed(3).replace(/^0\./, ".") : d); };
   const chaseHtml = (hasBoard && chasing.length) ? '<div class="sclabel" style="margin-top:10px">' + (appMode === "real" ? "Chasing the board" : leaderScope === "game" ? "Your best games (below the record)" : "Your " + (leaderScope === "season" ? "player-seasons" : "players") + " chasing the board") + "</div>"
@@ -9138,20 +9158,21 @@ function leadersTabHtml() {
   const unqHtml = unqualified.length ? '<div class="sclabel" style="margin-top:10px">Not enough playing time to qualify</div>'
     + unqualified.map(u => { const need = cat.min.key === "PA" ? cat.min.val - catPA(u.C) : cat.min.val - Math.floor(ipOutsOf(u.C.IP) / 3); return '<div class="recrow" style="font-size:12px">🎮 <b>' + esc(u.name) + "</b>" + yr(u.tag) + ' <span style="color:var(--ink-soft)">needs ' + Math.max(0, Math.round(need)) + " more " + cat.min.key + " (min " + cat.min.val + ")</span></div>"; }).join("") : "";
   const canMLB = leaderScope !== "game" && !!MLB_LEADER_CAT[leaderStat];
-  const srcNote = cat.ovSource ? "Updated from " + (cat.ovSource === "mlb" ? "MLB" : "your import") + " on " + esc(cat.ovAt) + " · " + cat.list.length + " deep." : (hasBoard ? cat.list.length + " on the board." : "No data yet — import a leaderboard below (paste, .csv, or .xlsx" + (canMLB ? ", or refresh from MLB" : "") + ").");
+  const srcNote = innBoard ? "MLB doesn\u2019t keep this stat, so the board is your own pitchers\u2019 seasons: finished innings from live-scored games, with the longest streak that season beside the year." : cat.ovSource ? "Updated from " + (cat.ovSource === "mlb" ? "MLB" : "your import") + " on " + esc(cat.ovAt) + " · " + cat.list.length + " deep." : (hasBoard ? cat.list.length + " on the board." : "No data yet — import a leaderboard below (paste, .csv, or .xlsx" + (canMLB ? ", or refresh from MLB" : "") + ").");
   const emptyMsg = hasBoard ? "" : '<div class="hint" style="padding:10px;text-align:center;border:1px dashed var(--line);border-radius:6px">No reference data on this board yet.<br>Import one below and your players will slot in automatically.</div>';
   const mineList = hasBoard ? [] : onBoard.concat(chasing).sort((a, b) => asc ? a.value - b.value : b.value - a.value);
   const mineHtml = mineList.length ? '<div class="sclabel" style="margin-top:10px">Your players (no reference board yet)</div>'
     + mineList.map(m => '<div class="recrow" style="font-size:12px">🎮 <b>' + esc(m.name) + "</b>" + yr(m.tag) + " " + catFmt(cat, m.value) + "</div>").join("") : "";
-  const updaters = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
+  const updaters = innBoard ? "" : '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
     + (canMLB ? '<button class="lbtn soft" data-lbrefresh="1" style="font-size:11px">🔄 Refresh from MLB</button>' : "")
     + '<button class="lbtn soft" data-lbpaste="1" style="font-size:11px">📋 Paste Baseball-Reference list</button>'
     + (leaderScope === "post" ? '<button class="lbtn soft" data-lbmlb="1" style="font-size:11px">\ud83d\udd04 Refresh from MLB</button>' : "")
     + (cat.ovSource ? '<button class="lbtn soft" data-lbreset="1" style="font-size:11px">↩︎ Restore bundled</button>' : "")
     + '</div><div id="lbUpdStatus" class="mono" style="font-size:11px;margin-top:5px"></div>';
   return scopeToggle + fanVenueHtml + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' + chips + "</div>"
-    + '<div class="hint" style="margin-bottom:6px">' + (leaderScope === "season" ? "Single-season" : leaderScope === "game" ? "Single-game" : "All-time") + " <b>" + esc(cat.label) + "</b> " + (leaderScope === "game" ? "records" : "leaders") + (leaderScope !== "career" ? " · 1920\u2013present" : "") + (cat.min ? " · min " + cat.min.val + " " + cat.min.key + (leaderScope === "season" ? "" : " career") : "") + (asc ? " · lower is better" : "") + ". " + srcNote + "</div>"
-    + (hasBoard ? '<div class="lbtable">' + body + "</div>" + chaseHtml + unqHtml : emptyMsg + mineHtml) + updaters;
+    + '<div class="hint" style="margin-bottom:6px">' + (leaderScope === "season" ? "Single-season" : leaderScope === "game" ? "Single-game" : "All-time") + " <b>" + esc(cat.label) + "</b> " + (leaderScope === "game" ? "records" : "leaders") + (leaderScope !== "career" && !innBoard ? " · 1920\u2013present" : "") + (cat.min ? " · min " + cat.min.val + " " + cat.min.key + (leaderScope === "season" ? "" : " career") : "") + (asc ? " · lower is better" : "") + ". " + srcNote + "</div>"
+    + (innBoard ? (body ? '<div class="lbtable">' + body + "</div>" : '<div class="hint" style="padding:10px;text-align:center;border:1px dashed var(--line);border-radius:6px">No finished innings logged yet.</div>')
+      : hasBoard ? '<div class="lbtable">' + body + "</div>" + chaseHtml + unqHtml : emptyMsg + mineHtml) + updaters;
 }
 function wireLeaders(out) {
   out.querySelectorAll("[data-fanven]").forEach(b => b.addEventListener("click", () => { fanVenue = b.dataset.fanven; renderStatsContent(); }));
@@ -9732,6 +9753,35 @@ function inningStreaks(chron) {
     }
   }
   return out;
+}
+// Perfect / no-hit / scoreless innings per pitcher, season by season: out[season] is inningStreaks()
+// run on just that season's games, so totals are per season and streaks start over each season.
+// Follows the current mode and level filter; venueF narrows to one venue ("all" for every game).
+function inningSeasonRecs(venueF) {
+  return memo("innSea", venueF || "all", () => {
+    const bySea = {};
+    for (const e of entries) {
+      if (e.sport !== "baseball" || modeOf(e) !== appMode || e.noRec || !passesLevel(e)) continue;
+      if (venueF && venueF !== "all" && e.venue !== venueF) continue;
+      const sk = seasonOf(e); if (!sk) continue;
+      (bySea[sk] = bySea[sk] || []).push(e);
+    }
+    const out = {};
+    for (const sk in bySea) out[sk] = inningStreaks(bySea[sk].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : idMs(a.id) - idMs(b.id))));
+    return out;
+  });
+}
+const INN_REC_Q = [["perfect", "perfect"], ["nohit", "no-hit"], ["scoreless", "scoreless"]];
+// One pitcher's line for one season: { perfect: {tot, best}, nohit: {...}, scoreless: {...} } or null.
+function pitcherInningSeason(R, sk, pname) {
+  const S = R[sk]; if (!S) return null;
+  const want = canonName(pname), out = {}; let any = false;
+  for (const [q] of INN_REC_Q) {
+    const o = Object.values(S[q].pit).find(x => canonName(x.name) === want);
+    out[q] = { tot: o ? o.tot || 0 : 0, best: o ? o.best || 0 : 0 };
+    if (out[q].tot) any = true;
+  }
+  return any ? out : null;
 }
 // Roll up every graded at-bat call across the given games into accuracy and streaks.
 // ── "I was there" — presence-focused records (ballparks, anniversaries, attendance) ──
@@ -10340,6 +10390,21 @@ function renderRecordsContent() {
     const cons = consRows(topN(innS[q].pit, 3));
     if (cons) pitInnHtml += '<div class="grouplabel disp">Longest ' + lbl + " streak</div>" + cons;
     pitInnHtml += totTop(innS[q].pit, "Most " + lbl + " innings");
+  }
+  // Best single seasons (only across all seasons; with one season picked, the totals above already are that season).
+  if (yearF === "all") {
+    const RS = inningSeasonRecs(venueF);
+    for (const [q, lbl] of INNQ) {
+      const rows = [];
+      for (const sk in RS) {
+        if (isPostSeason(sk)) continue;                              // a playoff run isn't a season
+        for (const o of Object.values(RS[sk][q].pit)) if (o.tot > 0) rows.push({ name: o.name, sk, tot: o.tot });
+      }
+      rows.sort((a, b) => b.tot - a.tot);
+      if (rows.length) pitInnHtml += '<div class="grouplabel disp">Most ' + lbl + " innings in a season</div>"
+        + rows.slice(0, 3).map((r, i) => '<div class="recrow"><span class="mono recnum">' + (i + 1) + '.</span> <b>' + r.tot + "</b> \u2014 " + esc(r.name)
+          + ' <span style="color:var(--ink-soft);font-size:11px">(' + esc(r.sk) + ")</span></div>").join("");
+    }
   }
   pitInnHtml += totTop(innS.sots.pit, "Most innings striking out the side");
   const cardPitInn = pitInnHtml ? card("🔥 Scoreless · no-hit · perfect innings", pitInnHtml) : "";
