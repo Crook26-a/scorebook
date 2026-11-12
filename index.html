@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v255";
+const APP_VERSION = "v256";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -782,7 +782,7 @@ function dataChanged() { _memo = new Map(); }
 function memo(ns, arg, fn) {
   if (_memoRef !== entries) { _memo = new Map(); _memoRef = entries; }
   const k = ns + "\u0001" + arg + "\u0001" + appMode + "\u0001" + (typeof statsMode === "function" ? statsMode() : "")
-    + "\u0001" + (typeof levelFilter === "undefined" ? "" : levelFilter);
+    + "\u0001" + (typeof levelFilter === "undefined" ? "" : levelFilter) + "\u0001" + (typeof diffFilter === "undefined" ? "" : diffFilter);
   let v = _memo.get(k);
   if (v === undefined) { v = fn(); _memo.set(k, v); }
   return v;
@@ -1821,6 +1821,26 @@ let postSeasons = {};
 try { postSeasons = JSON.parse(localStorage.getItem(POSTKEY) || "{}") || {}; } catch (e) { postSeasons = {}; }
 function persistPostSeasons() { dataChanged(); try { localStorage.setItem(POSTKEY, JSON.stringify(postSeasons)); } catch (e) {} }
 function isPostSeason(sk) { return !!postSeasons[String(sk)]; }
+// Optional difficulty marker per season label (video mode), and one difficulty filter shared by
+// Records and the leaderboards. "none" = seasons with no difficulty set.
+const DIFFKEY = "sports-stat-seasondiff-v1", DIFFFILTER_KEY = "sports-stat-difffilter";
+const DIFF_LEVELS = ["Rookie", "Veteran", "All-Star", "Hall of Fame", "Legend"];
+let seasonDiff = {};
+try { seasonDiff = JSON.parse(localStorage.getItem(DIFFKEY) || "{}") || {}; } catch (e) { seasonDiff = {}; }
+function persistSeasonDiff() { dataChanged(); try { localStorage.setItem(DIFFKEY, JSON.stringify(seasonDiff)); } catch (e) {} }
+function diffOf(sk) { return seasonDiff[String(sk)] || ""; }
+function setDiff(sk, d) { sk = String(sk); d = String(d || "").trim(); if (d) seasonDiff[sk] = d; else delete seasonDiff[sk]; persistSeasonDiff(); }
+let diffFilter = "";
+try { diffFilter = localStorage.getItem(DIFFFILTER_KEY) || ""; } catch (e) { diffFilter = ""; }
+function setDiffFilter(v) { diffFilter = v || ""; try { localStorage.setItem(DIFFFILTER_KEY, diffFilter); } catch (e) {} dataChanged(); }
+function diffActive() { return appMode === "video" && !!diffFilter; }
+function diffMatchSeason(sk) { if (!diffActive()) return true; const d = diffOf(sk); return diffFilter === "none" ? !d : d === diffFilter; }
+function knownDiffs() { const s = {}; for (const d of DIFF_LEVELS) s[d.toLowerCase()] = d; for (const k in seasonDiff) if (seasonDiff[k]) s[seasonDiff[k].toLowerCase()] = s[seasonDiff[k].toLowerCase()] || seasonDiff[k]; return Object.values(s); }
+function diffSelectHtml(attr) {
+  if (appMode !== "video") return "";
+  const opts = [["", "All difficulties"]].concat(knownDiffs().map(d => [d, d])).concat([["none", "No difficulty set"]]);
+  return '<select ' + attr + ' class="inline">' + opts.map(([v, l]) => '<option value="' + esc(v) + '"' + (diffFilter === v ? " selected" : "") + ">" + esc(l) + "</option>").join("") + "</select>";
+}
 // Every season label in use, with how many games carry it.
 // Pick individual games and move just those. The label-wide rename in the season manager is the
 // blunt tool; this is for when only some games under a label belong somewhere else.
@@ -1975,6 +1995,7 @@ function renderSettings() {
         + [["banner", "\u26a1 Upcoming banner"], ["pop", "\ud83c\udf89 Pop-up when it happens"], ["both", "Both"]].map(([v, l]) =>
             '<button class="chip disp' + (mileDisp() === v ? " active" : "") + '" data-mdisp="' + v + '" style="font-size:11px;padding:3px 9px">' + l + "</button>").join("")
         + '</div><div class="hint" style="font-size:10px;margin-top:3px">The banner shows what\u2019s coming up; the pop-up is the TV-style graphic the moment a milestone falls or a player passes someone on the all-time list. This is the default; any stat can be set its own way under Milestone watch below.</div>'
+        + tog("setMileOwn", mileOwnOn(), "\ud83c\udfae Count my own players & seasons in record chases", "Video mode: while scoring, the record chases also include your other players\u2019 careers and every other season you\u2019ve logged (marked \ud83c\udfae), not just the MLB lists.")
         + tog("setXRun", extraRunnerOn(), "\ud83c\udfc3 Automatic runner on 2nd in extra innings", "From the 10th, each half starts with a runner on second, as in MLB\u2019s regular season. Skipped in postseason games."))
     + sec("Importing", tog("setSpoil", noSpoilers(), "\ud83d\ude48 Spoiler-free import", "Hides scores in the game list and doesn\u2019t import them."))
     + sec("Milestone watch", mileTogglesHtml())
@@ -1996,6 +2017,8 @@ function wireSettings(w) {
   on("setFixSplit", () => click("fixSplitBtn"));
   const mt = w.querySelector("#setMile");
   if (mt) mt.addEventListener("change", () => { const old = document.getElementById("mileToggle"); if (old) { old.checked = mt.checked; old.dispatchEvent(new Event("change")); } });
+  const mot = w.querySelector("#setMileOwn");
+  if (mot) mot.addEventListener("change", () => { try { localStorage.setItem(MILEOWN_KEY, mot.checked ? "1" : "0"); } catch (e) {} });
   const xrt = w.querySelector("#setXRun");
   if (xrt) xrt.addEventListener("change", () => { try { localStorage.setItem(XRUN_KEY, xrt.checked ? "1" : "0"); } catch (e) {} });
   const sp = w.querySelector("#setSpoil");
@@ -2019,11 +2042,13 @@ function renderSeasonManager() {
       + '<input class="mono" data-srename="' + esc(s) + '" value="' + esc(s) + '" style="flex:1;min-width:0;padding:3px 5px;font-size:12px">'
       + '<span class="hint mono" style="font-size:10px;min-width:34px;text-align:right">' + counts[s] + "g</span>"
       + '<button class="chip disp" style="font-size:10px;padding:2px 7px' + (isPostSeason(s) ? ";background:var(--ink);color:var(--card)" : ";opacity:.5") + '" data-spost="' + esc(s) + '" title="Count as postseason">\ud83c\udfc6</button>'
+      + (appMode === "video" ? '<input data-sdiff="' + esc(s) + '" list="sdiffList" value="' + esc(diffOf(s)) + '" placeholder="Difficulty" autocomplete="off" style="width:96px;padding:3px 5px;font-size:11px">' : "")
       + "</div>").join("")
+      + (appMode === "video" ? '<datalist id="sdiffList">' + knownDiffs().map(d => '<option value="' + esc(d) + '"></option>').join("") + "</datalist>" : "")
     : '<div class="hint">No seasons on your games in this mode yet.</div>';
   wrap.innerHTML = '<div class="card" style="max-width:460px;width:100%;margin:0">'
     + '<div class="disp" style="font-weight:700;font-size:15px;border-bottom:2px solid var(--ink);padding-bottom:3px">\ud83d\uddd3 Seasons<button class="lbtn soft" id="smClose" style="float:right;font-size:11px;padding:2px 8px">Done</button></div>'
-    + '<div class="hint" style="font-size:10px;margin:4px 0">Rename a label to move every game with it \u2014 that is how you merge scattered labels into one. \ud83c\udfc6 marks a label as postseason: those games stay out of regular career totals and are summed separately.</div>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">Rename a label to move every game with it \u2014 that is how you merge scattered labels into one. \ud83c\udfc6 marks a label as postseason: those games stay out of regular career totals and are summed separately.' + (appMode === "video" ? " Difficulty is optional; Records and the leaderboards can filter by it." : "") + '</div>'
     + rows
     + '<div class="hint" style="font-size:10px;margin-top:6px">Renaming applies when you leave the box. Editing a label to match another merges them.</div>'
     + '<button class="lbtn soft" id="smPick" style="width:100%;margin-top:8px;font-size:11px">\u2611 Pick individual games instead\u2026</button>'
@@ -2043,6 +2068,7 @@ function wireSeasonManager(wrap) {
     if (postSeasons[s]) delete postSeasons[s]; else postSeasons[s] = 1;
     persistPostSeasons(); renderSeasonManager();
   }));
+  wrap.querySelectorAll("[data-sdiff]").forEach(inp => inp.addEventListener("change", () => setDiff(inp.getAttribute("data-sdiff"), inp.value)));
   wrap.querySelectorAll("[data-srename]").forEach(inp => inp.addEventListener("change", () => {
     const from = inp.getAttribute("data-srename"), to = inp.value.trim();
     if (!to || to === from) { inp.value = from; return; }
@@ -2051,6 +2077,7 @@ function wireSeasonManager(wrap) {
     appConfirm("Move " + n + " game" + (n === 1 ? "" : "s") + " from \u201c" + from + "\u201d to \u201c" + to + "\u201d?" + (merging ? " That label already exists, so the two will be merged." : ""), () => {
       for (const e of entries) if (e.sport === "baseball" && modeOf(e) === appMode && String(e.season == null ? "" : e.season) === from) e.season = to;
       if (postSeasons[from]) { delete postSeasons[from]; postSeasons[to] = 1; persistPostSeasons(); }
+      if (seasonDiff[from]) { if (!seasonDiff[to]) seasonDiff[to] = seasonDiff[from]; delete seasonDiff[from]; persistSeasonDiff(); }
       persist(); renderSeasonManager();
     }, () => { inp.value = from; });
   }));
@@ -4354,14 +4381,14 @@ function vMileSources(nm, team, isPit) {
     // A playoff game can't move the regular career or season, so it swaps to October numbers:
     // the postseason career and this postseason run, each against its own round numbers and board.
     return [
-      { pre: pre(postseasonStats(key, grp)), tod: today, defs: isPit ? VMILE_POST_PIT : VMILE_POST_BAT, rec, ctx: "roundp", scope: "post", tag: "postseason" },
-      { pre: pre(seasonResolvedStats(key, gsea, grp)), tod: today, defs: isPit ? VMILE_RUN_PIT : VMILE_RUN_BAT, rec, ctx: "roundr", scope: "postrun", tag: gsea }
+      { pre: pre(postseasonStats(key, grp)), tod: today, defs: isPit ? VMILE_POST_PIT : VMILE_POST_BAT, rec, ctx: "roundp", scope: "post", tag: "postseason", self: { key, season: gsea } },
+      { pre: pre(seasonResolvedStats(key, gsea, grp)), tod: today, defs: isPit ? VMILE_RUN_PIT : VMILE_RUN_BAT, rec, ctx: "roundr", scope: "postrun", tag: gsea, self: { key, season: gsea } }
     ];
   }
   // A game in an exhibition season (⊘ not in career) doesn't move career totals, so it must not move
   // career milestones either — otherwise the banner climbs all game and resets on save.
-  const out = [{ pre: pre(careerResolvedStats(key, grp)), tod: seasonExcluded(key, gsea) ? {} : today, defs: isPit ? VMILE_CAREER_PIT : VMILE_CAREER_BAT, rec, ctx: "roundc", scope: "career", tag: "career" }];
-  if (gsea) out.push({ pre: pre(seasonResolvedStats(key, gsea, grp)), tod: today, defs: isPit ? VMILE_SEASON_PIT : VMILE_SEASON_BAT, rec, ctx: "rounds", scope: "season", tag: gsea });   // the season this game belongs to, not whatever the season bar says
+  const out = [{ pre: pre(careerResolvedStats(key, grp)), tod: seasonExcluded(key, gsea) ? {} : today, defs: isPit ? VMILE_CAREER_PIT : VMILE_CAREER_BAT, rec, ctx: "roundc", scope: "career", tag: "career", self: { key, season: gsea } }];
+  if (gsea) out.push({ pre: pre(seasonResolvedStats(key, gsea, grp)), tod: today, defs: isPit ? VMILE_SEASON_PIT : VMILE_SEASON_BAT, rec, ctx: "rounds", scope: "season", tag: gsea, self: { key, season: gsea } });   // the season this game belongs to, not whatever the season bar says
   return out;
 }
 function vMileNow(S) { const m = {}; for (const c in S.pre) m[c] = num(S.pre[c]); for (const c in S.tod) m[c] = (m[c] || 0) + num(S.tod[c]); return m; }
@@ -4382,7 +4409,7 @@ function videoMileBannerLines(nm, team, isPit) {
       const sig = d.key + "@" + n; if (seen.has(sig)) continue; seen.add(sig);   // career and season often chase the same number
       out.push({ away: away, text: away + " " + d.label + " from " + n + ' <span style="color:var(--ink-soft)">(' + esc(S.tag) + " " + v + (g ? " + " + g + " today" : "") + ")</span>" });
     }
-    for (const r of vRecordLines(vMileNow(S), S.rec.filter(([cat]) => mileBannerOn(cat, S.scope)), S.scope)) pushRec(r);
+    for (const r of vRecordLines(vMileNow(S), S.rec.filter(([cat]) => mileBannerOn(cat, S.scope)), S.scope, S.self)) pushRec(r);
   }
   return out.sort((a, b) => a.away - b.away).slice(0, 6).map(o => o.text);
 }
@@ -4444,9 +4471,7 @@ function checkVideoMilestones() {
       for (const [cat] of S.rec) {
         if (!mileOn(cat, S.scope) || !milePopOn(cat, S.scope)) continue;
         step(nkey(nm) + "|" + S.scope + "|board|" + cat, cat, (lo, cur) => {
-          let c = null; try { c = effCat(S.scope, cat); } catch (e) { c = null; }
-          let list = c && c.list; if (!list || !list.length) return;
-          const lim = mileTopFor(S.scope); if (lim && list.length > lim) list = list.slice(0, lim);
+          const list = chaseList(S.scope, cat); if (!list.length) return;
           let passed = null, tied = null;
           for (const it of list) {
             const v = num(it[1]);
@@ -4456,6 +4481,17 @@ function checkVideoMilestones() {
           if (!passed && !tied) return;
           const low = num(list[list.length - 1][1]);
           queueMilePop({ kind: "board", player: nm, key: cat, scope: S.scope, tag: S.tag, v: cur, passed, tied, rank: rankInBoard(list, cur).rank, cracked: lo < low && cur >= low ? list.length : 0 });
+        });
+        step(nkey(nm) + "|" + S.scope + "|own|" + cat, cat, (lo, cur) => {          // your own list
+          const own = ownChaseList(S.scope, cat, S.self); if (!own.length) return;
+          let passed = null, tied = null;
+          for (const it of own) {
+            const v = num(it[1]);
+            if (v >= lo && v < cur && (!passed || v > num(passed[1]))) passed = it;
+            if (v === cur && v > lo && !tied) tied = it;
+          }
+          if (!passed && !tied) return;
+          queueMilePop({ kind: "board", own: true, player: nm, key: cat, scope: S.scope, tag: S.tag, v: cur, passed, tied, rank: rankInBoard(own, cur).rank, cracked: 0 });
         });
       }
     }
@@ -4472,7 +4508,7 @@ function milePopHtml(p) {
       + (p.ctx === "rounds" || p.ctx === "roundr" ? " of " + p.tag : "");
     sub = "";
   } else {
-    const nm = it => it[0] + (it[2] ? " (" + it[2] + ")" : "");
+    const nm = it => it[0] + (it[2] ? " (" + it[2] + ")" : "");                // your own rows carry their season the same way
     // A tie is always with someone higher than anyone just passed, so it leads when there's both.
     head = p.cracked ? "Cracks the top " + p.cracked : p.tied ? "Ties " + nm(p.tied) : "Passes " + nm(p.passed);
     const also = p.cracked ? (p.tied ? "ties " + nm(p.tied) : "passes " + nm(p.passed)) : p.passed && p.tied ? "passes " + nm(p.passed) : "";
@@ -4480,7 +4516,8 @@ function milePopHtml(p) {
     sub = p.v + " " + (p.scope === "career" || p.scope === "post" ? where + " " + mileNoun(p.key, p.v) : mileNoun(p.key, p.v) + " " + where)
       + " · " + (p.passed && !p.tied ? "now #" : "#") + p.rank + (p.tied ? " (tied)" : "") + (also ? " · " + also : "");
   }
-  return '<div class="mp-kick">' + esc(kickers[p.ctx || p.scope] || "Milestone") + '</div><div class="mp-name">' + esc(p.player) + '</div><div class="mp-head">' + esc(head) + "</div>"
+  const ownKick = { career: "Your career list", season: "Your single-season list", post: "Your postseason list", postrun: "Your single-postseason list" };
+  return '<div class="mp-kick">' + esc((p.own ? ownKick[p.scope] : kickers[p.ctx || p.scope]) || "Milestone") + '</div><div class="mp-name">' + esc(p.player) + '</div><div class="mp-head">' + esc(head) + "</div>"
     + (sub ? '<div class="mp-sub">' + esc(sub) + "</div>" : "");
 }
 function showNextMilePop() {
@@ -4696,7 +4733,52 @@ function vMileLines(stats, defs, ctx) {
   }
   return out.sort((a, b) => a.away - b.away);
 }
-function vRecordLines(stats, defs, scope) {
+// Live record chases can also count your own video numbers: other players' careers, and every other
+// season (including this player's own). Rows are tagged 🎮 so they read differently from MLB names.
+const MILEOWN_KEY = "sports-stat-mileown";
+function mileOwnOn() { try { return localStorage.getItem(MILEOWN_KEY) !== "0"; } catch (e) { return true; } }
+function ownBoardRows(scope, cat, grp) {
+  return memo("ownB", scope + "|" + cat + "|" + grp, () => {
+    const out = [], map = videoCareerPlayers();
+    for (const key in map) {
+      const nm = "\ud83c\udfae " + (map[key].name || key.replace(/^nm:/, ""));
+      if (scope === "career" || scope === "post") {
+        const v = num((scope === "career" ? careerResolvedStats(key, grp) : postseasonStats(key, grp))[cat]);
+        if (v > 0) out.push({ key, sk: "", row: [nm, v] });
+      } else {
+        for (const sk of (scope === "postrun" ? postSeasonKeys(key) : playerSeasonKeys(key).filter(x => !isPostSeason(x)))) {
+          const v = num(seasonResolvedStats(key, sk, grp)[cat]);
+          if (v > 0) out.push({ key, sk, row: [nm, v, sk] });
+        }
+      }
+    }
+    return out;
+  });
+}
+// The MLB board a live chase runs against, as deep as you asked.
+function chaseList(scope, cat) {
+  let c = null; try { c = effCat(scope, cat); } catch (e) { c = null; }
+  let list = (c && c.list) ? c.list.slice() : [];
+  const lim = mileTopFor(scope);
+  if (lim && list.length > lim) list = list.slice(0, lim);
+  return list;
+}
+// Your own list for the same stat and scope: other players' careers, every other season (his own too).
+// Kept apart from the MLB board so it never shifts MLB ranks. self = { key, season }: a player never
+// chases his own career, or the very season he's playing.
+function ownChaseList(scope, cat, self) {
+  if (appMode !== "video" || !mileOwnOn()) return [];
+  let c = null; try { c = effCat(scope, cat); } catch (e) { c = null; }
+  if (!c) return [];
+  const out = [];
+  for (const o of ownBoardRows(scope, cat, c.grp)) {
+    if (self && o.key === self.key && (scope === "career" || scope === "post" || String(o.sk) === String(self.season))) continue;
+    out.push(o.row);
+  }
+  return out.sort((a, b) => num(b[1]) - num(a[1]));
+}
+const chaseName = it => it[0] + (it[2] && /^\ud83c\udfae/.test(it[0]) ? " (" + it[2] + ")" : "");
+function vRecordLines(stats, defs, scope, self) {
   const out = [];
   if (!stats || typeof effCat !== "function") return out;
   const sc = scope === "career" || scope === "post" || scope === "postrun" ? scope : "season";
@@ -4709,10 +4791,16 @@ function vRecordLines(stats, defs, scope) {
   for (const [cat, label] of defs) {
     if (!mileOn(cat, sc)) continue;
     const v = num(stats[cat]); if (!v) continue;
-    let c = null; try { c = effCat(sc, cat); } catch (e) { c = null; }
-    let list = c && c.list; if (!list || !list.length) continue;
-    const lim = mileTopFor(sc);
-    if (lim && list.length > lim) list = list.slice(0, lim);      // only chase as deep as you asked
+    const own = ownChaseList(sc, cat, self);
+    if (own.length) {                                                   // your own list: who's next above you
+      const O = rankInBoard(own, v), full = it => it && (own.find(x => x[0] === it[0] && num(x[1]) === num(it[1])) || it), yw = { career: "career", season: "single-season", post: "postseason", postrun: "single-postseason" }[sc];
+      if (O.passed && num(O.passed[1]) === v) out.push({ away: 1, text: "1 " + label + " from passing " + esc(chaseName(full(O.passed))) + " \u2014 tied for #" + O.rank + " on your " + yw + " list" });
+      if (O.next) {
+        const target = num(O.next[1]), away = target - v;
+        if (away > 0 && away <= win(target, cat)) out.push({ away: away, text: away + " " + label + " from tying " + esc(chaseName(full(O.next))) + " (" + target + ") for #" + rankInBoard(own, target).rank + " on your " + yw + " list" });
+      }
+    }
+    const list = chaseList(sc, cat); if (!list.length) continue;
     const R = rankInBoard(list, v);
     if (!R.inBoard) {
       const target = num(R.low[1]), away = target - v;
@@ -4842,21 +4930,22 @@ function videoMilestonesHtml() {
     const cb = vMileLines(careerResolvedStats(key, "bat"), VMILE_CAREER_BAT, "roundc");
     const cp = vMileLines(careerResolvedStats(key, "pit"), VMILE_CAREER_PIT, "roundc");
     for (const m of cb.concat(cp)) careerRows.push({ name: nm, ...m });
-    const crb = vRecordLines(careerResolvedStats(key, "bat"), VREC_CAREER_BAT, "career");
-    const crp = vRecordLines(careerResolvedStats(key, "pit"), VREC_CAREER_PIT, "career");
+    const self = { key, season: cur };
+    const crb = vRecordLines(careerResolvedStats(key, "bat"), VREC_CAREER_BAT, "career", self);
+    const crp = vRecordLines(careerResolvedStats(key, "pit"), VREC_CAREER_PIT, "career", self);
     for (const m of crb.concat(crp)) careerRows.push({ name: nm, isRec: true, ...m });
     if (curPost) {                                       // a 🏆 season: October career + this run, on October numbers
       const pb = postseasonStats(key, "bat"), pp = postseasonStats(key, "pit");
       for (const m of vMileLines(pb, VMILE_POST_BAT, "roundp").concat(vMileLines(pp, VMILE_POST_PIT, "roundp"))) postRows.push({ name: nm, ...m });
-      for (const m of vRecordLines(pb, VREC_SEASON_BAT, "post").concat(vRecordLines(pp, VREC_SEASON_PIT, "post"))) postRows.push({ name: nm, isRec: true, ...m });
+      for (const m of vRecordLines(pb, VREC_SEASON_BAT, "post", self).concat(vRecordLines(pp, VREC_SEASON_PIT, "post", self))) postRows.push({ name: nm, isRec: true, ...m });
       const rb = seasonResolvedStats(key, cur, "bat"), rp = seasonResolvedStats(key, cur, "pit");
       for (const m of vMileLines(rb, VMILE_RUN_BAT, "roundr").concat(vMileLines(rp, VMILE_RUN_PIT, "roundr"))) seasonRows.push({ name: nm, ...m });
-      for (const m of vRecordLines(rb, VREC_SEASON_BAT, "postrun").concat(vRecordLines(rp, VREC_SEASON_PIT, "postrun"))) seasonRows.push({ name: nm, isRec: true, ...m });
+      for (const m of vRecordLines(rb, VREC_SEASON_BAT, "postrun", self).concat(vRecordLines(rp, VREC_SEASON_PIT, "postrun", self))) seasonRows.push({ name: nm, isRec: true, ...m });
     } else if (cur) {
       const sbStats = seasonResolvedStats(key, cur, "bat"), spStats = seasonResolvedStats(key, cur, "pit");
       const sb = vMileLines(sbStats, VMILE_SEASON_BAT, "rounds"), sp = vMileLines(spStats, VMILE_SEASON_PIT, "rounds");
       for (const m of sb.concat(sp)) seasonRows.push({ name: nm, ...m });
-      const rb = vRecordLines(sbStats, VREC_SEASON_BAT, "season"), rp = vRecordLines(spStats, VREC_SEASON_PIT, "season");
+      const rb = vRecordLines(sbStats, VREC_SEASON_BAT, "season", self), rp = vRecordLines(spStats, VREC_SEASON_PIT, "season", self);
       for (const m of rb.concat(rp)) seasonRows.push({ name: nm, isRec: true, ...m });
     }
   }
@@ -9123,22 +9212,31 @@ function leaderMineRows(cat, scope) {
     if ((!cat.type || cat.type === "count" || cat.type === "war") && v <= 0) return;
     (betterEq(v) ? onBoard : chasing).push({ name, value: v, mine: true, tag });
   };
+  // With a difficulty picked, a career is the sum of just the matching seasons (a typed career total can't be split).
+  const diffSum = (keys, key, grp) => sumStatObjs(keys.filter(diffMatchSeason).map(sk => seasonResolvedStats(key, sk, grp)));
   if (scope === "career") {
     const map = appMode === "real" ? {} : videoCareerPlayers();   // real mode ranks only you
-    for (const key in map) consider(map[key].name, careerResolvedStats(key, "bat"), careerResolvedStats(key, "pit"), "");
+    for (const key in map) diffActive()
+      ? consider(map[key].name, diffSum(careerSeasonKeys(key), key, "bat"), diffSum(careerSeasonKeys(key), key, "pit"), "")
+      : consider(map[key].name, careerResolvedStats(key, "bat"), careerResolvedStats(key, "pit"), "");
   } else if (scope === "post") {
     const map = appMode === "real" ? {} : videoCareerPlayers();   // real mode ranks only you                                  // career postseason totals
-    for (const key in map) consider(map[key].name, postseasonStats(key, "bat"), postseasonStats(key, "pit"), "");
+    for (const key in map) diffActive()
+      ? consider(map[key].name, diffSum(postSeasonKeys(key), key, "bat"), diffSum(postSeasonKeys(key), key, "pit"), "")
+      : consider(map[key].name, postseasonStats(key, "bat"), postseasonStats(key, "pit"), "");
   } else if (scope === "postrun") {
     const map = appMode === "real" ? {} : videoCareerPlayers();   // real mode ranks only you                                  // one row per October
     for (const key in map)
-      for (const sk of postSeasonKeys(key))
+      for (const sk of postSeasonKeys(key)) {
+        if (!diffMatchSeason(sk)) continue;
         consider(map[key].name, seasonResolvedStats(key, sk, "bat"), seasonResolvedStats(key, sk, "pit"), sk);
+      }
   } else {
     const map = appMode === "real" ? {} : videoCareerPlayers();   // real mode ranks only you
     for (const key in map)
       for (const sk of playerSeasonKeys(key)) {
         if (isPostSeason(sk)) continue;                                // a playoff run isn't a single season
+        if (!diffMatchSeason(sk)) continue;
         consider(map[key].name, seasonResolvedStats(key, sk, "bat"), seasonResolvedStats(key, sk, "pit"), sk);
       }
   }
@@ -9247,7 +9345,8 @@ function leadersTabHtml() {
     + (leaderScope === "post" ? '<button class="lbtn soft" data-lbmlb="1" style="font-size:11px">\ud83d\udd04 Refresh from MLB</button>' : "")
     + (cat.ovSource ? '<button class="lbtn soft" data-lbreset="1" style="font-size:11px">↩︎ Restore bundled</button>' : "")
     + '</div><div id="lbUpdStatus" class="mono" style="font-size:11px;margin-top:5px"></div>';
-  return scopeToggle + fanVenueHtml + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' + chips + "</div>"
+  const diffRow = appMode === "video" ? '<div style="display:flex;gap:6px;align-items:center;margin:-2px 0 8px">' + diffSelectHtml("data-ldiff") + (diffActive() && (leaderScope === "career" || leaderScope === "post") ? '<span class="hint" style="font-size:10px">Career = sum of the matching seasons (a typed career total isn\u2019t split by difficulty).</span>' : "") + "</div>" : "";
+  return scopeToggle + fanVenueHtml + diffRow + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' + chips + "</div>"
     + '<div class="hint" style="margin-bottom:6px">' + (leaderScope === "season" ? "Single-season" : leaderScope === "game" ? "Single-game" : "All-time") + " <b>" + esc(cat.label) + "</b> " + (leaderScope === "game" ? "records" : "leaders") + (leaderScope !== "career" && !innBoard ? " · 1920\u2013present" : "") + (cat.min ? " · min " + cat.min.val + " " + cat.min.key + (leaderScope === "season" ? "" : " career") : "") + (asc ? " · lower is better" : "") + ". " + srcNote + "</div>"
     + (innBoard ? (body ? '<div class="lbtable">' + body + "</div>" : '<div class="hint" style="padding:10px;text-align:center;border:1px dashed var(--line);border-radius:6px">No finished innings logged yet.</div>')
       : hasBoard ? '<div class="lbtable">' + body + "</div>" + chaseHtml + unqHtml : emptyMsg + mineHtml) + updaters;
@@ -9255,6 +9354,7 @@ function leadersTabHtml() {
 function wireLeaders(out) {
   out.querySelectorAll("[data-fanven]").forEach(b => b.addEventListener("click", () => { fanVenue = b.dataset.fanven; renderStatsContent(); }));
   out.querySelectorAll("[data-lscope]").forEach(b => b.addEventListener("click", () => { leaderScope = b.dataset.lscope; renderStatsContent(); }));
+  out.querySelectorAll("[data-ldiff]").forEach(sel => sel.addEventListener("change", () => { setDiffFilter(sel.value); renderStatsContent(); }));
   out.querySelectorAll("[data-lstat]").forEach(b => b.addEventListener("click", () => { leaderStat = b.dataset.lstat; renderStatsContent(); }));
   out.querySelectorAll("[data-laward]").forEach(b => b.addEventListener("click", () => { leaderAward = b.dataset.laward; renderStatsContent(); }));
   const curCat = () => leaderScope === "award" ? leaderAward : leaderStat;
@@ -9844,7 +9944,7 @@ function inningSeasonRecs(venueF) {
     for (const e of entries) {
       if (e.sport !== "baseball" || modeOf(e) !== appMode || e.noRec || !passesLevel(e)) continue;
       if (venueF && venueF !== "all" && e.venue !== venueF) continue;
-      const sk = seasonOf(e); if (!sk) continue;
+      const sk = seasonOf(e); if (!sk || !diffMatchSeason(sk)) continue;
       (bySea[sk] = bySea[sk] || []).push(e);
     }
     const out = {};
@@ -9855,7 +9955,7 @@ function inningSeasonRecs(venueF) {
 // Postseason games only, in order, so October streaks and totals stand apart from the regular season.
 function inningPostRecs(venueF) {
   return memo("innPost", venueF || "all", () => {
-    const g = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec && passesLevel(e)
+    const g = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec && passesLevel(e) && diffMatchSeason(seasonOf(e))
       && (!venueF || venueF === "all" || e.venue === venueF) && isPostSeason(seasonOf(e)));
     return inningStreaks(g.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : idMs(a.id) - idMs(b.id))));
   });
@@ -9880,7 +9980,7 @@ function iwasTabHtml(yearF) {
   const inKey = appMode === "video" ? "played" : "in-person";
   const inWord = appMode === "video" ? "played" : "in person";
   const base = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec
-    && (yearF === "all" || seasonOf(e) === yearF) && passesLevel(e));
+    && (yearF === "all" || seasonOf(e) === yearF) && passesLevel(e) && diffMatchSeason(seasonOf(e)));
   const games = iwasScope === "inperson" ? base.filter(e => e.venue === inKey) : base.slice();
   const toggle = '<div class="controls" style="margin-bottom:10px">'
     + '<button class="chip disp' + (iwasScope === "inperson" ? " active" : "") + '" data-iwscope="inperson">\ud83d\udccd ' + (appMode === "video" ? "Played" : "In person") + "</button>"
@@ -9963,7 +10063,7 @@ function iwasTabHtml(yearF) {
 // for their MLB debut. Lazily loaded, cached forever once a debut exists. Bounded to MiLB players.
 function prospectData(yearF) {
   const milbGames = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec
-    && levelOf(e) === "milb" && (yearF === "all" || seasonOf(e) === yearF));
+    && levelOf(e) === "milb" && (yearF === "all" || seasonOf(e) === yearF) && diffMatchSeason(seasonOf(e)));
   const seen = {};   // pid -> { pid, name, first, last, team, games }
   for (const e of milbGames) {
     const perName = {};
@@ -10179,6 +10279,7 @@ function renderRecordsView() {
         + '<select id="rVenue" class="inline">' + venueFilterOptionsHtml() + "</select>"
     + '<select id="rYear" class="inline">' + yearOptionsHtml() + "</select>"
     + '<select id="rLevel" class="inline">' + levelOptionsHtml() + "</select>"
+    + diffSelectHtml('id="rDiff"')
     + '</div><div style="font-size:12px;color:var(--ink-soft);font-style:italic;margin:-4px 0 10px">Everything here is something you personally witnessed.</div>'
     + '<div id="recContent"></div>';
   v.querySelectorAll("[data-rtab]").forEach(b => b.addEventListener("click", () => {
@@ -10188,6 +10289,8 @@ function renderRecordsView() {
   }));
   v.querySelector("#rVenue").addEventListener("change", renderRecordsContent);
   v.querySelector("#rYear").addEventListener("change", renderRecordsContent);
+  const rDiff = v.querySelector("#rDiff");
+  if (rDiff) rDiff.addEventListener("change", () => { setDiffFilter(rDiff.value); renderRecordsContent(); });
   v.querySelector("#rLevel").addEventListener("change", ev => { setLevelFilter(ev.target.value); renderRecordsContent(); });
   renderRecordsContent();
 }
@@ -10197,7 +10300,7 @@ function renderRecordsContent() {
   const venueF = v.querySelector("#rVenue").value;
   const yearF = v.querySelector("#rYear").value;
   const games = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec && (venueF === "all" || e.venue === venueF)
-    && (yearF === "all" || seasonOf(e) === yearF) && passesLevel(e));
+    && (yearF === "all" || seasonOf(e) === yearF) && passesLevel(e) && diffMatchSeason(seasonOf(e)));
   const out = v.querySelector("#recContent");
 
   // single-game performances
@@ -10826,7 +10929,7 @@ document.getElementById("exportBtn").addEventListener("click", async () => {
   const payload = JSON.stringify({
     version: 3, exported: new Date().toISOString(),
     games: entries, teams: teamsDB, parks: parksDB,
-    pitchBank: pitchBank, arsenals: arsenalPresets, pins: pinnedPlayers, witnessed: witnessed, firsts: firsts, manualCareer: manualCareer, liveSince: liveSince, postSeasons: postSeasons, mileOff: mileOff, mileNear: mileNear, mileTop: mileTop, mileStep: mileStep, mileDispStat: mileDispStat, playerHand: playerHand, playerGame: playerGame, leaderOverrides: leaderOverrides, mileWatch: mileWatch, debut: _debut,
+    pitchBank: pitchBank, arsenals: arsenalPresets, pins: pinnedPlayers, witnessed: witnessed, firsts: firsts, manualCareer: manualCareer, liveSince: liveSince, postSeasons: postSeasons, mileOff: mileOff, mileNear: mileNear, mileTop: mileTop, mileStep: mileStep, mileDispStat: mileDispStat, playerHand: playerHand, playerGame: playerGame, seasonDiff: seasonDiff, leaderOverrides: leaderOverrides, mileWatch: mileWatch, debut: _debut,
     prefs: {
       theme: localStorage.getItem("sports-stat-theme") || "",
       mode: localStorage.getItem("sports-stat-mode") || "",
@@ -10947,6 +11050,7 @@ document.getElementById("importFile").addEventListener("change", ev => {
         if (data.mileDispStat && typeof data.mileDispStat === "object") { mileDispStat = data.mileDispStat; fixMileDispStat(); persistMileDispStat(); }
         if (data.playerHand && typeof data.playerHand === "object") { for (const k in data.playerHand) if (!playerHand[k]) playerHand[k] = data.playerHand[k]; persistPlayerHand(); }
         if (data.playerGame && typeof data.playerGame === "object") { for (const k in data.playerGame) if (!playerGame[k]) playerGame[k] = data.playerGame[k]; persistPlayerGame(); }
+        if (data.seasonDiff && typeof data.seasonDiff === "object") { for (const k in data.seasonDiff) if (!seasonDiff[k]) seasonDiff[k] = data.seasonDiff[k]; persistSeasonDiff(); }
         if (data.leaderOverrides && typeof data.leaderOverrides === "object") { for (const sc in data.leaderOverrides) { leaderOverrides[sc] = leaderOverrides[sc] || {}; for (const cid in data.leaderOverrides[sc]) leaderOverrides[sc][cid] = data.leaderOverrides[sc][cid]; } persistLeaderOverrides(); }
         if (data.mileWatch) {
           if (Array.isArray(data.mileWatch.players)) for (const p of data.mileWatch.players) if (p && !mileWatch.players.some(x => x.toLowerCase() === p.toLowerCase())) mileWatch.players.push(p);
