@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v254";
+const APP_VERSION = "v255";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -617,6 +617,14 @@ try { playerHand = JSON.parse(localStorage.getItem(HANDKEY) || "{}") || {}; } ca
 function persistPlayerHand() { try { localStorage.setItem(HANDKEY, JSON.stringify(playerHand)); } catch (e) {} }
 function handOf(name) { return playerHand[canonName(name || "")] || ""; }              // "L" | "R" | "S" | ""
 function setHand(name, h) { const k = canonName(name || ""); if (!k) return; if (h) playerHand[k] = h; else delete playerHand[k]; persistPlayerHand(); }
+// Which video game a player comes from (video mode), keyed the same way as batting hand.
+const PGAMEKEY = "sports-stat-pgame-v1";
+let playerGame = {};
+try { playerGame = JSON.parse(localStorage.getItem(PGAMEKEY) || "{}") || {}; } catch (e) { playerGame = {}; }
+function persistPlayerGame() { dataChanged(); try { localStorage.setItem(PGAMEKEY, JSON.stringify(playerGame)); } catch (e) {} }
+function gameOf(name) { return playerGame[canonName(name || "")] || ""; }
+function setGame(name, g) { const k = canonName(name || ""); if (!k) return; g = String(g || "").trim(); if (g) playerGame[k] = g; else delete playerGame[k]; persistPlayerGame(); }
+function knownGames() { const s = {}; for (const k in playerGame) { const g = playerGame[k]; if (g) s[g.toLowerCase()] = g; } return Object.values(s).sort((a, b) => a.localeCompare(b)); }
 let pinnedPlayers = [];
 try { pinnedPlayers = JSON.parse(localStorage.getItem(PINKEY) || "[]"); } catch (e) {}
 function persistPins() { try { localStorage.setItem(PINKEY, JSON.stringify(pinnedPlayers)); } catch (e) {} }
@@ -2248,6 +2256,9 @@ function renderCareerEditor() {
     + (function () { const h = handOf(mcEdit.name); return '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px"><span style="color:var(--ink-soft)">Bats/throws:</span>'
         + [["L", "Left"], ["R", "Right"], ["S", "Switch"]].map(([v, lbl]) => '<button class="lbtn soft' + (h === v ? " active" : "") + '" data-mchand="' + v + '" style="font-size:11px;padding:2px 10px' + (h === v ? ";background:var(--ink);color:var(--card)" : "") + '">' + lbl + "</button>").join("")
         + '<span style="color:var(--ink-soft);font-size:10px">— used for L/R splits</span></div>'; })()
+    + '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px"><span style="color:var(--ink-soft);white-space:nowrap">Video game:</span>'
+      + '<input id="mcGame" list="mcGameList" value="' + esc(gameOf(mcEdit.name)) + '" placeholder="e.g. MLB The Show 25" autocomplete="off" style="flex:1">'
+      + '<datalist id="mcGameList">' + knownGames().map(g => '<option value="' + esc(g) + '"></option>').join("") + "</datalist></div>"
     + '<div class="hint" style="margin-top:4px">Enter a <b>starting baseline</b> — the totals this player had <b>before</b> you began logging games here. Games you log then add on top automatically (updating the leaderboards live), so enter the baseline once and don\u2019t re-add logged games to it. A career total takes priority; seasons feed the per-season boards.</div>'
     + '<div style="margin-top:8px;padding:8px;border:1px dashed var(--line);border-radius:6px">'
     + '<div style="font-size:12px;font-weight:700">⏱ Live counting line</div>'
@@ -2320,6 +2331,8 @@ function wireCareerEditor(wrap) {
       renderCareerEditor();
     });
   });
+  const mcGame = wrap.querySelector("#mcGame");
+  if (mcGame) mcGame.addEventListener("change", () => setGame(mcEdit.name, mcGame.value));
   wrap.querySelectorAll("[data-mchand]").forEach(b => b.addEventListener("click", () => { setHand(mcEdit.name, handOf(mcEdit.name) === b.dataset.mchand ? "" : b.dataset.mchand); renderCareerEditor(); }));
   wrap.querySelector("[data-mcsave]").addEventListener("click", () => { saveCareerEditor(wrap); renderCareerEditor(); });
   wrap.querySelectorAll("[data-mcaddseason]").forEach(b => b.addEventListener("click", () => {
@@ -9572,7 +9585,7 @@ function renderStatsContent() {
   }
   if (statsTab === "players") {
     const list = Object.values(agg.players)
-      .filter(p => !q || p.name.toLowerCase().includes(q) || Object.keys(p.teams).join(" ").toLowerCase().includes(q))
+      .filter(p => !q || p.name.toLowerCase().includes(q) || Object.keys(p.teams).join(" ").toLowerCase().includes(q) || (appMode === "video" && gameOf(p.name).toLowerCase().includes(q)))
       .sort((a, b) => (isPinned(b) ? 1 : 0) - (isPinned(a) ? 1 : 0) || lastNameKey(a.name).localeCompare(lastNameKey(b.name)) || a.name.localeCompare(b.name));
     if (!list.length) html = '<div class="empty">No player stats yet' + (venueF !== "all" ? " for that filter" : "") + ". They build automatically as you log box scores.</div>";
     const groups = [];
@@ -9610,6 +9623,7 @@ function renderStatsContent() {
         qparts.push(pp.join(" · "));
       }
       const quick = qparts.join(" / ");
+      const pGame = appMode === "video" ? gameOf(p.name) : "";
       const pinned = isPinned(p);
       // The card's insides are built the first time it's opened. With hundreds of players (every one you've
       // watched in real games) building them all up front took seconds, for cards nobody had opened.
@@ -9647,7 +9661,7 @@ function renderStatsContent() {
         + '<button class="pinbtn" data-pinnm="' + esc((p.name || "").trim().toLowerCase()) + '" data-pinid="' + esc(p.pid || "") + '" title="' + (pinned ? "Unpin" : "Pin to top") + '" style="float:right;background:none;border:none;font-size:17px;line-height:1;cursor:pointer;padding:0 0 4px 6px;opacity:' + (pinned ? "1" : ".28") + '">\ud83d\udccc</button>'
         + '<span class="disp" style="font-size:15px;font-weight:700">' + esc(p.name) + "</span>"
         + '<span class="mono" style="font-size:11px;color:var(--ink-soft)"> &nbsp;' + gp + " GP" + (quick ? " · " + quick : "") + "</span>"
-        + (teamNames ? '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">' + esc(teamNames) + "</div>" : "")
+        + (teamNames || pGame ? '<div style="font-size:11px;color:var(--ink-soft);font-style:italic">' + esc(teamNames) + (teamNames && pGame ? " \u00b7 " : "") + (pGame ? "\ud83c\udfae " + esc(pGame) : "") + "</div>" : "")
         + "</summary>"
         + '<div class="lazybody"></div>'
         + "</details>");
@@ -10812,7 +10826,7 @@ document.getElementById("exportBtn").addEventListener("click", async () => {
   const payload = JSON.stringify({
     version: 3, exported: new Date().toISOString(),
     games: entries, teams: teamsDB, parks: parksDB,
-    pitchBank: pitchBank, arsenals: arsenalPresets, pins: pinnedPlayers, witnessed: witnessed, firsts: firsts, manualCareer: manualCareer, liveSince: liveSince, postSeasons: postSeasons, mileOff: mileOff, mileNear: mileNear, mileTop: mileTop, mileStep: mileStep, mileDispStat: mileDispStat, playerHand: playerHand, leaderOverrides: leaderOverrides, mileWatch: mileWatch, debut: _debut,
+    pitchBank: pitchBank, arsenals: arsenalPresets, pins: pinnedPlayers, witnessed: witnessed, firsts: firsts, manualCareer: manualCareer, liveSince: liveSince, postSeasons: postSeasons, mileOff: mileOff, mileNear: mileNear, mileTop: mileTop, mileStep: mileStep, mileDispStat: mileDispStat, playerHand: playerHand, playerGame: playerGame, leaderOverrides: leaderOverrides, mileWatch: mileWatch, debut: _debut,
     prefs: {
       theme: localStorage.getItem("sports-stat-theme") || "",
       mode: localStorage.getItem("sports-stat-mode") || "",
@@ -10932,6 +10946,7 @@ document.getElementById("importFile").addEventListener("change", ev => {
         if (data.mileStep && typeof data.mileStep === "object") { mileStep = data.mileStep; persistMileStep(); }
         if (data.mileDispStat && typeof data.mileDispStat === "object") { mileDispStat = data.mileDispStat; fixMileDispStat(); persistMileDispStat(); }
         if (data.playerHand && typeof data.playerHand === "object") { for (const k in data.playerHand) if (!playerHand[k]) playerHand[k] = data.playerHand[k]; persistPlayerHand(); }
+        if (data.playerGame && typeof data.playerGame === "object") { for (const k in data.playerGame) if (!playerGame[k]) playerGame[k] = data.playerGame[k]; persistPlayerGame(); }
         if (data.leaderOverrides && typeof data.leaderOverrides === "object") { for (const sc in data.leaderOverrides) { leaderOverrides[sc] = leaderOverrides[sc] || {}; for (const cid in data.leaderOverrides[sc]) leaderOverrides[sc][cid] = data.leaderOverrides[sc][cid]; } persistLeaderOverrides(); }
         if (data.mileWatch) {
           if (Array.isArray(data.mileWatch.players)) for (const p of data.mileWatch.players) if (p && !mileWatch.players.some(x => x.toLowerCase() === p.toLowerCase())) mileWatch.players.push(p);
