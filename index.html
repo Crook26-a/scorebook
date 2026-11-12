@@ -474,7 +474,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v265";
+const APP_VERSION = "v266";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -7605,7 +7605,7 @@ function teamBreakdownHtml(pname, venueF, pid) {
       gl[i].team = gl[best].team;
     }
   } else for (const g of gl) g.team = g.raw;
-  const T = {}, order = [];
+  let T = {}, order = [];                                             // reset for each table set (regular season, playoffs)
   const teamRow = name => { const hit = order.find(n => teamNorm(n) === teamNorm(name)); return hit ? T[hit] : (T[name] = (order.push(name), { games: {}, gB: {}, gP: {}, gs: 0, typedGB: 0, typedGP: 0, bat: {}, pit: {}, merged: 0, seasons: 0, sea: { bat: new Set(), pit: new Set() }, first: "9999" })); };
   const isMe = r => (pid && r.pid === pid) || canonName(r.player) === canonName(pname);
   // A whole-team season's logged games: how many he batted in, pitched in, and started on the mound.
@@ -7638,7 +7638,11 @@ function teamBreakdownHtml(pname, venueF, pid) {
   const wholeSet = new Set(whole.map(x => String(x[0])));
   const splitSeasons = Object.keys(seaTeams).filter(sk => seaTeams[sk].size > 1);
   const unplaced = playerSeasonKeys(pkey).filter(sk => !skipSea(sk) && !wholeSet.has(String(sk)) && !seaTeams[String(sk)]);   // typed only, no team
+  // Regular seasons and playoff runs are separate tables: build(false) is the regular season, build(true) the playoffs.
+  const build = post => {
+  T = {}; order = [];
   for (const [sk, team] of whole) {                                   // whole seasons, typed lines and logged games together
+    if (isPostSeason(sk) !== post) continue;
     const t = teamRow(team);
     t.seasons++; if ((firstDate[sk] || "9999") < t.first) t.first = firstDate[sk];
     const sb = seasonResolvedStats(pkey, sk, "bat"), sp = seasonResolvedStats(pkey, sk, "pit");
@@ -7650,6 +7654,7 @@ function teamBreakdownHtml(pname, venueF, pid) {
   }
   for (const g of gl) {
     if (wholeSet.has(String(seasonOf(g.e)))) continue;               // already counted with its whole season
+    if (isPostSeason(seasonOf(g.e)) !== post) continue;
     const t = teamRow(g.team);
     if ((g.e.date || "9999") < t.first) t.first = g.e.date;
     t.games[g.e.id] = 1; if (!byNorm[teamNorm(g.raw)] && listed.length) t.merged++;
@@ -7662,10 +7667,9 @@ function teamBreakdownHtml(pname, venueF, pid) {
       else { t.gP[g.e.id] = 1; if (!started && pitcherStarted(g.e, r)) { started = true; t.gs++; } }
     }
   }
-  // Seasons with the team: regular seasons only (no playoff runs or seasons kept out of the career); a season
-  // split between two teams counts for both.
-  const seaCount = (t, gkey) => [...t.sea[gkey]].filter(sk => sk && !seasonExcluded(pkey, sk)).length;
-  if (order.length < 2 && !merged && !whole.length) return "";
+  // Seasons with the team (in the playoff table, playoff runs); a season split between two teams counts for both.
+  const seaCount = (t, gkey) => [...t.sea[gkey]].filter(sk => sk && (post || !seasonExcluded(pkey, sk))).length;
+  if (!order.length) return "";
   // The order he played for them: by the earliest year in a team's season labels (typed seasons have no game
   // dates), then by first logged game.
   const minYear = t => { let y = 99999; for (const g of ["bat", "pit"]) for (const sk of t.sea[g]) { const m = String(sk).match(/\b(\d{4})\b/); if (m && +m[1] < y) y = +m[1]; } return y; };
@@ -7684,12 +7688,14 @@ function teamBreakdownHtml(pname, venueF, pid) {
         : [seaCount(t, gkey), gp2, gv("AVG"), gv("OBP"), gv("SLG"), gv("OPS"), o.AB || 0, o.H || 0, o["2B"] || 0, o["3B"] || 0, o.HR || 0, o.RBI || 0, o.R || 0, o.BB || 0, o.SO || 0, o.SB || 0];
       return "<tr><td>" + esc(n) + "</td>" + cells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
     }).join("");
-    return '<div class="grouplabel disp" style="margin-top:10px">' + (isP ? "Pitching by team" : "Batting by team") + "</div>"
+    return '<div class="grouplabel disp" style="margin-top:10px">' + (post ? "🏆 Playoffs · " : "Regular season · ") + (isP ? "pitching by team" : "batting by team") + "</div>"
       + '<div style="overflow-x:auto"><table class="seasontbl mono"><tr>' + heads.map(h => "<th>" + h + "</th>").join("") + "</tr>" + trs + "</table></div>";
   };
-  const html = mk("bat") + mk("pit");
+  return mk("bat") + mk("pit");
+  };
+  const html = build(false) + build(true);
   if (!html) return "";
-  return html + '<div class="hint" style="font-size:10px;margin-top:2px">Each season counts whole (its season line plus logged games) toward its team: the team set for that season in the \ud83c\udfae Career stats editor, or else the one team its logged games are with. Postseason included.'
+  return html + '<div class="hint" style="font-size:10px;margin-top:2px">Each season counts whole (its season line plus logged games) toward its team: the team set for that season in the \ud83c\udfae Career stats editor, or else the one team its logged games are with. Playoff runs are in their own tables.'
     + (merged ? " Games logged under any other team count toward the nearest team in \u201cTeams played for\u201d, by date." : "")
     + (splitSeasons.length ? " Split between teams, so counted game by game from logged games only: " + esc(splitSeasons.join(", ")) + "." : "")
     + (unplaced.length ? " Not counted (no team, no logged games): " + esc(unplaced.join(", ")) + " \u2014 set its team in the editor." : "") + "</div>";
