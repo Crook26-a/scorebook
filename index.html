@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v256";
+const APP_VERSION = "v257";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -1821,21 +1821,46 @@ let postSeasons = {};
 try { postSeasons = JSON.parse(localStorage.getItem(POSTKEY) || "{}") || {}; } catch (e) { postSeasons = {}; }
 function persistPostSeasons() { dataChanged(); try { localStorage.setItem(POSTKEY, JSON.stringify(postSeasons)); } catch (e) {} }
 function isPostSeason(sk) { return !!postSeasons[String(sk)]; }
-// Optional difficulty marker per season label (video mode), and one difficulty filter shared by
-// Records and the leaderboards. "none" = seasons with no difficulty set.
-const DIFFKEY = "sports-stat-seasondiff-v1", DIFFFILTER_KEY = "sports-stat-difffilter";
+// Optional difficulty per player, per season, per side (video mode): seasonDiff[playerKey][season] = { bat, pit }.
+// One difficulty filter is shared by Records and the leaderboards; "none" = no difficulty set.
+const DIFFKEY = "sports-stat-seasondiff-v2", DIFFFILTER_KEY = "sports-stat-difffilter";
 const DIFF_LEVELS = ["Rookie", "Veteran", "All-Star", "Hall of Fame", "Legend"];
 let seasonDiff = {};
 try { seasonDiff = JSON.parse(localStorage.getItem(DIFFKEY) || "{}") || {}; } catch (e) { seasonDiff = {}; }
 function persistSeasonDiff() { dataChanged(); try { localStorage.setItem(DIFFKEY, JSON.stringify(seasonDiff)); } catch (e) {} }
-function diffOf(sk) { return seasonDiff[String(sk)] || ""; }
-function setDiff(sk, d) { sk = String(sk); d = String(d || "").trim(); if (d) seasonDiff[sk] = d; else delete seasonDiff[sk]; persistSeasonDiff(); }
+function diffOf(key, sk, grp) { const P = seasonDiff[key], S = P && P[String(sk)]; return (S && S[grp]) || ""; }
+function setDiff(key, sk, grp, d) {
+  sk = String(sk); d = String(d || "").trim();
+  const P = seasonDiff[key] = seasonDiff[key] || {}, S = P[sk] = P[sk] || {};
+  if (d) S[grp] = d; else delete S[grp];
+  if (!Object.keys(S).length) delete P[sk];
+  if (!Object.keys(P).length) delete seasonDiff[key];
+  persistSeasonDiff();
+}
 let diffFilter = "";
 try { diffFilter = localStorage.getItem(DIFFFILTER_KEY) || ""; } catch (e) { diffFilter = ""; }
 function setDiffFilter(v) { diffFilter = v || ""; try { localStorage.setItem(DIFFFILTER_KEY, diffFilter); } catch (e) {} dataChanged(); }
 function diffActive() { return appMode === "video" && !!diffFilter; }
-function diffMatchSeason(sk) { if (!diffActive()) return true; const d = diffOf(sk); return diffFilter === "none" ? !d : d === diffFilter; }
-function knownDiffs() { const s = {}; for (const d of DIFF_LEVELS) s[d.toLowerCase()] = d; for (const k in seasonDiff) if (seasonDiff[k]) s[seasonDiff[k].toLowerCase()] = s[seasonDiff[k].toLowerCase()] || seasonDiff[k]; return Object.values(s); }
+function diffOK(key, sk, grp) { if (!diffActive()) return true; const d = diffOf(key, sk, grp); return diffFilter === "none" ? !d : d === diffFilter; }
+const DIFF_GRP = { batting: "bat", pitching: "pit", fielding: "bat" };   // fielding follows the batting side
+function rowDiffOK(r, e) {
+  if (!diffActive()) return true;
+  const nm = (r.player || "").trim(); if (!nm) return false;
+  return diffOK(mcKeyOf(nm, r.pid || null), seasonOf(e), DIFF_GRP[r.group] || "bat");
+}
+function gameDiffOK(e) { return !diffActive() || (e.box || []).some(r => rowDiffOK(r, e)); }
+// A pitcher named in a game's inning log, checked against his pitching difficulty (his box row carries his id).
+function pitNameDiffOK(e, name) {
+  if (!diffActive()) return true;
+  const want = canonName(name), row = (e.box || []).find(r => r.group === "pitching" && canonName(r.player) === want);
+  return diffOK(mcKeyOf((row ? row.player : name).trim(), (row && row.pid) || null), seasonOf(e), "pit");
+}
+function knownDiffs() {
+  const s = {};
+  for (const d of DIFF_LEVELS) s[d.toLowerCase()] = d;
+  for (const k in seasonDiff) for (const sk in seasonDiff[k]) for (const g in seasonDiff[k][sk]) { const d = seasonDiff[k][sk][g]; if (d && !s[d.toLowerCase()]) s[d.toLowerCase()] = d; }
+  return Object.values(s);
+}
 function diffSelectHtml(attr) {
   if (appMode !== "video") return "";
   const opts = [["", "All difficulties"]].concat(knownDiffs().map(d => [d, d])).concat([["none", "No difficulty set"]]);
@@ -2042,13 +2067,11 @@ function renderSeasonManager() {
       + '<input class="mono" data-srename="' + esc(s) + '" value="' + esc(s) + '" style="flex:1;min-width:0;padding:3px 5px;font-size:12px">'
       + '<span class="hint mono" style="font-size:10px;min-width:34px;text-align:right">' + counts[s] + "g</span>"
       + '<button class="chip disp" style="font-size:10px;padding:2px 7px' + (isPostSeason(s) ? ";background:var(--ink);color:var(--card)" : ";opacity:.5") + '" data-spost="' + esc(s) + '" title="Count as postseason">\ud83c\udfc6</button>'
-      + (appMode === "video" ? '<input data-sdiff="' + esc(s) + '" list="sdiffList" value="' + esc(diffOf(s)) + '" placeholder="Difficulty" autocomplete="off" style="width:96px;padding:3px 5px;font-size:11px">' : "")
       + "</div>").join("")
-      + (appMode === "video" ? '<datalist id="sdiffList">' + knownDiffs().map(d => '<option value="' + esc(d) + '"></option>').join("") + "</datalist>" : "")
     : '<div class="hint">No seasons on your games in this mode yet.</div>';
   wrap.innerHTML = '<div class="card" style="max-width:460px;width:100%;margin:0">'
     + '<div class="disp" style="font-weight:700;font-size:15px;border-bottom:2px solid var(--ink);padding-bottom:3px">\ud83d\uddd3 Seasons<button class="lbtn soft" id="smClose" style="float:right;font-size:11px;padding:2px 8px">Done</button></div>'
-    + '<div class="hint" style="font-size:10px;margin:4px 0">Rename a label to move every game with it \u2014 that is how you merge scattered labels into one. \ud83c\udfc6 marks a label as postseason: those games stay out of regular career totals and are summed separately.' + (appMode === "video" ? " Difficulty is optional; Records and the leaderboards can filter by it." : "") + '</div>'
+    + '<div class="hint" style="font-size:10px;margin:4px 0">Rename a label to move every game with it \u2014 that is how you merge scattered labels into one. \ud83c\udfc6 marks a label as postseason: those games stay out of regular career totals and are summed separately.' + (appMode === "video" ? " Difficulty is set per player, per season, in each player\u2019s \ud83c\udfae Career stats editor." : "") + '</div>'
     + rows
     + '<div class="hint" style="font-size:10px;margin-top:6px">Renaming applies when you leave the box. Editing a label to match another merges them.</div>'
     + '<button class="lbtn soft" id="smPick" style="width:100%;margin-top:8px;font-size:11px">\u2611 Pick individual games instead\u2026</button>'
@@ -2068,7 +2091,6 @@ function wireSeasonManager(wrap) {
     if (postSeasons[s]) delete postSeasons[s]; else postSeasons[s] = 1;
     persistPostSeasons(); renderSeasonManager();
   }));
-  wrap.querySelectorAll("[data-sdiff]").forEach(inp => inp.addEventListener("change", () => setDiff(inp.getAttribute("data-sdiff"), inp.value)));
   wrap.querySelectorAll("[data-srename]").forEach(inp => inp.addEventListener("change", () => {
     const from = inp.getAttribute("data-srename"), to = inp.value.trim();
     if (!to || to === from) { inp.value = from; return; }
@@ -2077,7 +2099,9 @@ function wireSeasonManager(wrap) {
     appConfirm("Move " + n + " game" + (n === 1 ? "" : "s") + " from \u201c" + from + "\u201d to \u201c" + to + "\u201d?" + (merging ? " That label already exists, so the two will be merged." : ""), () => {
       for (const e of entries) if (e.sport === "baseball" && modeOf(e) === appMode && String(e.season == null ? "" : e.season) === from) e.season = to;
       if (postSeasons[from]) { delete postSeasons[from]; postSeasons[to] = 1; persistPostSeasons(); }
-      if (seasonDiff[from]) { if (!seasonDiff[to]) seasonDiff[to] = seasonDiff[from]; delete seasonDiff[from]; persistSeasonDiff(); }
+      let dMoved = false;                                       // every player's difficulty for that label moves with it
+      for (const k in seasonDiff) if (seasonDiff[k][from]) { if (!seasonDiff[k][to]) seasonDiff[k][to] = seasonDiff[k][from]; delete seasonDiff[k][from]; dMoved = true; }
+      if (dMoved) persistSeasonDiff();
       persist(); renderSeasonManager();
     }, () => { inp.value = from; });
   }));
@@ -2249,10 +2273,12 @@ function renderCareerEditor() {
         + AWARD_FIELDS.map(([id, lbl]) => '<label style="font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" data-maseason="' + esc(yr) + '" data-maward="' + id + '"' + (won.indexOf(id) >= 0 ? " checked" : "") + ">" + esc(lbl) + "</label>").join("") + "</div>";
       const excl = seasonExcluded(mcEdit.key, yr);
       const exclBox = '<label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-top:6px"><input type="checkbox" data-mcnocareer="' + esc(yr) + '"' + (excl ? " checked" : "") + ">Don\u2019t count toward career totals <span style=\"color:var(--ink-soft)\">(All-Star, spring training, playoffs)</span></label>";
-      const okey = grp + "|" + yr;
-      return '<details class="mcseason"' + (mcOpenSeasons[okey] ? " open" : "") + ' data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (isPostSeason(yr) ? ' <span style="font-weight:400;color:var(--red)">\ud83c\udfc6 playoffs</span>' : excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>"
+      const okey = grp + "|" + yr, dif = diffOf(mcEdit.key, yr, grp);
+      const difBox = '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px"><span style="color:var(--ink-soft);white-space:nowrap">' + (grp === "pit" ? "Pitching" : "Hitting") + ' difficulty:</span>'
+        + '<input data-mcdiff="' + grp + "|" + esc(yr) + '" list="mcDiffList" value="' + esc(dif) + '" placeholder="optional, e.g. Hall of Fame" autocomplete="off" style="flex:1;padding:3px 5px;font-size:11px"></div>';
+      return '<details class="mcseason"' + (mcOpenSeasons[okey] ? " open" : "") + ' data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (dif ? ' <span style="font-weight:400;color:var(--ink-soft);font-size:11px">\u00b7 ' + esc(dif) + "</span>" : "") + (isPostSeason(yr) ? ' <span style="font-weight:400;color:var(--red)">\ud83c\udfc6 playoffs</span>' : excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>"
         + '<div class="hint" style="font-size:10px;margin:2px 0">Shows this season\u2019s current total (typed + games logged since). Editing sets the total; games you log afterward add on top.</div>'
-        + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + exclBox + awChecks
+        + difBox + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + exclBox + awChecks
         + '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);display:flex;gap:6px;justify-content:space-between;align-items:center">'
         + (hasLoggedGrp(mcEdit.key, yr, grp)
             ? '<button class="lbtn soft" data-mcrecount="' + grp + "|" + esc(yr) + '" style="font-size:10px;padding:2px 8px">\u21ba Count from logged games</button>'
@@ -2286,6 +2312,7 @@ function renderCareerEditor() {
     + '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px"><span style="color:var(--ink-soft);white-space:nowrap">Video game:</span>'
       + '<input id="mcGame" list="mcGameList" value="' + esc(gameOf(mcEdit.name)) + '" placeholder="e.g. MLB The Show 25" autocomplete="off" style="flex:1">'
       + '<datalist id="mcGameList">' + knownGames().map(g => '<option value="' + esc(g) + '"></option>').join("") + "</datalist></div>"
+    + '<datalist id="mcDiffList">' + knownDiffs().map(d => '<option value="' + esc(d) + '"></option>').join("") + "</datalist>"
     + '<div class="hint" style="margin-top:4px">Enter a <b>starting baseline</b> — the totals this player had <b>before</b> you began logging games here. Games you log then add on top automatically (updating the leaderboards live), so enter the baseline once and don\u2019t re-add logged games to it. A career total takes priority; seasons feed the per-season boards.</div>'
     + '<div style="margin-top:8px;padding:8px;border:1px dashed var(--line);border-radius:6px">'
     + '<div style="font-size:12px;font-weight:700">⏱ Live counting line</div>'
@@ -2358,6 +2385,10 @@ function wireCareerEditor(wrap) {
       renderCareerEditor();
     });
   });
+  wrap.querySelectorAll("[data-mcdiff]").forEach(inp => inp.addEventListener("change", () => {
+    const [g, ...rest] = inp.getAttribute("data-mcdiff").split("|");
+    setDiff(mcEdit.key, rest.join("|"), g, inp.value);            // the season heading picks it up the next time the editor redraws
+  }));
   const mcGame = wrap.querySelector("#mcGame");
   if (mcGame) mcGame.addEventListener("change", () => setGame(mcEdit.name, mcGame.value));
   wrap.querySelectorAll("[data-mchand]").forEach(b => b.addEventListener("click", () => { setHand(mcEdit.name, handOf(mcEdit.name) === b.dataset.mchand ? "" : b.dataset.mchand); renderCareerEditor(); }));
@@ -7167,7 +7198,8 @@ function aggToStats(acc, group) {
   if (group === "pitching" && acc.IPouts) o.IP = outsToIp(acc.IPouts);
   return o;
 }
-function aggregate(venueF, yearF) {
+// rowFilter (optional): keep only box-score lines it passes, and skip games where none do (Records' difficulty filter).
+function aggregate(venueF, yearF, rowFilter) {
   const players = {}, teams = {};
   const ensureTeam = name => teams[name.toLowerCase()] || (teams[name.toLowerCase()] = { name, gp: 0, _g: {}, w: 0, l: 0, d: 0, undec: [], results: [], bat: {}, pit: {}, fld: {}, ip: 0 });
   for (const e of entries) {
@@ -7175,6 +7207,7 @@ function aggregate(venueF, yearF) {
     if (!passesLevel(e)) continue;
     if (venueF !== "all" && e.venue !== venueF) continue;
     if (yearF && yearF !== "all" && seasonOf(e) !== yearF) continue;
+    if (rowFilter && !(e.box || []).some(r => rowFilter(r, e))) continue;
     for (const side of ["away", "home"]) {
       const tn = (side === "away" ? e.away : e.home).trim();
       if (!tn) continue;
@@ -7196,6 +7229,7 @@ function aggregate(venueF, yearF) {
     }
     for (const r of (e.box || [])) {
       if (!r.player || !r.player.trim()) continue;
+      if (rowFilter && !rowFilter(r, e)) continue;
       const tn = rowTeam(r, e);
       const gkey = { batting: "bat", pitching: "pit", fielding: "fld" }[r.group];
       if (!gkey) continue;
@@ -9213,7 +9247,7 @@ function leaderMineRows(cat, scope) {
     (betterEq(v) ? onBoard : chasing).push({ name, value: v, mine: true, tag });
   };
   // With a difficulty picked, a career is the sum of just the matching seasons (a typed career total can't be split).
-  const diffSum = (keys, key, grp) => sumStatObjs(keys.filter(diffMatchSeason).map(sk => seasonResolvedStats(key, sk, grp)));
+  const diffSum = (keys, key, grp) => sumStatObjs(keys.filter(sk => diffOK(key, sk, grp)).map(sk => seasonResolvedStats(key, sk, grp)));
   if (scope === "career") {
     const map = appMode === "real" ? {} : videoCareerPlayers();   // real mode ranks only you
     for (const key in map) diffActive()
@@ -9228,7 +9262,7 @@ function leaderMineRows(cat, scope) {
     const map = appMode === "real" ? {} : videoCareerPlayers();   // real mode ranks only you                                  // one row per October
     for (const key in map)
       for (const sk of postSeasonKeys(key)) {
-        if (!diffMatchSeason(sk)) continue;
+        if (!diffOK(key, sk, cat.grp)) continue;                       // hitting boards use hitting difficulty, pitching boards pitching
         consider(map[key].name, seasonResolvedStats(key, sk, "bat"), seasonResolvedStats(key, sk, "pit"), sk);
       }
   } else {
@@ -9236,7 +9270,7 @@ function leaderMineRows(cat, scope) {
     for (const key in map)
       for (const sk of playerSeasonKeys(key)) {
         if (isPostSeason(sk)) continue;                                // a playoff run isn't a single season
-        if (!diffMatchSeason(sk)) continue;
+        if (!diffOK(key, sk, cat.grp)) continue;                       // hitting boards use hitting difficulty, pitching boards pitching
         consider(map[key].name, seasonResolvedStats(key, sk, "bat"), seasonResolvedStats(key, sk, "pit"), sk);
       }
   }
@@ -9907,7 +9941,7 @@ function inningStreaks(chron) {
     if (!det) {
       for (const q in Q) out[q].both.cur = 0;
       const sp = soloPitchInnings(e);                               // single-pitcher games: rebuilt from the pitch log
-      if (sp) for (const rec of sp.innings) for (const q in Q) bump(out[q].pit, sp.name.toLowerCase(), sp.name, Q[q](rec));
+      if (sp && pitNameDiffOK(e, sp.name)) for (const rec of sp.innings) for (const q in Q) bump(out[q].pit, sp.name.toLowerCase(), sp.name, Q[q](rec));
       continue;
     }
     const n = Math.max(det.a.length, det.h.length);
@@ -9919,8 +9953,8 @@ function inningStreaks(chron) {
           const ok = valid && Q[q](rec);
           if (valid && fldName && fldName.trim()) bump(out[q].team, fldName.trim().toLowerCase(), fldName.trim(), ok);
           if (valid) {
-            const ps = Object.values(rec.ps || {});
-            if (ok && ps.length === 1) bump(out[q].pit, ps[0].toLowerCase(), ps[0], true);
+            const ps = Object.values(rec.ps || {}).filter(nm => pitNameDiffOK(e, nm));
+            if (ok && ps.length === 1 && Object.keys(rec.ps || {}).length === 1) bump(out[q].pit, ps[0].toLowerCase(), ps[0], true);
             else if (!ok) for (const p of ps) bump(out[q].pit, p.toLowerCase(), p, false);
           }
         }
@@ -9944,7 +9978,7 @@ function inningSeasonRecs(venueF) {
     for (const e of entries) {
       if (e.sport !== "baseball" || modeOf(e) !== appMode || e.noRec || !passesLevel(e)) continue;
       if (venueF && venueF !== "all" && e.venue !== venueF) continue;
-      const sk = seasonOf(e); if (!sk || !diffMatchSeason(sk)) continue;
+      const sk = seasonOf(e); if (!sk) continue;
       (bySea[sk] = bySea[sk] || []).push(e);
     }
     const out = {};
@@ -9955,7 +9989,7 @@ function inningSeasonRecs(venueF) {
 // Postseason games only, in order, so October streaks and totals stand apart from the regular season.
 function inningPostRecs(venueF) {
   return memo("innPost", venueF || "all", () => {
-    const g = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec && passesLevel(e) && diffMatchSeason(seasonOf(e))
+    const g = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec && passesLevel(e)
       && (!venueF || venueF === "all" || e.venue === venueF) && isPostSeason(seasonOf(e)));
     return inningStreaks(g.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : idMs(a.id) - idMs(b.id))));
   });
@@ -9980,7 +10014,7 @@ function iwasTabHtml(yearF) {
   const inKey = appMode === "video" ? "played" : "in-person";
   const inWord = appMode === "video" ? "played" : "in person";
   const base = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec
-    && (yearF === "all" || seasonOf(e) === yearF) && passesLevel(e) && diffMatchSeason(seasonOf(e)));
+    && (yearF === "all" || seasonOf(e) === yearF) && passesLevel(e) && gameDiffOK(e));
   const games = iwasScope === "inperson" ? base.filter(e => e.venue === inKey) : base.slice();
   const toggle = '<div class="controls" style="margin-bottom:10px">'
     + '<button class="chip disp' + (iwasScope === "inperson" ? " active" : "") + '" data-iwscope="inperson">\ud83d\udccd ' + (appMode === "video" ? "Played" : "In person") + "</button>"
@@ -10063,7 +10097,7 @@ function iwasTabHtml(yearF) {
 // for their MLB debut. Lazily loaded, cached forever once a debut exists. Bounded to MiLB players.
 function prospectData(yearF) {
   const milbGames = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec
-    && levelOf(e) === "milb" && (yearF === "all" || seasonOf(e) === yearF) && diffMatchSeason(seasonOf(e)));
+    && levelOf(e) === "milb" && (yearF === "all" || seasonOf(e) === yearF) && gameDiffOK(e));
   const seen = {};   // pid -> { pid, name, first, last, team, games }
   for (const e of milbGames) {
     const perName = {};
@@ -10300,7 +10334,10 @@ function renderRecordsContent() {
   const venueF = v.querySelector("#rVenue").value;
   const yearF = v.querySelector("#rYear").value;
   const games = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && !e.noRec && (venueF === "all" || e.venue === venueF)
-    && (yearF === "all" || seasonOf(e) === yearF) && passesLevel(e) && diffMatchSeason(seasonOf(e)));
+    && (yearF === "all" || seasonOf(e) === yearF) && passesLevel(e))
+    // a difficulty is per player and side, so keep only the box-score lines that match it
+    .map(e => diffActive() ? Object.assign({}, e, { box: (e.box || []).filter(r => rowDiffOK(r, e)) }) : e)
+    .filter(e => !diffActive() || e.box.length);
   const out = v.querySelector("#recContent");
 
   // single-game performances
@@ -10345,7 +10382,7 @@ function renderRecordsContent() {
     }
   }
   // career totals
-  const agg = aggregate(venueF, yearF);
+  const agg = aggregate(venueF, yearF, diffActive() ? rowDiffOK : null);
   const careerTop = (gkey, col, label, fmt) => {
     const rows = Object.values(agg.players)
       .map(p => ({ name: p.name, gp: Object.keys(p.games).length, val: (col === "IP") ? (p[gkey].IPouts || 0) : (p[gkey][col] || 0) }))
@@ -11050,7 +11087,10 @@ document.getElementById("importFile").addEventListener("change", ev => {
         if (data.mileDispStat && typeof data.mileDispStat === "object") { mileDispStat = data.mileDispStat; fixMileDispStat(); persistMileDispStat(); }
         if (data.playerHand && typeof data.playerHand === "object") { for (const k in data.playerHand) if (!playerHand[k]) playerHand[k] = data.playerHand[k]; persistPlayerHand(); }
         if (data.playerGame && typeof data.playerGame === "object") { for (const k in data.playerGame) if (!playerGame[k]) playerGame[k] = data.playerGame[k]; persistPlayerGame(); }
-        if (data.seasonDiff && typeof data.seasonDiff === "object") { for (const k in data.seasonDiff) if (!seasonDiff[k]) seasonDiff[k] = data.seasonDiff[k]; persistSeasonDiff(); }
+        if (data.seasonDiff && typeof data.seasonDiff === "object") {   // per-player shape; the old label-wide strings from v256 are skipped
+          for (const k in data.seasonDiff) { const P = data.seasonDiff[k]; if (!P || typeof P !== "object") continue; seasonDiff[k] = Object.assign({}, P, seasonDiff[k] || {}); }
+          persistSeasonDiff();
+        }
         if (data.leaderOverrides && typeof data.leaderOverrides === "object") { for (const sc in data.leaderOverrides) { leaderOverrides[sc] = leaderOverrides[sc] || {}; for (const cid in data.leaderOverrides[sc]) leaderOverrides[sc][cid] = data.leaderOverrides[sc][cid]; } persistLeaderOverrides(); }
         if (data.mileWatch) {
           if (Array.isArray(data.mileWatch.players)) for (const p of data.mileWatch.players) if (p && !mileWatch.players.some(x => x.toLowerCase() === p.toLowerCase())) mileWatch.players.push(p);
