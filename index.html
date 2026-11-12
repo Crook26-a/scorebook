@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v260";
+const APP_VERSION = "v261";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -7489,7 +7489,7 @@ function teamBreakdownHtml(pname, venueF, pid) {
     }
   } else for (const g of gl) g.team = g.raw;
   const T = {}, order = [];
-  const teamRow = name => { const hit = order.find(n => teamNorm(n) === teamNorm(name)); return hit ? T[hit] : (T[name] = (order.push(name), { games: {}, typedG: 0, bat: {}, pit: {}, merged: 0, seasons: 0, first: "9999" })); };
+  const teamRow = name => { const hit = order.find(n => teamNorm(n) === teamNorm(name)); return hit ? T[hit] : (T[name] = (order.push(name), { games: {}, typedG: 0, bat: {}, pit: {}, merged: 0, seasons: 0, sea: { bat: new Set(), pit: new Set() }, first: "9999" })); };
   const firstDate = {};                                               // earliest logged date per season, to order whole-season teams
   for (const g of gl) { const sk = seasonOf(g.e); if (!firstDate[sk] || g.e.date < firstDate[sk]) firstDate[sk] = g.e.date || ""; }
   for (const e of entries) { if (e.sport !== "baseball" || modeOf(e) !== appMode) continue; const sk = seasonOf(e); if (!seasonTeamOf(pkey, sk)) continue;
@@ -7498,30 +7498,33 @@ function teamBreakdownHtml(pname, venueF, pid) {
     const t = teamRow(seasonTeamOf(pkey, sk));
     t.seasons++; if ((firstDate[sk] || "9999") < t.first) t.first = firstDate[sk];
     const sb = seasonResolvedStats(pkey, sk, "bat"), sp = seasonResolvedStats(pkey, sk, "pit");
-    if (Object.keys(sb).some(k => filled(sb[k]))) addAgg(t.bat, sb, "batting");
-    if (Object.keys(sp).some(k => filled(sp[k]))) addAgg(t.pit, sp, "pitching");
+    if (Object.keys(sb).some(k => filled(sb[k]))) { addAgg(t.bat, sb, "batting"); t.sea.bat.add(String(sk)); }
+    if (Object.keys(sp).some(k => filled(sp[k]))) { addAgg(t.pit, sp, "pitching"); t.sea.pit.add(String(sk)); }
     t.typedG += Math.max(num(sb.G), num(sp.G));
   }
   for (const g of gl) {
     const t = teamRow(g.team);
     if ((g.e.date || "9999") < t.first) t.first = g.e.date;
     t.games[g.e.id] = 1; if (!byNorm[teamNorm(g.raw)] && listed.length) t.merged++;
-    for (const r of g.rows) { const k = { batting: "bat", pitching: "pit" }[r.group]; if (k) addAgg(t[k], r.stats, r.group); }
+    for (const r of g.rows) { const k = { batting: "bat", pitching: "pit" }[r.group]; if (k) { addAgg(t[k], r.stats, r.group); t.sea[k].add(String(seasonOf(g.e) || "")); } }
   }
+  // Seasons with the team: regular seasons only (no playoff runs or seasons kept out of the career); a season
+  // split between two teams counts for both.
+  const seaCount = (t, gkey) => [...t.sea[gkey]].filter(sk => sk && !seasonExcluded(pkey, sk)).length;
   if (order.length < 2 && !merged && !teamSeasons.length) return "";
   order.sort((a, b) => T[a].first.localeCompare(T[b].first));        // the order he played for them
   const mk = gkey => {
     const have = order.filter(n => Object.keys(T[n][gkey]).length); if (!have.length) return "";
     const isP = gkey === "pit";
-    const heads = isP ? ["Team", "G", "W-L", "SV", "ERA", "WHIP", "IP", "H", "R", "ER", "BB", "K", "K/9"]
-      : ["Team", "G", "AVG", "OBP", "SLG", "OPS", "AB", "H", "2B", "3B", "HR", "RBI", "R", "BB", "SO", "SB"];
+    const heads = isP ? ["Team", "Seasons", "G", "W-L", "SV", "ERA", "WHIP", "IP", "H", "R", "ER", "BB", "K", "K/9"]
+      : ["Team", "Seasons", "G", "AVG", "OBP", "SLG", "OPS", "AB", "H", "2B", "3B", "HR", "RBI", "R", "BB", "SO", "SB"];
     const trs = have.map(n => {
       const t = T[n], gp2 = Object.keys(t.games).length + t.typedG, o = aggToStats(t[gkey], isP ? "pitching" : "batting"), m = BOX.baseball[isP ? 1 : 0].calc(o);
       const gv = k => { const f3 = m.find(x => x[0] === k); return f3 ? f3[1] : "\u2014"; };
       const cells = isP
-        ? [gp2, (num(o.W) || 0) + "-" + (num(o.L) || 0), num(o.SV) || 0, gv("ERA"), gv("WHIP"), o.IP || "0", o.H || 0, o.R || 0, o.ER || 0, o.BB || 0, o.K || 0, gv("K/9")]
-        : [gp2, gv("AVG"), gv("OBP"), gv("SLG"), gv("OPS"), o.AB || 0, o.H || 0, o["2B"] || 0, o["3B"] || 0, o.HR || 0, o.RBI || 0, o.R || 0, o.BB || 0, o.SO || 0, o.SB || 0];
-      return "<tr><td>" + esc(n) + (t.merged ? ' <span style="color:var(--ink-soft)">(+' + t.merged + ")</span>" : "") + "</td>" + cells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
+        ? [seaCount(t, gkey), gp2, (num(o.W) || 0) + "-" + (num(o.L) || 0), num(o.SV) || 0, gv("ERA"), gv("WHIP"), o.IP || "0", o.H || 0, o.R || 0, o.ER || 0, o.BB || 0, o.K || 0, gv("K/9")]
+        : [seaCount(t, gkey), gp2, gv("AVG"), gv("OBP"), gv("SLG"), gv("OPS"), o.AB || 0, o.H || 0, o["2B"] || 0, o["3B"] || 0, o.HR || 0, o.RBI || 0, o.R || 0, o.BB || 0, o.SO || 0, o.SB || 0];
+      return "<tr><td>" + esc(n) + "</td>" + cells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
     }).join("");
     return '<div class="grouplabel disp" style="margin-top:10px">' + (isP ? "Pitching by team" : "Batting by team") + "</div>"
       + '<div style="overflow-x:auto"><table class="seasontbl mono"><tr>' + heads.map(h => "<th>" + h + "</th>").join("") + "</tr>" + trs + "</table></div>";
@@ -7529,7 +7532,7 @@ function teamBreakdownHtml(pname, venueF, pid) {
   const html = mk("bat") + mk("pit");
   if (!html) return "";
   return html + '<div class="hint" style="font-size:10px;margin-top:2px">Seasons with a team set in the \ud83c\udfae Career stats editor count whole (typed and logged); other seasons use the teams on their logged games. Postseason included.'
-    + (merged ? " (+N) = games logged under another team that count toward this one, by nearest date. Set the list under \u201cTeams played for\u201d in the \ud83c\udfae Career stats editor." : "") + "</div>";
+    + (merged ? " Games logged under any other team count toward the nearest team in \u201cTeams played for\u201d (\ud83c\udfae Career stats editor), by date." : "") + "</div>";
 }
 function seasonBreakdownHtml(pname, venueF, pid) {
   const rowsBy = {};
