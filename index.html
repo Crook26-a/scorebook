@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v257";
+const APP_VERSION = "v258";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -522,6 +522,7 @@ if (_bootFromIdb && document.body) {   // games live in IDB — veil the brief a
     }
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
   } catch (e) { USE_IDB = false; }                               // anything unexpected: stay safely on localStorage
+  try { seedDifficultiesOnce(); } catch (e) {}                   // one-time difficulty fill, now that the games are here
   try { renderTally(); renderList(); } catch (e) {}
   const ld = document.getElementById("bootLoad"); if (ld) ld.remove();
   try { cleanImportedPlaces(); } catch (e) {}
@@ -1854,6 +1855,33 @@ function pitNameDiffOK(e, name) {
   if (!diffActive()) return true;
   const want = canonName(name), row = (e.box || []).find(r => r.group === "pitching" && canonName(r.player) === want);
   return diffOK(mcKeyOf((row ? row.player : name).trim(), (row && row.pid) || null), seasonOf(e), "pit");
+}
+// One-time fill (v258): Joseph's own players' difficulties for every season they have so far — logged video
+// games and typed career seasons alike. Runs once after the games load, then marks itself done.
+const DIFFSEED_KEY = "sports-stat-diffseed-1";
+const DIFF_SEED = [["Joseph Crook", "Veteran", "Veteran"], ["Joseph P. Crook", "Veteran", "Veteran"], ["Joseph 2W Crook", "All-Star", "Veteran"]];   // name, hitting, pitching
+function seedDifficultiesOnce() {
+  try { if (localStorage.getItem(DIFFSEED_KEY)) return; } catch (e) { return; }
+  const plan = {}; for (const [nm, bat, pit] of DIFF_SEED) plan[canonName(nm)] = { bat, pit };
+  const hits = {};                                                   // key -> Set(season)
+  const add = (key, sk) => { sk = String(sk || ""); if (!sk) return; (hits[key] = hits[key] || { seasons: new Set() }).seasons.add(sk); };
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    for (const r of (e.box || [])) { const nm = (r.player || "").trim(); if (nm && plan[canonName(nm)]) { const k = mcKeyOf(nm, r.pid || null); add(k, seasonOf(e)); hits[k].plan = plan[canonName(nm)]; } }
+  }
+  for (const key in manualCareer) {
+    const mc = manualCareer[key], nm = mc && (mc.name || key.replace(/^nm:/, ""));
+    if (!nm || !plan[canonName(nm)]) continue;
+    for (const g of ["bat", "pit"]) for (const sk in ((mc[g] || {}).seasons || {})) add(key, sk);
+    if (hits[key]) hits[key].plan = plan[canonName(nm)];
+  }
+  let n = 0;
+  for (const key in hits) {
+    const P = seasonDiff[key] = seasonDiff[key] || {};
+    for (const sk of hits[key].seasons) { P[sk] = Object.assign({}, P[sk], { bat: hits[key].plan.bat, pit: hits[key].plan.pit }); n++; }
+  }
+  persistSeasonDiff();
+  try { localStorage.setItem(DIFFSEED_KEY, String(n)); } catch (e) {}
 }
 function knownDiffs() {
   const s = {};
