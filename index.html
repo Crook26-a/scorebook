@@ -161,6 +161,10 @@
   table.box td { text-align: right; padding: 2px 6px; white-space: nowrap; }
   table.box td.pl { text-align: left; font-weight: 600; padding-left: 0; }
   .mline { font-size: 11px; color: var(--red); padding: 0 0 4px 8px; text-align: left !important; }
+  /* The rate line under each player spans the whole row; let it wrap within the screen so it doesn't stretch
+     the table (and with it the name column) — the name column then fits the longest name. */
+  table.box td.mline { white-space: normal; }
+  .mline-in { position: sticky; left: 8px; max-width: calc(100vw - 72px); }   /* stays readable at the left while the stats scroll */
   .notes { margin-top: 8px; font-size: 13px; font-style: italic; color: var(--ink-soft); }
   .cardbtns { display: flex; gap: 14px; margin-top: 9px; }
   .cardbtns button { background: none; border: none; font-size: 12px; cursor: pointer; padding: 0; font-family: Georgia, serif; }
@@ -470,7 +474,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v263";
+const APP_VERSION = "v264";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -889,7 +893,7 @@ function boxDisplayHTML(e) {
         const dec = g.id === "pitching" ? [["W", "W"], ["L", "L"], ["SV", "SV"], ["BS", "BS"], ["HLD", "H"]].filter(x => filled(r.stats[x[0]])).map(x => x[1]).join("/") : "";
         html += '<tr><td class="pl">' + esc(r.player || "—") + (dec ? ' <span style="color:var(--red);font-weight:700;font-size:10px">' + dec + "</span>" : "") + "</td>" + cols.map(c => "<td>" + esc(r.stats[c] || "·") + "</td>").join("") + "</tr>";
         const m = g.calc(r.stats);
-        if (m.length) html += '<tr><td class="mline" colspan="' + (cols.length + 1) + '">' + mlineHtml(m) + "</td></tr>";
+        if (m.length) html += '<tr><td class="mline" colspan="' + (cols.length + 1) + '"><div class="mline-in">' + mlineHtml(m) + "</div></td></tr>";
       }
       html += "</table></div>";
     }
@@ -7533,6 +7537,17 @@ function playerExtrasHtml(pname, venueF, pid) {
   if (!bat && !pit) return seasonBreakdownHtml(pname, venueF, pid) + teamBreakdownHtml(pname, venueF, pid);
   return '<details class="smore" style="margin-top:8px"><summary>\ud83d\udcc8 Trend &amp; splits</summary>' + inner + "</details>";
 }
+// Did this pitcher start the game? A single-player game: his first pitch came in the 1st inning with nobody
+// out. A full box score: he's the first pitcher listed for his side.
+function pitcherStarted(e, r) {
+  const L = e.live, me = canonName(r.player);
+  if (L && L.solo && Array.isArray(L.log)) {
+    const first = L.log.find(le => le.pit && canonName(le.pit.player) === me);
+    return !!(first && first.snap && first.snap.inn === 1 && !(num(first.snap.o) > 0));
+  }
+  const first = (e.box || []).find(x => x.group === "pitching" && x.team === r.team && (x.player || "").trim());
+  return !!first && canonName(first.player) === me;
+}
 // Batting and pitching by team, from logged games (typed seasons aren't tied to a team). With a "Teams played
 // for" list, a game under any other team joins the listed team he played for nearest in time.
 function teamBreakdownHtml(pname, venueF, pid) {
@@ -7565,7 +7580,20 @@ function teamBreakdownHtml(pname, venueF, pid) {
     }
   } else for (const g of gl) g.team = g.raw;
   const T = {}, order = [];
-  const teamRow = name => { const hit = order.find(n => teamNorm(n) === teamNorm(name)); return hit ? T[hit] : (T[name] = (order.push(name), { games: {}, typedG: 0, bat: {}, pit: {}, merged: 0, seasons: 0, sea: { bat: new Set(), pit: new Set() }, first: "9999" })); };
+  const teamRow = name => { const hit = order.find(n => teamNorm(n) === teamNorm(name)); return hit ? T[hit] : (T[name] = (order.push(name), { games: {}, gB: {}, gP: {}, gs: 0, typedGB: 0, typedGP: 0, bat: {}, pit: {}, merged: 0, seasons: 0, sea: { bat: new Set(), pit: new Set() }, first: "9999" })); };
+  const isMe = r => (pid && r.pid === pid) || canonName(r.player) === canonName(pname);
+  // A whole-team season's logged games: how many he batted in, pitched in, and started on the mound.
+  const loggedSeasonGames = sk => {
+    const out = { bat: 0, pit: 0, gs: 0 };
+    for (const e of entries) {
+      if (e.sport !== "baseball" || modeOf(e) !== appMode || String(seasonOf(e)) !== String(sk)) continue;
+      const mine = (e.box || []).filter(r => isMe(r) && rowActive(r));
+      if (mine.some(r => r.group === "batting")) out.bat++;
+      const pr = mine.find(r => r.group === "pitching");
+      if (pr) { out.pit++; if (pitcherStarted(e, pr)) out.gs++; }
+    }
+    return out;
+  };
   const firstDate = {};                                               // earliest logged date per season, to order whole-season teams
   for (const g of gl) { const sk = seasonOf(g.e); if (!firstDate[sk] || g.e.date < firstDate[sk]) firstDate[sk] = g.e.date || ""; }
   for (const e of entries) { if (e.sport !== "baseball" || modeOf(e) !== appMode) continue; const sk = seasonOf(e); if (!seasonTeamOf(pkey, sk)) continue;
@@ -7576,13 +7604,22 @@ function teamBreakdownHtml(pname, venueF, pid) {
     const sb = seasonResolvedStats(pkey, sk, "bat"), sp = seasonResolvedStats(pkey, sk, "pit");
     if (Object.keys(sb).some(k => filled(sb[k]))) { addAgg(t.bat, sb, "batting"); t.sea.bat.add(String(sk)); }
     if (Object.keys(sp).some(k => filled(sp[k]))) { addAgg(t.pit, sp, "pitching"); t.sea.pit.add(String(sk)); }
-    t.typedG += Math.max(num(sb.G), num(sp.G));
+    // games: the season line's G when it has one, else the logged games he batted / pitched in; starts come from logged games
+    const lg = loggedSeasonGames(sk);
+    t.typedGB += num(sb.G) || lg.bat; t.typedGP += num(sp.G) || lg.pit; t.gs += lg.gs;
   }
   for (const g of gl) {
     const t = teamRow(g.team);
     if ((g.e.date || "9999") < t.first) t.first = g.e.date;
     t.games[g.e.id] = 1; if (!byNorm[teamNorm(g.raw)] && listed.length) t.merged++;
-    for (const r of g.rows) { const k = { batting: "bat", pitching: "pit" }[r.group]; if (k) { addAgg(t[k], r.stats, r.group); t.sea[k].add(String(seasonOf(g.e) || "")); } }
+    let started = false;
+    for (const r of g.rows) {
+      const k = { batting: "bat", pitching: "pit" }[r.group]; if (!k) continue;
+      addAgg(t[k], r.stats, r.group); t.sea[k].add(String(seasonOf(g.e) || ""));
+      if (!rowActive(r)) continue;
+      if (k === "bat") t.gB[g.e.id] = 1;
+      else { t.gP[g.e.id] = 1; if (!started && pitcherStarted(g.e, r)) { started = true; t.gs++; } }
+    }
   }
   // Seasons with the team: regular seasons only (no playoff runs or seasons kept out of the career); a season
   // split between two teams counts for both.
@@ -7592,13 +7629,14 @@ function teamBreakdownHtml(pname, venueF, pid) {
   const mk = gkey => {
     const have = order.filter(n => Object.keys(T[n][gkey]).length); if (!have.length) return "";
     const isP = gkey === "pit";
-    const heads = isP ? ["Team", "Seasons", "G", "W-L", "SV", "ERA", "WHIP", "IP", "H", "R", "ER", "BB", "K", "K/9"]
+    const heads = isP ? ["Team", "Seasons", "G", "GS", "W-L", "SV", "ERA", "WHIP", "IP", "H", "R", "ER", "BB", "K", "K/9"]
       : ["Team", "Seasons", "G", "AVG", "OBP", "SLG", "OPS", "AB", "H", "2B", "3B", "HR", "RBI", "R", "BB", "SO", "SB"];
     const trs = have.map(n => {
-      const t = T[n], gp2 = Object.keys(t.games).length + t.typedG, o = aggToStats(t[gkey], isP ? "pitching" : "batting"), m = BOX.baseball[isP ? 1 : 0].calc(o);
+      const t = T[n], o = aggToStats(t[gkey], isP ? "pitching" : "batting"), m = BOX.baseball[isP ? 1 : 0].calc(o);
+      const gp2 = isP ? Object.keys(t.gP).length + t.typedGP : Object.keys(t.gB).length + t.typedGB;   // games he pitched in / batted in
       const gv = k => { const f3 = m.find(x => x[0] === k); return f3 ? f3[1] : "\u2014"; };
       const cells = isP
-        ? [seaCount(t, gkey), gp2, (num(o.W) || 0) + "-" + (num(o.L) || 0), num(o.SV) || 0, gv("ERA"), gv("WHIP"), o.IP || "0", o.H || 0, o.R || 0, o.ER || 0, o.BB || 0, o.K || 0, gv("K/9")]
+        ? [seaCount(t, gkey), gp2, t.gs, (num(o.W) || 0) + "-" + (num(o.L) || 0), num(o.SV) || 0, gv("ERA"), gv("WHIP"), o.IP || "0", o.H || 0, o.R || 0, o.ER || 0, o.BB || 0, o.K || 0, gv("K/9")]
         : [seaCount(t, gkey), gp2, gv("AVG"), gv("OBP"), gv("SLG"), gv("OPS"), o.AB || 0, o.H || 0, o["2B"] || 0, o["3B"] || 0, o.HR || 0, o.RBI || 0, o.R || 0, o.BB || 0, o.SO || 0, o.SB || 0];
       return "<tr><td>" + esc(n) + "</td>" + cells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
     }).join("");
