@@ -474,7 +474,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v264";
+const APP_VERSION = "v265";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -541,6 +541,7 @@ if (_bootFromIdb && document.body) {   // games live in IDB — veil the brief a
   try { seedDifficultyDefaultsOnce(); } catch (e) {}             // ...and the same players' default difficulties
   try { renameTeamsOnce(); } catch (e) {}                        // one-time: same team, same spelling
   try { fixPlayoffLabelsOnce(); } catch (e) {}                   // one-time: "2036 playoffs" -> "Playoffs 2036"
+  try { cleanEmptyLinesOnce(); } catch (e) {}                    // one-time: box-score lines need real stats
   try { seedPlayerTeamsOnce(); } catch (e) {}                    // ...and the teams they've played for
   try { renderTally(); renderList(); } catch (e) {}
   const ld = document.getElementById("bootLoad"); if (ld) ld.remove();
@@ -1482,7 +1483,7 @@ function saveEntry() {
     document.getElementById("fAway").focus();
     return;
   }
-  const cleaned = { ...form, box: form.box.filter(r => r.player.trim() || Object.values(r.stats).some(v => String(v).trim())) };
+  const cleaned = { ...form, box: form.box.filter(r => rowActive(r)) };   // a box-score line needs real stats in it
   if (form.live && form.live.solo && form.live.solo.player) {       // remember it was a single-player game so a series can continue from the card
     const S = form.live.solo;
     cleaned.solo = { type: S.type, player: S.player, team: S.team, oppPitcher: S.oppPitcher || "",
@@ -1760,9 +1761,17 @@ function rowFeats(e, row) {
 // G is a count of games, not a box-score column, so nothing ever accumulated it. Credit a game
 // whenever the player actually did something in that group: an at-bat (or walk, run, anything) for
 // batting, a pitch thrown or batter faced for pitching.
+// Only real stats count: a running streak (CK) or a pitch run value (rv:) left behind by Undo doesn't make a
+// pitching line, and neither does a line that was opened (by swapping sides) but never used.
+const LINE_KEYS = {
+  batting: ["AB", "H", "BB", "IBB", "HBP", "SF", "R", "SB", "RBI", "SO", "PIT"],
+  pitching: ["PC", "H", "R", "ER", "BB", "K", "HBP", "HR", "W", "L", "SV", "HLD", "BS"]
+};
 function rowActive(r) {
-  const st = r.stats || {};
-  for (const k in st) if (filled(st[k]) && num(st[k]) > 0) return true;
+  const st = r.stats || {}, ks = LINE_KEYS[r.group];
+  if (r.group === "pitching" && ipOutsOf(st.IP) > 0) return true;
+  if (ks) return ks.some(k => filled(st[k]) && num(st[k]) > 0);
+  for (const k in st) if (filled(st[k]) && num(st[k]) > 0) return true;     // fielding and anything else: any stat
   return false;
 }
 function derivedGames(key, seasonKey, grp) {
@@ -2008,6 +2017,19 @@ function fixPlayoffLabelsOnce() {
   for (const sk of ["ASG", "2026 Spring Training", "AA", "AAA"]) mc.noCareer[sk] = true;
   persistManualCareer();
   try { localStorage.setItem(PLAYOFFFIX_KEY, String(n)); } catch (e) {}
+}
+// One-time: drop box-score lines with no real stats from finished games (games still being scored keep theirs).
+const BOXCLEAN_KEY = "sports-stat-boxclean-1";
+function cleanEmptyLinesOnce() {
+  try { if (localStorage.getItem(BOXCLEAN_KEY)) return; } catch (e) { return; }
+  let n = 0;
+  for (const e of entries) {
+    if (e.inProgress || !Array.isArray(e.box)) continue;
+    const keep = e.box.filter(r => rowActive(r));
+    if (keep.length !== e.box.length) { n += e.box.length - keep.length; e.box = keep; }
+  }
+  if (n) persist();
+  try { localStorage.setItem(BOXCLEAN_KEY, String(n)); } catch (e) {}
 }
 const TEAMSEED_KEY = "sports-stat-teamseed-1";
 function seedPlayerTeamsOnce() {
@@ -7553,16 +7575,20 @@ function pitcherStarted(e, r) {
 function teamBreakdownHtml(pname, venueF, pid) {
   if (appMode !== "video") return "";
   const pkey = mcKeyOf((pname || "").trim(), pid || null);
+  // Minors, All-Star games, spring training — any season kept out of his career — stay out of the team
+  // tables too. Playoff runs are kept out of the career but still count here.
+  const skipSea = sk => seasonExcluded(pkey, sk) && !isPostSeason(sk);
   const gl = [];
   for (const e of entries) {
     if (e.sport !== "baseball" || modeOf(e) !== appMode || !passesLevel(e)) continue;
     if (venueF !== "all" && e.venue !== venueF) continue;
+    if (skipSea(seasonOf(e))) continue;
     if (seasonTeamOf(pkey, seasonOf(e))) continue;                 // that whole season is counted by its team below
     const mine = (e.box || []).filter(r => (pid && r.pid === pid) || canonName(r.player) === canonName(pname));
     if (!mine.length) continue;
     gl.push({ e, rows: mine, raw: (rowTeam(mine[0], e) || "").trim() || "(no team)" });
   }
-  const teamSeasons = playerSeasonKeys(pkey).filter(sk => seasonTeamOf(pkey, sk));
+  const teamSeasons = playerSeasonKeys(pkey).filter(sk => seasonTeamOf(pkey, sk) && !skipSea(sk));
   if (!gl.length && !teamSeasons.length) return "";
   gl.sort((a, b) => (a.e.date || "").localeCompare(b.e.date || "") || (idMs(a.e.id) - idMs(b.e.id)));
   const listed = teamsOf(pname), byNorm = {}; for (const t of listed) byNorm[teamNorm(t)] = t;
@@ -7598,17 +7624,32 @@ function teamBreakdownHtml(pname, venueF, pid) {
   for (const g of gl) { const sk = seasonOf(g.e); if (!firstDate[sk] || g.e.date < firstDate[sk]) firstDate[sk] = g.e.date || ""; }
   for (const e of entries) { if (e.sport !== "baseball" || modeOf(e) !== appMode) continue; const sk = seasonOf(e); if (!seasonTeamOf(pkey, sk)) continue;
     if ((e.box || []).some(r => (pid && r.pid === pid) || canonName(r.player) === canonName(pname)) && (!firstDate[sk] || e.date < firstDate[sk])) firstDate[sk] = e.date || ""; }
-  for (const sk of teamSeasons) {                                     // whole seasons, typed lines and logged games together
-    const t = teamRow(seasonTeamOf(pkey, sk));
+  // Season lines win over game-by-game: a season counts whole (its typed line plus logged games) toward its team -
+  // the team set for that season, or else the one team all its logged games belong to. A season whose games are
+  // split between teams stays game by game, since its line can't be divided.
+  const seaTeams = {};
+  for (const g of gl) { const k = String(seasonOf(g.e)); (seaTeams[k] = seaTeams[k] || new Set()).add(g.team); }
+  const whole = teamSeasons.map(sk => [sk, seasonTeamOf(pkey, sk)]);
+  for (const sk of playerSeasonKeys(pkey)) {
+    if (seasonTeamOf(pkey, sk) || skipSea(sk)) continue;
+    const ts = seaTeams[String(sk)];
+    if (ts && ts.size === 1) whole.push([sk, [...ts][0]]);
+  }
+  const wholeSet = new Set(whole.map(x => String(x[0])));
+  const splitSeasons = Object.keys(seaTeams).filter(sk => seaTeams[sk].size > 1);
+  const unplaced = playerSeasonKeys(pkey).filter(sk => !skipSea(sk) && !wholeSet.has(String(sk)) && !seaTeams[String(sk)]);   // typed only, no team
+  for (const [sk, team] of whole) {                                   // whole seasons, typed lines and logged games together
+    const t = teamRow(team);
     t.seasons++; if ((firstDate[sk] || "9999") < t.first) t.first = firstDate[sk];
     const sb = seasonResolvedStats(pkey, sk, "bat"), sp = seasonResolvedStats(pkey, sk, "pit");
     if (Object.keys(sb).some(k => filled(sb[k]))) { addAgg(t.bat, sb, "batting"); t.sea.bat.add(String(sk)); }
     if (Object.keys(sp).some(k => filled(sp[k]))) { addAgg(t.pit, sp, "pitching"); t.sea.pit.add(String(sk)); }
     // games: the season line's G when it has one, else the logged games he batted / pitched in; starts come from logged games
     const lg = loggedSeasonGames(sk);
-    t.typedGB += num(sb.G) || lg.bat; t.typedGP += num(sp.G) || lg.pit; t.gs += lg.gs;
+    t.typedGB += Math.max(num(sb.G), lg.bat); t.typedGP += Math.max(num(sp.G), lg.pit); t.gs += lg.gs;   // never fewer games than logged (or than starts)
   }
   for (const g of gl) {
+    if (wholeSet.has(String(seasonOf(g.e)))) continue;               // already counted with its whole season
     const t = teamRow(g.team);
     if ((g.e.date || "9999") < t.first) t.first = g.e.date;
     t.games[g.e.id] = 1; if (!byNorm[teamNorm(g.raw)] && listed.length) t.merged++;
@@ -7624,8 +7665,11 @@ function teamBreakdownHtml(pname, venueF, pid) {
   // Seasons with the team: regular seasons only (no playoff runs or seasons kept out of the career); a season
   // split between two teams counts for both.
   const seaCount = (t, gkey) => [...t.sea[gkey]].filter(sk => sk && !seasonExcluded(pkey, sk)).length;
-  if (order.length < 2 && !merged && !teamSeasons.length) return "";
-  order.sort((a, b) => T[a].first.localeCompare(T[b].first));        // the order he played for them
+  if (order.length < 2 && !merged && !whole.length) return "";
+  // The order he played for them: by the earliest year in a team's season labels (typed seasons have no game
+  // dates), then by first logged game.
+  const minYear = t => { let y = 99999; for (const g of ["bat", "pit"]) for (const sk of t.sea[g]) { const m = String(sk).match(/\b(\d{4})\b/); if (m && +m[1] < y) y = +m[1]; } return y; };
+  order.sort((a, b) => (minYear(T[a]) - minYear(T[b])) || T[a].first.localeCompare(T[b].first));
   const mk = gkey => {
     const have = order.filter(n => Object.keys(T[n][gkey]).length); if (!have.length) return "";
     const isP = gkey === "pit";
@@ -7645,8 +7689,10 @@ function teamBreakdownHtml(pname, venueF, pid) {
   };
   const html = mk("bat") + mk("pit");
   if (!html) return "";
-  return html + '<div class="hint" style="font-size:10px;margin-top:2px">Seasons with a team set in the \ud83c\udfae Career stats editor count whole (typed and logged); other seasons use the teams on their logged games. Postseason included.'
-    + (merged ? " Games logged under any other team count toward the nearest team in \u201cTeams played for\u201d (\ud83c\udfae Career stats editor), by date." : "") + "</div>";
+  return html + '<div class="hint" style="font-size:10px;margin-top:2px">Each season counts whole (its season line plus logged games) toward its team: the team set for that season in the \ud83c\udfae Career stats editor, or else the one team its logged games are with. Postseason included.'
+    + (merged ? " Games logged under any other team count toward the nearest team in \u201cTeams played for\u201d, by date." : "")
+    + (splitSeasons.length ? " Split between teams, so counted game by game from logged games only: " + esc(splitSeasons.join(", ")) + "." : "")
+    + (unplaced.length ? " Not counted (no team, no logged games): " + esc(unplaced.join(", ")) + " \u2014 set its team in the editor." : "") + "</div>";
 }
 function seasonBreakdownHtml(pname, venueF, pid) {
   const rowsBy = {};
