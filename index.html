@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v258";
+const APP_VERSION = "v259";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -523,6 +523,7 @@ if (_bootFromIdb && document.body) {   // games live in IDB — veil the brief a
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
   } catch (e) { USE_IDB = false; }                               // anything unexpected: stay safely on localStorage
   try { seedDifficultiesOnce(); } catch (e) {}                   // one-time difficulty fill, now that the games are here
+  try { seedDifficultyDefaultsOnce(); } catch (e) {}             // ...and the same players' default difficulties
   try { renderTally(); renderList(); } catch (e) {}
   const ld = document.getElementById("bootLoad"); if (ld) ld.remove();
   try { cleanImportedPlaces(); } catch (e) {}
@@ -1829,7 +1830,11 @@ const DIFF_LEVELS = ["Rookie", "Veteran", "All-Star", "Hall of Fame", "Legend"];
 let seasonDiff = {};
 try { seasonDiff = JSON.parse(localStorage.getItem(DIFFKEY) || "{}") || {}; } catch (e) { seasonDiff = {}; }
 function persistSeasonDiff() { dataChanged(); try { localStorage.setItem(DIFFKEY, JSON.stringify(seasonDiff)); } catch (e) {} }
-function diffOf(key, sk, grp) { const P = seasonDiff[key], S = P && P[String(sk)]; return (S && S[grp]) || ""; }
+// A player's default difficulty per side lives in seasonDiff[key][DIFF_DEFAULT]; any season without its own uses it.
+const DIFF_DEFAULT = "__default";
+function diffOwn(key, sk, grp) { const P = seasonDiff[key], S = P && P[String(sk)]; return (S && S[grp]) || ""; }
+function diffDefault(key, grp) { return diffOwn(key, DIFF_DEFAULT, grp); }
+function diffOf(key, sk, grp) { return diffOwn(key, sk, grp) || diffDefault(key, grp); }
 function setDiff(key, sk, grp, d) {
   sk = String(sk); d = String(d || "").trim();
   const P = seasonDiff[key] = seasonDiff[key] || {}, S = P[sk] = P[sk] || {};
@@ -1882,6 +1887,25 @@ function seedDifficultiesOnce() {
   }
   persistSeasonDiff();
   try { localStorage.setItem(DIFFSEED_KEY, String(n)); } catch (e) {}
+}
+const DIFFSEED2_KEY = "sports-stat-diffseed-2";
+function seedDifficultyDefaultsOnce() {
+  try { if (localStorage.getItem(DIFFSEED2_KEY)) return; } catch (e) { return; }
+  const plan = {}; for (const [nm, bat, pit] of DIFF_SEED) plan[canonName(nm)] = { bat, pit };
+  const keys = {};                                                    // every key these names go by (name-only and linked ids)
+  for (const nm in plan) keys[mcKeyOf(DIFF_SEED.find(x => canonName(x[0]) === nm)[0], null)] = plan[nm];
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    for (const r of (e.box || [])) { const nm = (r.player || "").trim(); if (nm && plan[canonName(nm)]) keys[mcKeyOf(nm, r.pid || null)] = plan[canonName(nm)]; }
+  }
+  for (const key in manualCareer) { const mc = manualCareer[key], nm = mc && (mc.name || key.replace(/^nm:/, "")); if (nm && plan[canonName(nm)]) keys[key] = plan[canonName(nm)]; }
+  let n = 0;
+  for (const key in keys) {
+    const P = seasonDiff[key] = seasonDiff[key] || {}, D = P[DIFF_DEFAULT] = P[DIFF_DEFAULT] || {};
+    for (const g of ["bat", "pit"]) if (!D[g]) { D[g] = keys[key][g]; n++; }
+  }
+  persistSeasonDiff();
+  try { localStorage.setItem(DIFFSEED2_KEY, String(n)); } catch (e) {}
 }
 function knownDiffs() {
   const s = {};
@@ -2301,9 +2325,9 @@ function renderCareerEditor() {
         + AWARD_FIELDS.map(([id, lbl]) => '<label style="font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" data-maseason="' + esc(yr) + '" data-maward="' + id + '"' + (won.indexOf(id) >= 0 ? " checked" : "") + ">" + esc(lbl) + "</label>").join("") + "</div>";
       const excl = seasonExcluded(mcEdit.key, yr);
       const exclBox = '<label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-top:6px"><input type="checkbox" data-mcnocareer="' + esc(yr) + '"' + (excl ? " checked" : "") + ">Don\u2019t count toward career totals <span style=\"color:var(--ink-soft)\">(All-Star, spring training, playoffs)</span></label>";
-      const okey = grp + "|" + yr, dif = diffOf(mcEdit.key, yr, grp);
+      const okey = grp + "|" + yr, dif = diffOf(mcEdit.key, yr, grp), difOwn = diffOwn(mcEdit.key, yr, grp), difDef = diffDefault(mcEdit.key, grp);
       const difBox = '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px"><span style="color:var(--ink-soft);white-space:nowrap">' + (grp === "pit" ? "Pitching" : "Hitting") + ' difficulty:</span>'
-        + '<input data-mcdiff="' + grp + "|" + esc(yr) + '" list="mcDiffList" value="' + esc(dif) + '" placeholder="optional, e.g. Hall of Fame" autocomplete="off" style="flex:1;padding:3px 5px;font-size:11px"></div>';
+        + '<input data-mcdiff="' + grp + "|" + esc(yr) + '" list="mcDiffList" value="' + esc(difOwn) + '" placeholder="' + esc(difDef ? "default: " + difDef : "optional, e.g. Hall of Fame") + '" autocomplete="off" style="flex:1;padding:3px 5px;font-size:11px"></div>';
       return '<details class="mcseason"' + (mcOpenSeasons[okey] ? " open" : "") + ' data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (dif ? ' <span style="font-weight:400;color:var(--ink-soft);font-size:11px">\u00b7 ' + esc(dif) + "</span>" : "") + (isPostSeason(yr) ? ' <span style="font-weight:400;color:var(--red)">\ud83c\udfc6 playoffs</span>' : excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>"
         + '<div class="hint" style="font-size:10px;margin:2px 0">Shows this season\u2019s current total (typed + games logged since). Editing sets the total; games you log afterward add on top.</div>'
         + difBox + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + exclBox + awChecks
@@ -2340,6 +2364,10 @@ function renderCareerEditor() {
     + '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px"><span style="color:var(--ink-soft);white-space:nowrap">Video game:</span>'
       + '<input id="mcGame" list="mcGameList" value="' + esc(gameOf(mcEdit.name)) + '" placeholder="e.g. MLB The Show 25" autocomplete="off" style="flex:1">'
       + '<datalist id="mcGameList">' + knownGames().map(g => '<option value="' + esc(g) + '"></option>').join("") + "</datalist></div>"
+    + '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;flex-wrap:wrap"><span style="color:var(--ink-soft);white-space:nowrap">Default difficulty:</span>'
+      + '<span style="font-size:11px">Hitting</span><input data-mcdiffdef="bat" list="mcDiffList" value="' + esc(diffDefault(mcEdit.key, "bat")) + '" placeholder="none" autocomplete="off" style="width:96px;padding:3px 5px;font-size:11px">'
+      + '<span style="font-size:11px">Pitching</span><input data-mcdiffdef="pit" list="mcDiffList" value="' + esc(diffDefault(mcEdit.key, "pit")) + '" placeholder="none" autocomplete="off" style="width:96px;padding:3px 5px;font-size:11px">'
+      + '<span style="color:var(--ink-soft);font-size:10px;flex-basis:100%">Used for every season (new ones too) that doesn\u2019t have its own difficulty below.</span></div>'
     + '<datalist id="mcDiffList">' + knownDiffs().map(d => '<option value="' + esc(d) + '"></option>').join("") + "</datalist>"
     + '<div class="hint" style="margin-top:4px">Enter a <b>starting baseline</b> — the totals this player had <b>before</b> you began logging games here. Games you log then add on top automatically (updating the leaderboards live), so enter the baseline once and don\u2019t re-add logged games to it. A career total takes priority; seasons feed the per-season boards.</div>'
     + '<div style="margin-top:8px;padding:8px;border:1px dashed var(--line);border-radius:6px">'
@@ -2413,6 +2441,10 @@ function wireCareerEditor(wrap) {
       renderCareerEditor();
     });
   });
+  wrap.querySelectorAll("[data-mcdiffdef]").forEach(inp => inp.addEventListener("change", () => {
+    setDiff(mcEdit.key, DIFF_DEFAULT, inp.getAttribute("data-mcdiffdef"), inp.value);
+    saveCareerEditor(wrap); renderCareerEditor();                 // season headings and placeholders show the new default
+  }));
   wrap.querySelectorAll("[data-mcdiff]").forEach(inp => inp.addEventListener("change", () => {
     const [g, ...rest] = inp.getAttribute("data-mcdiff").split("|");
     setDiff(mcEdit.key, rest.join("|"), g, inp.value);            // the season heading picks it up the next time the editor redraws
