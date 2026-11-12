@@ -474,7 +474,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v266";
+const APP_VERSION = "v267";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -542,6 +542,7 @@ if (_bootFromIdb && document.body) {   // games live in IDB — veil the brief a
   try { renameTeamsOnce(); } catch (e) {}                        // one-time: same team, same spelling
   try { fixPlayoffLabelsOnce(); } catch (e) {}                   // one-time: "2036 playoffs" -> "Playoffs 2036"
   try { cleanEmptyLinesOnce(); } catch (e) {}                    // one-time: box-score lines need real stats
+  try { fixRockiesPlayoffGamesOnce(); } catch (e) {}             // one-time: five 2036 playoff games were Rockies road games
   try { seedPlayerTeamsOnce(); } catch (e) {}                    // ...and the teams they've played for
   try { renderTally(); renderList(); } catch (e) {}
   const ld = document.getElementById("bootLoad"); if (ld) ld.remove();
@@ -2030,6 +2031,21 @@ function cleanEmptyLinesOnce() {
   }
   if (n) persist();
   try { localStorage.setItem(BOXCLEAN_KEY, String(n)); } catch (e) {}
+}
+// One-time: five 2036 playoff games (Nov. 11) were saved as Nationals @ Rockies with Joseph 2W Crook on the
+// away side, but he was with the Rockies on the road. Swap the team names so it reads Rockies @ Nationals.
+const ROCKIESFIX_KEY = "sports-stat-rockiesfix-1";
+function fixRockiesPlayoffGamesOnce() {
+  try { if (localStorage.getItem(ROCKIESFIX_KEY)) return; } catch (e) { return; }
+  const ids = new Set(["mwcmwd3p", "mwcq8igt", "mwcqfxvh", "mwcr3c01", "mwcra5np"]);
+  let n = 0;
+  for (const e of entries) {
+    if (!ids.has(e.id) || (e.away || "").trim() !== "Nationals" || (e.home || "").trim() !== "Rockies") continue;
+    if (!(e.box || []).some(r => canonName(r.player) === canonName("Joseph 2W Crook") && r.team === "away")) continue;
+    e.away = "Rockies"; e.home = "Nationals"; n++;
+  }
+  if (n) persist();
+  try { localStorage.setItem(ROCKIESFIX_KEY, String(n)); } catch (e) {}
 }
 const TEAMSEED_KEY = "sports-stat-teamseed-1";
 function seedPlayerTeamsOnce() {
