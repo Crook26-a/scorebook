@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v261";
+const APP_VERSION = "v262";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -525,6 +525,7 @@ if (_bootFromIdb && document.body) {   // games live in IDB — veil the brief a
   try { seedDifficultiesOnce(); } catch (e) {}                   // one-time difficulty fill, now that the games are here
   try { seedDifficultyDefaultsOnce(); } catch (e) {}             // ...and the same players' default difficulties
   try { renameTeamsOnce(); } catch (e) {}                        // one-time: same team, same spelling
+  try { fixPlayoffLabelsOnce(); } catch (e) {}                   // one-time: "2036 playoffs" -> "Playoffs 2036"
   try { seedPlayerTeamsOnce(); } catch (e) {}                    // ...and the teams they've played for
   try { renderTally(); renderList(); } catch (e) {}
   const ld = document.getElementById("bootLoad"); if (ld) ld.remove();
@@ -1293,6 +1294,7 @@ function renderList() {
       + (e.inProgress ? '<button class="savebtn disp" data-act="resume" style="width:100%;margin-top:8px">▶ Resume scoring</button>' : "")
       + (e.solo && e.solo.player && !e.inProgress ? '<div class="cardbtns" style="margin-top:8px">'
           + '<button class="ebtn" data-act="soloNext" title="Log another game for ' + esc(e.solo.player) + ' vs the same team">▶ Next game</button>'
+          + (isPostSeason(e.season) ? '<button class="ebtn" data-act="soloNextSwap" title="Next playoff game with home and away swapped">\u21c4 Next game (swap)</button>' : "")
           + '<button class="ebtn" data-act="soloNew" title="Start a new series for ' + esc(e.solo.player) + ' vs a different team">＋ New series</button>'
         + "</div>" : "")
       + '<div class="cardbtns">'
@@ -1404,16 +1406,22 @@ function openForm(entry, restored) {
       const box = document.getElementById("fSeason");
       const s = (box ? box.value : form.season || "").trim();
       if (!s) { if (box) box.focus(); return; }
-      form.season = s;
-      if (postSeasons[s]) delete postSeasons[s]; else postSeasons[s] = 1;
-      persistPostSeasons();
-      const on = isPostSeason(s);
+      if (isPostSeason(s)) {                                     // back to the regular season: "Playoffs 2036" -> "2036"
+        const reg = regularLabelFor(s);
+        if (reg) form.season = reg;
+        else { form.season = s; delete postSeasons[s]; persistPostSeasons(); }   // an odd label: just unflag it
+      } else {                                                    // this game is a playoff game: "2036" -> "Playoffs 2036"
+        form.season = playoffLabelFor(s);
+        postSeasons[form.season] = 1; persistPostSeasons();
+      }
+      if (box) box.value = form.season;
+      const on = isPostSeason(form.season);
       pb.style.background = on ? "var(--ink)" : "";
       pb.style.color = on ? "var(--card)" : "";
       pb.style.opacity = on ? "1" : ".5";
       const note = document.getElementById("fSeasonPostNote");
-      if (note) note.textContent = on ? "Marked postseason \u2014 kept out of regular career totals and summed on its own."
-        : "Tap \ud83c\udfc6 to make this season the postseason.";
+      if (note) note.textContent = on ? "Playoff game (" + form.season + ") \u2014 kept out of regular career totals and summed on its own."
+        : "Tap \ud83c\udfc6 to make this a playoff game (season becomes \u201cPlayoffs <year>\u201d).";
     });
   }
   document.getElementById("fNoRec").addEventListener("change", ev => form.noRec = ev.target.checked);
@@ -1960,6 +1968,32 @@ function renameTeamsOnce() {
   if (n) persist();
   try { localStorage.setItem(TEAMRENAME_KEY, String(n)); } catch (e) {}
 }
+const PLAYOFFFIX_KEY = "sports-stat-playofffix-1";
+function fixPlayoffLabelsOnce() {
+  try { if (localStorage.getItem(PLAYOFFFIX_KEY)) return; } catch (e) { return; }
+  const labels = new Set();
+  for (const e of entries) if (e.season != null) labels.add(String(e.season));
+  for (const k in postSeasons) labels.add(k);
+  for (const k in manualCareer) { const mc = manualCareer[k] || {}; for (const g of ["bat", "pit"]) for (const sk in ((mc[g] || {}).seasons || {})) labels.add(sk); }
+  let n = 0;
+  for (const sk of labels) {
+    const m = sk.trim().match(/^(\d{4})\s+playoffs?$/i);            // "2036 playoffs" -> "Playoffs 2036"
+    if (!m) continue;
+    const to = "Playoffs " + m[1];
+    renameSeasonLabel(sk, to, null);
+    postSeasons[to] = 1; n++;
+  }
+  persistPostSeasons();
+  // Joseph P. Crook: minors, the All-Star Game and spring training stay out of his career (set directly, so
+  // his career line isn't re-dated the way saving the editor would)
+  const pk = mcKeyOf("Joseph P. Crook", null);
+  const mc = manualCareer[pk] = manualCareer[pk] || emptyMC();
+  if (!mc.name) mc.name = "Joseph P. Crook";
+  mc.noCareer = mc.noCareer || {};
+  for (const sk of ["ASG", "2026 Spring Training", "AA", "AAA"]) mc.noCareer[sk] = true;
+  persistManualCareer();
+  try { localStorage.setItem(PLAYOFFFIX_KEY, String(n)); } catch (e) {}
+}
 const TEAMSEED_KEY = "sports-stat-teamseed-1";
 function seedPlayerTeamsOnce() {
   try { if (localStorage.getItem(TEAMSEED_KEY)) return; } catch (e) { return; }
@@ -2212,15 +2246,39 @@ function wireSeasonManager(wrap) {
     const n = entries.filter(e => e.sport === "baseball" && modeOf(e) === appMode && String(e.season == null ? "" : e.season) === from).length;
     const merging = !!seasonLabelCounts(appMode)[to];
     appConfirm("Move " + n + " game" + (n === 1 ? "" : "s") + " from \u201c" + from + "\u201d to \u201c" + to + "\u201d?" + (merging ? " That label already exists, so the two will be merged." : ""), () => {
-      for (const e of entries) if (e.sport === "baseball" && modeOf(e) === appMode && String(e.season == null ? "" : e.season) === from) e.season = to;
-      if (postSeasons[from]) { delete postSeasons[from]; postSeasons[to] = 1; persistPostSeasons(); }
-      let dMoved = false;                                       // every player's difficulty for that label moves with it
-      for (const k in seasonDiff) if (seasonDiff[k][from]) { if (!seasonDiff[k][to]) seasonDiff[k][to] = seasonDiff[k][from]; delete seasonDiff[k][from]; dMoved = true; }
-      if (dMoved) persistSeasonDiff();
+      renameSeasonLabel(from, to, appMode);
       persist(); renderSeasonManager();
     }, () => { inp.value = from; });
   }));
 }
+// Rename a season label everywhere it's used: games (one mode, or all when mode is null), the playoff flag,
+// every player's typed season lines, career exclusions, awards, difficulty, team, and the current season.
+// Where the new label already has something of its own, that is kept and the old entry is left alone.
+function renameSeasonLabel(from, to, mode) {
+  from = String(from); to = String(to); if (!to || from === to) return 0;
+  let n = 0;
+  for (const e of entries) if (e.sport === "baseball" && (!mode || modeOf(e) === mode) && String(e.season == null ? "" : e.season) === from) { e.season = to; n++; }
+  if (postSeasons[from]) { delete postSeasons[from]; postSeasons[to] = 1; persistPostSeasons(); }
+  const mv = obj => { if (obj && obj[from] !== undefined && obj[to] === undefined) { obj[to] = obj[from]; delete obj[from]; return true; } return false; };
+  let mcMoved = false;
+  for (const k in manualCareer) {
+    const mc = manualCareer[k]; if (!mc) continue;
+    for (const g of ["bat", "pit"]) if (mc[g] && mv(mc[g].seasons)) mcMoved = true;
+    if (mv(mc.noCareer)) mcMoved = true;
+    if (mv(mc.awards)) mcMoved = true;
+  }
+  if (mcMoved) persistManualCareer();
+  let dMoved = false; for (const k in seasonDiff) if (mv(seasonDiff[k])) dMoved = true;
+  if (dMoved) persistSeasonDiff();
+  let tMoved = false; for (const k in seasonTeam) if (mv(seasonTeam[k])) tMoved = true;
+  if (tMoved) persistSeasonTeam();
+  try { if ((localStorage.getItem("sports-stat-season") || "").trim() === from) localStorage.setItem("sports-stat-season", to); } catch (e) {}
+  if (n) persist();
+  return n;
+}
+// "2036" -> "Playoffs 2036"; a label without a year just gets "Playoffs " in front.
+function playoffLabelFor(sk) { const m = String(sk).match(/\b(\d{4})\b/); return "Playoffs " + (m ? m[1] : String(sk).trim()); }
+function regularLabelFor(sk) { const m = String(sk).match(/^playoffs\s+(.+)$/i); return m ? m[1].trim() : ""; }
 function seasonLabelCounts(mode) {
   const c = {};
   for (const e of entries) {
@@ -3938,7 +3996,7 @@ function seedSolo() {
   }
   updateBoxBtn();
 }
-function soloNextGame(newSeries) {
+function soloNextGame(newSeries, swap) {
   const L = form.live, S = L.solo;
   const mySide = S.team, oppSide = mySide === "away" ? "home" : "away";
   // Solo setup never collects team names, so gather what the series needs before saving.
@@ -3955,7 +4013,7 @@ function soloNextGame(newSeries) {
     }).then(raw => {
       const nm = (raw || "").trim();
       if (!nm) return;
-      form[mySide] = nm; syncTeamInputs(); soloNextGame(newSeries);
+      form[mySide] = nm; syncTeamInputs(); soloNextGame(newSeries, swap);
     });
     return;
   }
@@ -3968,7 +4026,7 @@ function soloNextGame(newSeries) {
     }).then(raw => {
       const nm = (raw || "").trim();
       if (!nm) return;
-      form[oppSide] = nm; syncTeamInputs(); soloNextGame(newSeries);
+      form[oppSide] = nm; syncTeamInputs(); soloNextGame(newSeries, swap);
     });
     return;
   }
@@ -3977,6 +4035,7 @@ function soloNextGame(newSeries) {
     away: form.away, home: form.home, venue: form.venue, place: form.place, mode: form.mode || appMode,
     season: form.season || "",
     myName: S.team === "away" ? form.away : form.home };
+  if (swap && !newSeries) swapCarried(carried);
   closeLive();
   saveEntry();
   if (form) return; // save was blocked (e.g. validation) — fix and retry
@@ -4008,8 +4067,10 @@ function startSoloNext(carried, newSeries) {
     renderSeriesSheet();
   }
 }
+// Next playoff game at the other park: the two teams trade home and away, and the player goes with his team.
+function swapCarried(c) { const a = c.away; c.away = c.home; c.home = a; c.team = c.team === "away" ? "home" : "away"; return c; }
 // Continue (or branch a new series) from a saved single-player game, without reopening it.
-function soloSeriesFromEntry(id, newSeries) {
+function soloSeriesFromEntry(id, newSeries, swap) {
   const e = entries.find(x => x.id === id);
   if (!e || !e.solo) return;
   const S = e.solo;
@@ -4019,6 +4080,7 @@ function soloSeriesFromEntry(id, newSeries) {
     away: e.away, home: e.home, venue: e.venue, place: e.place, mode: e.mode || appMode,
     season: e.season || "",
     myName: S.team === "away" ? e.away : e.home };
+  if (swap && !newSeries) swapCarried(carried);
   startSoloNext(carried, newSeries);
 }
 function ssCapture(ov) {
@@ -4178,7 +4240,7 @@ function renderSolo() {
             .map(([k, lab, bad]) => '<button class="decbtn' + (bad ? " bad" : "") + ((row && filled(row.stats[k])) ? " on" : "") + '" data-dec="' + k + '">' + lab + "</button>").join("")
         + "</div>" : "")
     + '<button class="donebtn disp" id="lDone">Done — stats are in the box score</button>'
-    + '<div class="lgrid lg3" style="margin-top:8px"><button class="lbtn soft" id="serSame">💾 Save & next · same series</button><button class="lbtn soft" id="serNew">💾 New series · keep player</button><button class="lbtn soft" id="momentBtn">📝 Moment</button></div>'
+    + '<div class="lgrid lg3" style="margin-top:8px"><button class="lbtn soft" id="serSame">💾 Save & next · same series</button>' + (isPostSeason(form.season) ? '<button class="lbtn soft" id="serSwap">\u21c4 Save & next · swap home/away</button>' : "") + '<button class="lbtn soft" id="serNew">💾 New series · keep player</button><button class="lbtn soft" id="momentBtn">📝 Moment</button></div>'
     + '<div style="text-align:center;margin-top:8px"><button class="addrow" id="lTrack" style="color:var(--ink-soft)">🎚 trackers</button> · <button class="addrow" id="lReset" style="color:var(--ink-soft)">⚙ start over</button></div>'
     + "</div>";
 
@@ -4192,6 +4254,7 @@ function renderSolo() {
     const nb = ov.querySelector("[data-scoutnew]"); if (nb) nb.addEventListener("click", () => { const sl = scoutSlot(st.pos); sl.res = []; sl.hand = ""; renderLive(); });
   }
   ov.querySelector("#serSame").addEventListener("click", () => soloNextGame(false));
+  const serSwap = ov.querySelector("#serSwap"); if (serSwap) serSwap.addEventListener("click", () => soloNextGame(false, true));
   ov.querySelector("#serNew").addEventListener("click", () => soloNextGame(true));
   ov.querySelector("#momentBtn").addEventListener("click", markMoment);
   ov.querySelector("#lTrack").addEventListener("click", () => { liveView = { s: "opts" }; renderLive(); });
@@ -6054,6 +6117,8 @@ document.getElementById("listArea").addEventListener("click", ev => {
     if (e) { openForm(e); openLive(); }
   } else if (btn.dataset.act === "soloNext") {
     soloSeriesFromEntry(id, false);
+  } else if (btn.dataset.act === "soloNextSwap") {
+    soloSeriesFromEntry(id, false, true);
   } else if (btn.dataset.act === "soloNew") {
     soloSeriesFromEntry(id, true);
   } else if (btn.dataset.act === "split") {
