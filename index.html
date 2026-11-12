@@ -459,7 +459,7 @@ const STAT_GLOSSARY = {
 
 const KEY = "sports-stat-log-v1";
 // App version shown in the top-right badge — bump this together with the sw.js CACHE version on every ship.
-const APP_VERSION = "v259";
+const APP_VERSION = "v260";
 let entries = [];
 try { entries = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) {}
 // ── IndexedDB game store ─────────────────────────────────────────────
@@ -524,6 +524,8 @@ if (_bootFromIdb && document.body) {   // games live in IDB — veil the brief a
   } catch (e) { USE_IDB = false; }                               // anything unexpected: stay safely on localStorage
   try { seedDifficultiesOnce(); } catch (e) {}                   // one-time difficulty fill, now that the games are here
   try { seedDifficultyDefaultsOnce(); } catch (e) {}             // ...and the same players' default difficulties
+  try { renameTeamsOnce(); } catch (e) {}                        // one-time: same team, same spelling
+  try { seedPlayerTeamsOnce(); } catch (e) {}                    // ...and the teams they've played for
   try { renderTally(); renderList(); } catch (e) {}
   const ld = document.getElementById("bootLoad"); if (ld) ld.remove();
   try { cleanImportedPlaces(); } catch (e) {}
@@ -626,6 +628,34 @@ try { playerGame = JSON.parse(localStorage.getItem(PGAMEKEY) || "{}") || {}; } c
 function persistPlayerGame() { dataChanged(); try { localStorage.setItem(PGAMEKEY, JSON.stringify(playerGame)); } catch (e) {} }
 function gameOf(name) { return playerGame[canonName(name || "")] || ""; }
 function setGame(name, g) { const k = canonName(name || ""); if (!k) return; g = String(g || "").trim(); if (g) playerGame[k] = g; else delete playerGame[k]; persistPlayerGame(); }
+// The teams a video player has actually played for. Games logged under any other team (minors, All-Star,
+// a mislabeled side) count toward whichever listed team he played for nearest in time, for the by-team tables.
+const PTEAMKEY = "sports-stat-pteams-v1";
+let playerTeams = {};
+try { playerTeams = JSON.parse(localStorage.getItem(PTEAMKEY) || "{}") || {}; } catch (e) { playerTeams = {}; }
+function persistPlayerTeams() { dataChanged(); try { localStorage.setItem(PTEAMKEY, JSON.stringify(playerTeams)); } catch (e) {} }
+function teamsOf(name) { return playerTeams[canonName(name || "")] || []; }
+function setTeams(name, list) {
+  const k = canonName(name || ""); if (!k) return;
+  const clean = []; for (const t of list) { const x = String(t || "").trim(); if (x && !clean.some(c => teamNorm(c) === teamNorm(x))) clean.push(x); }
+  if (clean.length) playerTeams[k] = clean; else delete playerTeams[k];
+  persistPlayerTeams();
+}
+const teamNorm = t => String(t || "").toLowerCase().replace(/[^a-z0-9]/g, "");   // "Redsox" == "Red Sox"
+// Which team a player was on for a whole season: seasonTeam[playerKey][season]. Needed for typed season lines,
+// which carry no team of their own; a season with a team counts entirely toward it in the by-team tables.
+const STEAMKEY = "sports-stat-seasonteam-v1";
+let seasonTeam = {};
+try { seasonTeam = JSON.parse(localStorage.getItem(STEAMKEY) || "{}") || {}; } catch (e) { seasonTeam = {}; }
+function persistSeasonTeam() { dataChanged(); try { localStorage.setItem(STEAMKEY, JSON.stringify(seasonTeam)); } catch (e) {} }
+function seasonTeamOf(key, sk) { return (seasonTeam[key] && seasonTeam[key][String(sk)]) || ""; }
+function setSeasonTeam(key, sk, t) {
+  sk = String(sk); t = String(t || "").trim();
+  const P = seasonTeam[key] = seasonTeam[key] || {};
+  if (t) P[sk] = t; else delete P[sk];
+  if (!Object.keys(P).length) delete seasonTeam[key];
+  persistSeasonTeam();
+}
 function knownGames() { const s = {}; for (const k in playerGame) { const g = playerGame[k]; if (g) s[g.toLowerCase()] = g; } return Object.values(s).sort((a, b) => a.localeCompare(b)); }
 let pinnedPlayers = [];
 try { pinnedPlayers = JSON.parse(localStorage.getItem(PINKEY) || "[]"); } catch (e) {}
@@ -1907,6 +1937,39 @@ function seedDifficultyDefaultsOnce() {
   persistSeasonDiff();
   try { localStorage.setItem(DIFFSEED2_KEY, String(n)); } catch (e) {}
 }
+const TEAM_RENAMES = {
+  "Redsox": "Red Sox", "Red sox": "Red Sox", "Boston": "Red Sox", "Boston Red Sox": "Red Sox",
+  "White sox": "White Sox", "White socks": "White Sox", "Rtts": "RTTS", "Rttts": "RTTS", "Nl": "NL", "Al": "AL",
+  "Railriders": "Rail Riders", "Rail riders": "Rail Riders",
+  "Gaurdians": "Guardians", "Cle": "Guardians", "Astors": "Astros", "Angles": "Angels", "Diamondback": "Diamondbacks", "Buscuits": "Biscuits",
+  "Detroit": "Tigers", "Miami": "Marlins", "Fishes": "Marlins", "Toronto": "Blue Jays", "Jays": "Blue Jays", "Baltimore": "Orioles",
+  "Tex": "Rangers", "Cincinnati Reds": "Reds", "Buffalo": "Bisons", "Buffalos": "Bisons"
+};
+const TEAMRENAME_KEY = "sports-stat-teamrename-1";
+function renameTeamsOnce() {
+  try { if (localStorage.getItem(TEAMRENAME_KEY)) return; } catch (e) { return; }
+  let n = 0;
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== "video") continue;
+    for (const side of ["away", "home"]) {
+      const raw = e[side] || "", t = raw.trim().replace(/\s+/g, " "), to = TEAM_RENAMES[t] || t;   // stray spaces count as a different spelling too
+      if (to !== raw) { e[side] = to; n++; }
+    }
+  }
+  if (Array.isArray(mileWatch.teams)) { const before = JSON.stringify(mileWatch.teams); mileWatch.teams = mileWatch.teams.map(t => TEAM_RENAMES[(t || "").trim()] || t).filter((t, i, a) => a.findIndex(x => x.toLowerCase() === t.toLowerCase()) === i); if (JSON.stringify(mileWatch.teams) !== before) persistMileWatch(); }
+  if (n) persist();
+  try { localStorage.setItem(TEAMRENAME_KEY, String(n)); } catch (e) {}
+}
+const TEAMSEED_KEY = "sports-stat-teamseed-1";
+function seedPlayerTeamsOnce() {
+  try { if (localStorage.getItem(TEAMSEED_KEY)) return; } catch (e) { return; }
+  const plan = [["Joseph 2W Crook", ["Angels", "Diamondbacks", "Nationals", "Rockies"]], ["Joseph Crook", ["Cubs", "Red Sox"]], ["Joseph P. Crook", ["Red Sox"]]];
+  for (const [nm, list] of plan) if (!teamsOf(nm).length) setTeams(nm, list);
+  const jc = mcKeyOf("Joseph Crook", null);                          // Cubs through his rookie deal (2032), Red Sox after
+  for (const sk of ["2025", "2026", "2027", "2028", "2029", "2030", "2031", "2032", "Season 8", "Playoff 8"]) if (!seasonTeamOf(jc, sk)) setSeasonTeam(jc, sk, "Cubs");
+  for (const sk of ["2033", "2034", "Season 9", "Playoff 9"]) if (!seasonTeamOf(jc, sk)) setSeasonTeam(jc, sk, "Red Sox");
+  try { localStorage.setItem(TEAMSEED_KEY, "1"); } catch (e) {}
+}
 function knownDiffs() {
   const s = {};
   for (const d of DIFF_LEVELS) s[d.toLowerCase()] = d;
@@ -2326,11 +2389,13 @@ function renderCareerEditor() {
       const excl = seasonExcluded(mcEdit.key, yr);
       const exclBox = '<label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-top:6px"><input type="checkbox" data-mcnocareer="' + esc(yr) + '"' + (excl ? " checked" : "") + ">Don\u2019t count toward career totals <span style=\"color:var(--ink-soft)\">(All-Star, spring training, playoffs)</span></label>";
       const okey = grp + "|" + yr, dif = diffOf(mcEdit.key, yr, grp), difOwn = diffOwn(mcEdit.key, yr, grp), difDef = diffDefault(mcEdit.key, grp);
+      const stBox = '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px"><span style="color:var(--ink-soft);white-space:nowrap">Team this season:</span>'
+        + '<input data-mcsteam="' + esc(yr) + '" list="mcTeamList" value="' + esc(seasonTeamOf(mcEdit.key, yr)) + '" placeholder="optional, e.g. Cubs" autocomplete="off" style="flex:1;padding:3px 5px;font-size:11px"></div>';
       const difBox = '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px"><span style="color:var(--ink-soft);white-space:nowrap">' + (grp === "pit" ? "Pitching" : "Hitting") + ' difficulty:</span>'
         + '<input data-mcdiff="' + grp + "|" + esc(yr) + '" list="mcDiffList" value="' + esc(difOwn) + '" placeholder="' + esc(difDef ? "default: " + difDef : "optional, e.g. Hall of Fame") + '" autocomplete="off" style="flex:1;padding:3px 5px;font-size:11px"></div>';
       return '<details class="mcseason"' + (mcOpenSeasons[okey] ? " open" : "") + ' data-sgrp="' + grp + '" data-skey="' + esc(yr) + '" style="margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px"><summary style="cursor:pointer;font-size:12px;font-weight:700">' + esc(yr) + (yr === cur ? " \ud83d\udd34" : "") + (dif ? ' <span style="font-weight:400;color:var(--ink-soft);font-size:11px">\u00b7 ' + esc(dif) + "</span>" : "") + (isPostSeason(yr) ? ' <span style="font-weight:400;color:var(--red)">\ud83c\udfc6 playoffs</span>' : excl ? ' <span style="font-weight:400;color:var(--ink-soft)">\u2298 not in career</span>' : "") + "</summary>"
         + '<div class="hint" style="font-size:10px;margin:2px 0">Shows this season\u2019s current total (typed + games logged since). Editing sets the total; games you log afterward add on top.</div>'
-        + difBox + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + exclBox + awChecks
+        + stBox + difBox + fieldInputs(fields, editPrefill(seasonResolvedStats(mcEdit.key, yr, grp), mcEdit.key, grp, yr), "data-mcf") + derivedHint(grp, yr) + exclBox + awChecks
         + '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);display:flex;gap:6px;justify-content:space-between;align-items:center">'
         + (hasLoggedGrp(mcEdit.key, yr, grp)
             ? '<button class="lbtn soft" data-mcrecount="' + grp + "|" + esc(yr) + '" style="font-size:10px;padding:2px 8px">\u21ba Count from logged games</button>'
@@ -2364,10 +2429,14 @@ function renderCareerEditor() {
     + '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px"><span style="color:var(--ink-soft);white-space:nowrap">Video game:</span>'
       + '<input id="mcGame" list="mcGameList" value="' + esc(gameOf(mcEdit.name)) + '" placeholder="e.g. MLB The Show 25" autocomplete="off" style="flex:1">'
       + '<datalist id="mcGameList">' + knownGames().map(g => '<option value="' + esc(g) + '"></option>').join("") + "</datalist></div>"
+    + '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;flex-wrap:wrap"><span style="color:var(--ink-soft);white-space:nowrap">Teams played for:</span>'
+      + '<input id="mcTeams" value="' + esc(teamsOf(mcEdit.name).join(", ")) + '" placeholder="e.g. Angels, Diamondbacks" autocomplete="off" style="flex:1;min-width:160px">'
+      + '<span style="color:var(--ink-soft);font-size:10px;flex-basis:100%">Comma-separated. In the by-team tables, games under any other team (minors, All-Star, a mislabeled side) count toward the nearest of these by date.</span></div>'
     + '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;flex-wrap:wrap"><span style="color:var(--ink-soft);white-space:nowrap">Default difficulty:</span>'
       + '<span style="font-size:11px">Hitting</span><input data-mcdiffdef="bat" list="mcDiffList" value="' + esc(diffDefault(mcEdit.key, "bat")) + '" placeholder="none" autocomplete="off" style="width:96px;padding:3px 5px;font-size:11px">'
       + '<span style="font-size:11px">Pitching</span><input data-mcdiffdef="pit" list="mcDiffList" value="' + esc(diffDefault(mcEdit.key, "pit")) + '" placeholder="none" autocomplete="off" style="width:96px;padding:3px 5px;font-size:11px">'
       + '<span style="color:var(--ink-soft);font-size:10px;flex-basis:100%">Used for every season (new ones too) that doesn\u2019t have its own difficulty below.</span></div>'
+    + '<datalist id="mcTeamList">' + teamsOf(mcEdit.name).map(t => '<option value="' + esc(t) + '"></option>').join("") + "</datalist>"
     + '<datalist id="mcDiffList">' + knownDiffs().map(d => '<option value="' + esc(d) + '"></option>').join("") + "</datalist>"
     + '<div class="hint" style="margin-top:4px">Enter a <b>starting baseline</b> — the totals this player had <b>before</b> you began logging games here. Games you log then add on top automatically (updating the leaderboards live), so enter the baseline once and don\u2019t re-add logged games to it. A career total takes priority; seasons feed the per-season boards.</div>'
     + '<div style="margin-top:8px;padding:8px;border:1px dashed var(--line);border-radius:6px">'
@@ -2449,6 +2518,13 @@ function wireCareerEditor(wrap) {
     const [g, ...rest] = inp.getAttribute("data-mcdiff").split("|");
     setDiff(mcEdit.key, rest.join("|"), g, inp.value);            // the season heading picks it up the next time the editor redraws
   }));
+  wrap.querySelectorAll("[data-mcsteam]").forEach(inp => inp.addEventListener("change", () => {
+    const sk = inp.getAttribute("data-mcsteam");
+    setSeasonTeam(mcEdit.key, sk, inp.value);
+    wrap.querySelectorAll("[data-mcsteam]").forEach(o => { if (o !== inp && o.getAttribute("data-mcsteam") === sk) o.value = inp.value; });   // same season in the other block
+  }));
+  const mcTeams = wrap.querySelector("#mcTeams");
+  if (mcTeams) mcTeams.addEventListener("change", () => setTeams(mcEdit.name, mcTeams.value.split(",")));
   const mcGame = wrap.querySelector("#mcGame");
   if (mcGame) mcGame.addEventListener("change", () => setGame(mcEdit.name, mcGame.value));
   wrap.querySelectorAll("[data-mchand]").forEach(b => b.addEventListener("click", () => { setHand(mcEdit.name, handOf(mcEdit.name) === b.dataset.mchand ? "" : b.dataset.mchand); renderCareerEditor(); }));
@@ -7348,7 +7424,7 @@ function playerExtrasHtml(pname, venueF, pid) {
       games.push({ date: e.date || "", home: r.team === "home", level: levelOf(e), opp: (r.team === "home" ? e.away : e.home) || "?", gk, stats: r.stats });
     }
   }
-  if (games.length < 3) return seasonBreakdownHtml(pname, venueF, pid);   // too few for a trend; keep the season table only
+  if (games.length < 3) return seasonBreakdownHtml(pname, venueF, pid) + teamBreakdownHtml(pname, venueF, pid);   // too few for a trend; keep the season and team tables only
   games.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const rateOf = (accKey, list, metric, groupId) => {
     const acc = {}; for (const gm of list) addAgg(acc, gm.stats, gm.gk === "bat" ? "batting" : "pitching");
@@ -7377,9 +7453,83 @@ function playerExtrasHtml(pname, venueF, pid) {
   };
   const bat = section("bat", "batting", "H", "Hits", "AVG", "Average");
   const pit = section("pit", "pitching", "K", "Strikeouts", "ERA", "ERA");
-  const inner = (bat ? '<div style="margin-top:4px">' + bat + "</div>" : "") + (pit ? '<div style="margin-top:4px">' + pit + "</div>" : "") + seasonBreakdownHtml(pname, venueF, pid);
-  if (!bat && !pit) return seasonBreakdownHtml(pname, venueF, pid);
+  const inner = (bat ? '<div style="margin-top:4px">' + bat + "</div>" : "") + (pit ? '<div style="margin-top:4px">' + pit + "</div>" : "") + seasonBreakdownHtml(pname, venueF, pid) + teamBreakdownHtml(pname, venueF, pid);
+  if (!bat && !pit) return seasonBreakdownHtml(pname, venueF, pid) + teamBreakdownHtml(pname, venueF, pid);
   return '<details class="smore" style="margin-top:8px"><summary>\ud83d\udcc8 Trend &amp; splits</summary>' + inner + "</details>";
+}
+// Batting and pitching by team, from logged games (typed seasons aren't tied to a team). With a "Teams played
+// for" list, a game under any other team joins the listed team he played for nearest in time.
+function teamBreakdownHtml(pname, venueF, pid) {
+  if (appMode !== "video") return "";
+  const pkey = mcKeyOf((pname || "").trim(), pid || null);
+  const gl = [];
+  for (const e of entries) {
+    if (e.sport !== "baseball" || modeOf(e) !== appMode || !passesLevel(e)) continue;
+    if (venueF !== "all" && e.venue !== venueF) continue;
+    if (seasonTeamOf(pkey, seasonOf(e))) continue;                 // that whole season is counted by its team below
+    const mine = (e.box || []).filter(r => (pid && r.pid === pid) || canonName(r.player) === canonName(pname));
+    if (!mine.length) continue;
+    gl.push({ e, rows: mine, raw: (rowTeam(mine[0], e) || "").trim() || "(no team)" });
+  }
+  const teamSeasons = playerSeasonKeys(pkey).filter(sk => seasonTeamOf(pkey, sk));
+  if (!gl.length && !teamSeasons.length) return "";
+  gl.sort((a, b) => (a.e.date || "").localeCompare(b.e.date || "") || (idMs(a.e.id) - idMs(b.e.id)));
+  const listed = teamsOf(pname), byNorm = {}; for (const t of listed) byNorm[teamNorm(t)] = t;
+  let merged = 0;
+  if (listed.length) {
+    for (const g of gl) g.team = byNorm[teamNorm(g.raw)] || null;
+    const anchors = gl.map((g, i) => g.team ? i : -1).filter(i => i >= 0);
+    for (let i = 0; i < gl.length; i++) {
+      if (gl[i].team) continue;
+      merged++;
+      if (!anchors.length) { gl[i].team = listed[0]; continue; }                       // none of his listed teams logged yet
+      let best = anchors[0];
+      for (const j of anchors) if (Math.abs(j - i) < Math.abs(best - i)) best = j;     // nearest in time; ties go to the earlier one
+      gl[i].team = gl[best].team;
+    }
+  } else for (const g of gl) g.team = g.raw;
+  const T = {}, order = [];
+  const teamRow = name => { const hit = order.find(n => teamNorm(n) === teamNorm(name)); return hit ? T[hit] : (T[name] = (order.push(name), { games: {}, typedG: 0, bat: {}, pit: {}, merged: 0, seasons: 0, first: "9999" })); };
+  const firstDate = {};                                               // earliest logged date per season, to order whole-season teams
+  for (const g of gl) { const sk = seasonOf(g.e); if (!firstDate[sk] || g.e.date < firstDate[sk]) firstDate[sk] = g.e.date || ""; }
+  for (const e of entries) { if (e.sport !== "baseball" || modeOf(e) !== appMode) continue; const sk = seasonOf(e); if (!seasonTeamOf(pkey, sk)) continue;
+    if ((e.box || []).some(r => (pid && r.pid === pid) || canonName(r.player) === canonName(pname)) && (!firstDate[sk] || e.date < firstDate[sk])) firstDate[sk] = e.date || ""; }
+  for (const sk of teamSeasons) {                                     // whole seasons, typed lines and logged games together
+    const t = teamRow(seasonTeamOf(pkey, sk));
+    t.seasons++; if ((firstDate[sk] || "9999") < t.first) t.first = firstDate[sk];
+    const sb = seasonResolvedStats(pkey, sk, "bat"), sp = seasonResolvedStats(pkey, sk, "pit");
+    if (Object.keys(sb).some(k => filled(sb[k]))) addAgg(t.bat, sb, "batting");
+    if (Object.keys(sp).some(k => filled(sp[k]))) addAgg(t.pit, sp, "pitching");
+    t.typedG += Math.max(num(sb.G), num(sp.G));
+  }
+  for (const g of gl) {
+    const t = teamRow(g.team);
+    if ((g.e.date || "9999") < t.first) t.first = g.e.date;
+    t.games[g.e.id] = 1; if (!byNorm[teamNorm(g.raw)] && listed.length) t.merged++;
+    for (const r of g.rows) { const k = { batting: "bat", pitching: "pit" }[r.group]; if (k) addAgg(t[k], r.stats, r.group); }
+  }
+  if (order.length < 2 && !merged && !teamSeasons.length) return "";
+  order.sort((a, b) => T[a].first.localeCompare(T[b].first));        // the order he played for them
+  const mk = gkey => {
+    const have = order.filter(n => Object.keys(T[n][gkey]).length); if (!have.length) return "";
+    const isP = gkey === "pit";
+    const heads = isP ? ["Team", "G", "W-L", "SV", "ERA", "WHIP", "IP", "H", "R", "ER", "BB", "K", "K/9"]
+      : ["Team", "G", "AVG", "OBP", "SLG", "OPS", "AB", "H", "2B", "3B", "HR", "RBI", "R", "BB", "SO", "SB"];
+    const trs = have.map(n => {
+      const t = T[n], gp2 = Object.keys(t.games).length + t.typedG, o = aggToStats(t[gkey], isP ? "pitching" : "batting"), m = BOX.baseball[isP ? 1 : 0].calc(o);
+      const gv = k => { const f3 = m.find(x => x[0] === k); return f3 ? f3[1] : "\u2014"; };
+      const cells = isP
+        ? [gp2, (num(o.W) || 0) + "-" + (num(o.L) || 0), num(o.SV) || 0, gv("ERA"), gv("WHIP"), o.IP || "0", o.H || 0, o.R || 0, o.ER || 0, o.BB || 0, o.K || 0, gv("K/9")]
+        : [gp2, gv("AVG"), gv("OBP"), gv("SLG"), gv("OPS"), o.AB || 0, o.H || 0, o["2B"] || 0, o["3B"] || 0, o.HR || 0, o.RBI || 0, o.R || 0, o.BB || 0, o.SO || 0, o.SB || 0];
+      return "<tr><td>" + esc(n) + (t.merged ? ' <span style="color:var(--ink-soft)">(+' + t.merged + ")</span>" : "") + "</td>" + cells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
+    }).join("");
+    return '<div class="grouplabel disp" style="margin-top:10px">' + (isP ? "Pitching by team" : "Batting by team") + "</div>"
+      + '<div style="overflow-x:auto"><table class="seasontbl mono"><tr>' + heads.map(h => "<th>" + h + "</th>").join("") + "</tr>" + trs + "</table></div>";
+  };
+  const html = mk("bat") + mk("pit");
+  if (!html) return "";
+  return html + '<div class="hint" style="font-size:10px;margin-top:2px">Seasons with a team set in the \ud83c\udfae Career stats editor count whole (typed and logged); other seasons use the teams on their logged games. Postseason included.'
+    + (merged ? " (+N) = games logged under another team that count toward this one, by nearest date. Set the list under \u201cTeams played for\u201d in the \ud83c\udfae Career stats editor." : "") + "</div>";
 }
 function seasonBreakdownHtml(pname, venueF, pid) {
   const rowsBy = {};
@@ -11026,7 +11176,7 @@ document.getElementById("exportBtn").addEventListener("click", async () => {
   const payload = JSON.stringify({
     version: 3, exported: new Date().toISOString(),
     games: entries, teams: teamsDB, parks: parksDB,
-    pitchBank: pitchBank, arsenals: arsenalPresets, pins: pinnedPlayers, witnessed: witnessed, firsts: firsts, manualCareer: manualCareer, liveSince: liveSince, postSeasons: postSeasons, mileOff: mileOff, mileNear: mileNear, mileTop: mileTop, mileStep: mileStep, mileDispStat: mileDispStat, playerHand: playerHand, playerGame: playerGame, seasonDiff: seasonDiff, leaderOverrides: leaderOverrides, mileWatch: mileWatch, debut: _debut,
+    pitchBank: pitchBank, arsenals: arsenalPresets, pins: pinnedPlayers, witnessed: witnessed, firsts: firsts, manualCareer: manualCareer, liveSince: liveSince, postSeasons: postSeasons, mileOff: mileOff, mileNear: mileNear, mileTop: mileTop, mileStep: mileStep, mileDispStat: mileDispStat, playerHand: playerHand, playerGame: playerGame, playerTeams: playerTeams, seasonTeam: seasonTeam, seasonDiff: seasonDiff, leaderOverrides: leaderOverrides, mileWatch: mileWatch, debut: _debut,
     prefs: {
       theme: localStorage.getItem("sports-stat-theme") || "",
       mode: localStorage.getItem("sports-stat-mode") || "",
@@ -11146,6 +11296,8 @@ document.getElementById("importFile").addEventListener("change", ev => {
         if (data.mileStep && typeof data.mileStep === "object") { mileStep = data.mileStep; persistMileStep(); }
         if (data.mileDispStat && typeof data.mileDispStat === "object") { mileDispStat = data.mileDispStat; fixMileDispStat(); persistMileDispStat(); }
         if (data.playerHand && typeof data.playerHand === "object") { for (const k in data.playerHand) if (!playerHand[k]) playerHand[k] = data.playerHand[k]; persistPlayerHand(); }
+        if (data.seasonTeam && typeof data.seasonTeam === "object") { for (const k in data.seasonTeam) if (data.seasonTeam[k] && typeof data.seasonTeam[k] === "object") seasonTeam[k] = Object.assign({}, data.seasonTeam[k], seasonTeam[k] || {}); persistSeasonTeam(); }
+        if (data.playerTeams && typeof data.playerTeams === "object") { for (const k in data.playerTeams) if (!playerTeams[k] && Array.isArray(data.playerTeams[k])) playerTeams[k] = data.playerTeams[k]; persistPlayerTeams(); }
         if (data.playerGame && typeof data.playerGame === "object") { for (const k in data.playerGame) if (!playerGame[k]) playerGame[k] = data.playerGame[k]; persistPlayerGame(); }
         if (data.seasonDiff && typeof data.seasonDiff === "object") {   // per-player shape; the old label-wide strings from v256 are skipped
           for (const k in data.seasonDiff) { const P = data.seasonDiff[k]; if (!P || typeof P !== "object") continue; seasonDiff[k] = Object.assign({}, P, seasonDiff[k] || {}); }
